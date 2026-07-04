@@ -1,9 +1,20 @@
 import { GameScene } from "./game.js";
+import { LobbyScene } from "./lobby.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
+const MAX_LEVEL = 3;
+const LEVEL_KEY = "tilemaster.level"; // persisted "next level to play"
+
+function loadSavedLevel() {
+  const n = parseInt(localStorage.getItem(LEVEL_KEY) || "1", 10);
+  return Number.isFinite(n) && n >= 1 && n <= MAX_LEVEL ? n : 1;
+}
+function saveLevel(n) {
+  try { localStorage.setItem(LEVEL_KEY, String(n)); } catch (_) {}
+}
 
 async function boot() {
   // Render at the original design resolution; the canvas ELEMENT is then scaled
@@ -55,14 +66,36 @@ async function boot() {
     levels[n] = await (await fetch(`assets/levels/level${n}.json`)).json();
   }
 
-  // ---- scene ---------------------------------------------------------------
-  const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio);
-  scene.onNextLevel = (n) => {
-    if (levels[n]) scene.loadLevel(levels[n], n);
-  };
-  root.addChild(scene);
+  // ---- scenes --------------------------------------------------------------
+  // The player is on a given level (persisted). The lobby is the landing screen
+  // on load and after each win; its centred "Level <n>" button starts play.
+  let currentLevel = loadSavedLevel();
 
-  scene.loadLevel(levels[1], 1);
+  const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio);
+  const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL);
+  root.addChild(scene, lobby);
+
+  function showLobby(level, opts) {
+    scene.visible = false;
+    lobby.show(level, opts);
+  }
+  function startLevel(level) {
+    lobby.hide();
+    scene.visible = true;
+    if (levels[level]) scene.loadLevel(levels[level], level);
+  }
+
+  lobby.onPlay = (level) => startLevel(level);
+
+  scene.onLevelComplete = (completed) => {
+    // advance to the next level (capped) and return to the lobby
+    currentLevel = Math.min(completed + 1, MAX_LEVEL);
+    saveLevel(currentLevel);
+    showLobby(currentLevel, { celebrate: true });
+  };
+
+  // land on the lobby at the player's saved level
+  showLobby(currentLevel);
 
   // start bgm on first user gesture (autoplay policy)
   const startAudio = () => {
@@ -75,13 +108,18 @@ async function boot() {
 
   // ---- test / debug API (used by the headless verification driver) ---------
   window.__game = {
-    app, scene,
+    app, scene, lobby,
+    currentLevel: () => currentLevel,
+    inLobby: () => lobby.visible,
+    lobbyButtonText: () => lobby.playBtn.label.text,
+    startLevel,
     state: () => ({
       level: scene.levelNum,
       boardCount: scene.boardCount,
       tray: scene.tray.map((t) => t.type),
       locked: scene.locked,
       overlay: scene.overlayLayer.children.length > 0,
+      inLobby: lobby.visible,
     }),
     freeTiles: () =>
       scene.tiles.filter((t) => !t.inTray && !t.matched && t.aliveCovers === 0)

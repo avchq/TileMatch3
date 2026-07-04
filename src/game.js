@@ -40,6 +40,7 @@ export class GameScene extends PIXI.Container {
     this.boardCount = 0;
     this.levelNum = 1;
     this.locked = false;    // blocks input during win/lose transitions
+    this.onLevelComplete = null; // (levelNum) => void — set by the host (main.js)
 
     this._buildHud();
     this._buildTraySlots();
@@ -380,11 +381,9 @@ export class GameScene extends PIXI.Container {
     this._showOverlay(
       last ? "🏆 You Win!" : "Level Complete!",
       last ? "You cleared levels 1–3" : "Great matching!",
-      last ? "Play Again" : "Next Level",
-      () => {
-        if (last) this.loadLevel(this.rawArr, this.levelNum);
-        else this.onNextLevel && this.onNextLevel(this.levelNum + 1);
-      }
+      "Continue",
+      // hand control back to the lobby, which advances to the next level
+      () => this.onLevelComplete && this.onLevelComplete(this.levelNum)
     );
   }
 

@@ -1,5 +1,5 @@
 // Generates the tile-face textures at runtime by drawing an emoji onto a
-// white rounded "mahjong" tile — mirrors Tile Master's 20-icon food theme.
+// white rounded "mahjong" tile — mirrors Tile Match 3's 20-icon food theme.
 // (The original game's per-theme icon atlas is not among the downloaded
 //  Cocos native assets, so we regenerate an equivalent set here.)
 

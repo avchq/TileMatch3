@@ -1,14 +1,19 @@
-# Tile Master — Pixi.js Port
+# Tile Match 3 — Pixi.js Port
 
 A JavaScript/[Pixi.js](https://pixijs.com) port of the Cocos Creator game in
-`../cocos` ("Tile Master Pro Online"), a stacked-tile match-3 game. Playable
+`../cocos` ("Tile Match 3"), a stacked-tile match-3 game. Playable
 through **levels 1–3**.
 
 ## Gameplay
+On load you land on the **lobby** screen, which shows a big centred
+**"Level &lt;n&gt;"** button for the level you're on (progress is saved in
+`localStorage`, so it's remembered between visits). Tap it to start.
+
 Tap any **fully-uncovered** tile to move it to the tray at the bottom. Collect
-**3 of the same fruit** to clear them. Clear the whole board to advance.
-If the 7-slot tray fills up with no match, you lose. Buttons: **Undo** (return
-the last collected tile) and **Restart**.
+**3 of the same fruit** to clear them. Clear the whole board to win — you're
+returned to the lobby, now advanced to the next level. If the 7-slot tray fills
+up with no match, you lose (**Try Again** restarts the level in place). In-game
+buttons: **Undo** (return the last collected tile) and **Restart**.
 
 ## Run it
 Because it uses ES modules and `fetch`, it must be served over HTTP (not
@@ -35,10 +40,15 @@ python3 -m http.server 8099
 - `src/level.js` assigns tile types with a **guaranteed-solvable** generator: it
   derives a valid removal order (a linear extension of the covering DAG) and
   gives each consecutive triple one type, so every board can always be cleared
-  with only 3 tray slots. Distinct types per level: 3 / 4 / 5.
+  with only 3 tray slots. Distinct types per level: 7 / 8 / 9 (every one is
+  guaranteed to appear on the board).
 - `src/game.js` holds the `GameScene` (board layout, coverage/free-state logic,
-  tray, matching, win/lose, animations). `src/main.js` boots Pixi, loads assets,
-  and drives level progression.
+  tray, matching, win/lose, animations). On a win it calls back to the host
+  (`onLevelComplete`) rather than self-looping.
+- `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
+  **"Level &lt;n&gt;"** play button, level-progress dots, and title.
+- `src/main.js` boots Pixi, loads assets, owns the lobby ⇄ game flow, and
+  persists the current level in `localStorage` (`tilemaster.level`).
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
 ## Layout
