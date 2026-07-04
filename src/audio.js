@@ -6,13 +6,21 @@
 
 export class AudioManager {
   constructor() {
-    this.muted = false;
+    // Two independent channels (persisted separately via the User settings):
+    //   musicOn -> background music (bgm)   soundOn -> one-shot sound effects
+    this.musicOn = true;
+    this.soundOn = true;
     this.buffers = {};      // name -> { buffer, volume, loop }
     this._ctx = null;
     this._bgmName = null;
     this._bgmSource = null;
-    this.onMutedChange = null; // (muted) => void — host persists the preference
+    this.onMusicChange = null; // (on) => void — host persists the preference
+    this.onSoundChange = null; // (on) => void
   }
+
+  // Compat: a single "muted" view of both channels for the in-game master
+  // mute button. The settings screen uses setMusic/setSound independently.
+  get muted() { return !this.musicOn && !this.soundOn; }
 
   _ensureCtx() {
     if (!this._ctx) {
@@ -64,7 +72,7 @@ export class AudioManager {
 
   /** Fire-and-forget one-shot (used for SFX). Overlaps freely, no network. */
   play(name) {
-    if (this.muted) return;
+    if (!this.soundOn) return;
     const entry = this.buffers[name];
     if (!entry || !this._ctx) return;
     const src = this._source(entry, false);
@@ -86,7 +94,7 @@ export class AudioManager {
   // begin when it later resumes, so we only create the source once the context
   // is actually running.
   _startBgm() {
-    if (this.muted || !this._bgmName || this._bgmSource || !this._ctx) return;
+    if (!this.musicOn || !this._bgmName || this._bgmSource || !this._ctx) return;
     if (this._ctx.state !== "running") return; // wait for a gesture -> unlock()
     const entry = this.buffers[this._bgmName];
     if (!entry) return;
@@ -102,12 +110,25 @@ export class AudioManager {
     }
   }
 
-  setMuted(m, { persist = true } = {}) {
-    this.muted = m;
-    // Un-muting happens via a click on the mute button — itself a user gesture —
-    // so unlock() may resume the context here.
-    if (m) this._stopBgm();
-    else this.unlock();
-    if (persist && this.onMutedChange) this.onMutedChange(m);
+  // Toggle background music. Enabling only (re)starts the source if the context
+  // is already running; it never calls resume() (that would log an autoplay
+  // warning on load) — the gesture-unlock path in main.js resumes the context.
+  setMusic(on, { persist = true } = {}) {
+    this.musicOn = !!on;
+    if (this.musicOn) this._startBgm();
+    else this._stopBgm();
+    if (persist && this.onMusicChange) this.onMusicChange(this.musicOn);
+  }
+
+  // Toggle sound effects. Pure gate on play(); no context work needed.
+  setSound(on, { persist = true } = {}) {
+    this.soundOn = !!on;
+    if (persist && this.onSoundChange) this.onSoundChange(this.soundOn);
+  }
+
+  // Compat master toggle for the in-game HUD button (flips both channels).
+  setMuted(m) {
+    this.setMusic(!m);
+    this.setSound(!m);
   }
 }

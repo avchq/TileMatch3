@@ -3,26 +3,11 @@ import { LobbyScene } from "./lobby.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
 import { AssetManager, PRELOAD_GROUPS, MANIFEST } from "./assets.js";
+import { UserStore } from "./user/UserStore.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 const MAX_LEVEL = 3;
-const LEVEL_KEY = "tilemaster.level"; // persisted "next level to play"
-const MUTE_KEY = "tilemaster.muted";  // persisted sound on/off preference
-
-function loadSavedLevel() {
-  const n = parseInt(localStorage.getItem(LEVEL_KEY) || "1", 10);
-  return Number.isFinite(n) && n >= 1 && n <= MAX_LEVEL ? n : 1;
-}
-function saveLevel(n) {
-  try { localStorage.setItem(LEVEL_KEY, String(n)); } catch (_) {}
-}
-function loadMuted() {
-  return localStorage.getItem(MUTE_KEY) === "1";
-}
-function saveMuted(m) {
-  try { localStorage.setItem(MUTE_KEY, m ? "1" : "0"); } catch (_) {}
-}
 
 async function boot() {
   // Render at the original design resolution; the canvas ELEMENT is then scaled
@@ -59,6 +44,12 @@ async function boot() {
   const audio = new AudioManager();
   const assets = new AssetManager(audio);
 
+  // The player profile (identity, progress, wallet, settings). One object, saved
+  // through a platform storage adapter (localStorage on the web; FB/Reddit/Telegram
+  // adapters swap in later). Everything the game persists lives here.
+  const store = new UserStore();
+  const user = await store.init();
+
   const loadingEl = document.getElementById("loading");
   await assets.preload(PRELOAD_GROUPS, (done, total) => {
     if (loadingEl) loadingEl.textContent = `Loading… ${Math.round((done / total) * 100)}%`;
@@ -68,9 +59,10 @@ async function boot() {
   const backgrounds = assets.backgrounds;
 
   // ---- scenes --------------------------------------------------------------
-  // The player is on a given level (persisted). The lobby is the landing screen
-  // on load and after each win; its centred "Level <n>" button starts play.
-  let currentLevel = loadSavedLevel();
+  // The player is on a given level (persisted in the User profile). The lobby is
+  // the landing screen on load and after each win; its centred "Level <n>" button
+  // starts play.
+  let currentLevel = user.progress.level;
 
   const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio);
   const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL);
@@ -100,17 +92,19 @@ async function boot() {
   scene.onLevelComplete = (completed) => {
     // advance to the next level (capped) and return to the lobby
     currentLevel = Math.min(completed + 1, MAX_LEVEL);
-    saveLevel(currentLevel);
+    user.setLevel(currentLevel); // emits change -> UserStore autosaves
     showLobby(currentLevel, { celebrate: true });
   };
 
   // land on the lobby at the player's saved level
   showLobby(currentLevel);
 
-  // Restore the persisted sound preference (without re-persisting it), and keep
-  // it in sync whenever the in-game mute button is toggled.
-  audio.onMutedChange = saveMuted;
-  audio.setMuted(loadMuted(), { persist: false });
+  // Apply the persisted music/sound preferences (without re-persisting them),
+  // then wire any later change back into the User profile (which autosaves).
+  audio.setMusic(user.settings.music, { persist: false });
+  audio.setSound(user.settings.sound, { persist: false });
+  audio.onMusicChange = (on) => user.setMusic(on);
+  audio.onSoundChange = (on) => user.setSound(on);
   if (scene.muteBtn) scene.muteBtn.label.text = audio.muted ? "✕" : "♪";
 
   // Background music for the lobby. Select the track now (it plays immediately
@@ -136,7 +130,7 @@ async function boot() {
 
   // ---- test / debug API (used by the headless verification driver) ---------
   window.__game = {
-    app, scene, lobby, assets, audio,
+    app, scene, lobby, assets, audio, store,
     currentLevel: () => currentLevel,
     inLobby: () => lobby.visible,
     lobbyButtonText: () => lobby.playBtn.label.text,
@@ -146,12 +140,22 @@ async function boot() {
     manifest: MANIFEST,
     loadedGroups: () => [...assets._loaded],
     audioState: () => ({
+      music: audio.musicOn,
+      sound: audio.soundOn,
       muted: audio.muted,
       bgmStarted: !!audio._bgmSource,
       ctx: audio._ctx ? audio._ctx.state : "none",
-      persistedMuted: localStorage.getItem(MUTE_KEY),
     }),
+    // ---- user profile (identity / progress / wallet / settings) ----
+    user: () => store.user.toJSON(),
+    setLevel: (n) => { currentLevel = Math.max(1, Math.min(n, MAX_LEVEL)); user.setLevel(currentLevel); },
+    balance: (cur) => user.balance(cur),
+    credit: (cur, n) => user.credit(cur, n),
+    debit: (cur, n) => user.debit(cur, n),
+    setMusic: (on) => audio.setMusic(on),
+    setSound: (on) => audio.setSound(on),
     setMuted: (m) => audio.setMuted(m),
+    flushSave: () => store._flush(),
     state: () => ({
       level: scene.levelNum,
       boardCount: scene.boardCount,

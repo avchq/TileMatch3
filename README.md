@@ -47,8 +47,8 @@ python3 -m http.server 8099
   (`onLevelComplete`) rather than self-looping.
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
   **"Level &lt;n&gt;"** play button, level-progress dots, and title.
-- `src/main.js` boots Pixi, owns the lobby ⇄ game flow, and persists the
-  current level in `localStorage` (`tilemaster.level`).
+- `src/main.js` boots Pixi, owns the lobby ⇄ game flow, and reads/writes player
+  state (level, settings, wallet) through the **User object** (see below).
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
 ### Asset management (`src/assets.js` + `src/audio.js`)
@@ -69,8 +69,33 @@ Assets are declared in a **manifest** and organised into groups: a shared
   re-fetched the file from the server on every single play.
 - **Background music** starts in the lobby on initial load. Browsers that block
   autoplay before a user gesture start it on the first pointer interaction
-  instead. The mute preference is persisted (`localStorage: tilemaster.muted`),
-  so if the player switches sound off it stays off across reloads.
+  instead. **Music** (bgm) and **Sound** (sfx) are two independent channels
+  (`audio.setMusic` / `audio.setSound`); the in-game "♪" button is a compat master
+  mute over both. Both preferences live on the User object (see below).
+
+### User & persistence (`src/user/`)
+All per-player state lives on one platform-agnostic **`User`** object, ready for
+publishing on **Facebook Instant, Reddit, and Telegram**:
+- **`User.js`** — the model: a stable `id`, `platform`, `progress` (next level),
+  a **multi-currency `wallet`** (`coins`, `gems`, … — a keyed map, so new
+  currencies need no code change: `credit`/`debit`/`balance`/`canAfford`), and
+  `settings` (`music`, `sound`). It emits a domain-tagged change event on every
+  mutation and (de)serializes via `toJSON`/`fromJSON` with a `version` for
+  forward migrations.
+- **`adapters.js`** — a small async storage/identity contract
+  (`identify` / `load` / `save`). `LocalStorageAdapter` is the working default on
+  the open web. `FacebookInstantAdapter` / `TelegramAdapter` / `RedditAdapter`
+  are **stubs** that persist to `localStorage` for now and mark the exact SDK
+  calls (`// TODO(SDK):`) to swap in later (`FBInstant.player`,
+  `Telegram.WebApp.CloudStorage`, Devvit KV) — no code outside this file changes
+  when a platform is wired in for real.
+- **`platform.js`** — `detectPlatform()` + `makeAdapter()` pick the adapter at boot.
+- **`UserStore.js`** — resolves identity, loads/creates the profile, and
+  **autosaves** (debounced) on every change plus on tab hide/close.
+
+The game is not published yet, so there is no legacy migration — new players
+start fresh. `main.js` sources the current level + audio settings from the User
+object and writes changes back to it.
 
 ## Layout
 ```
@@ -78,6 +103,7 @@ JS/
   index.html
   vendor/pixi.min.js
   src/{main,game,lobby,level,icons,audio,assets,tween}.js
+  src/user/{User,adapters,platform,UserStore}.js
   assets/
     levels/level{1,2,3}.json
     bg/*.jpg
