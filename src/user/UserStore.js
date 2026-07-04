@@ -48,8 +48,14 @@ export class UserStore {
     } catch (_) { this.save(); }
   }
 
+  // Persist a PENDING debounced change immediately. If nothing is pending
+  // (already saved, or nothing changed since load) this is a no-op — critically,
+  // so a bare page refresh never re-writes (resurrects) profile data the user may
+  // have just cleared from storage. Only genuinely-unsaved changes are flushed.
   _flush() {
-    if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = null; }
+    if (!this._saveTimer) return;
+    clearTimeout(this._saveTimer);
+    this._saveTimer = null;
     this.save();
   }
 

@@ -141,6 +141,7 @@ async function boot() {
     inLobby: () => lobby.visible,
     lobbyButtonText: () => lobby.playBtn.label.text,
     startLevel,
+    reshuffle: () => scene.reshuffle(),
     playSound: (name) => audio.play(name),
     soundNames: () => Object.keys(audio.buffers),
     manifest: MANIFEST,

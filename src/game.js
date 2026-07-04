@@ -88,8 +88,8 @@ export class GameScene extends PIXI.Container {
 
     // buttons row (bottom of screen)
     const by = 1270;
-    this.hudLayer.addChild(this._makeButton("↺ Restart", 200, 74, 150, by, 0xff8a3d, () => this.restart()));
-    this.hudLayer.addChild(this._makeButton("⤺ Undo", 200, 74, 600, by, 0x4d8dff, () => this.undo()));
+    this.hudLayer.addChild(this._makeButton("🔀 Reshuffle", 250, 74, 175, by, 0xff8a3d, () => this.reshuffle()));
+    this.hudLayer.addChild(this._makeButton("⤺ Undo", 190, 74, 610, by, 0x4d8dff, () => this.undo()));
 
     this.muteBtn = this._makeButton("♪", 74, 74, 690, 84, 0x2f9e6a, () => {
       this.audio.setMuted(!this.audio.muted);
@@ -302,24 +302,31 @@ export class GameScene extends PIXI.Container {
 
   _settle() {
     if (this.locked) return;
-    // count per type
-    const byType = new Map();
-    for (const t of this.tray) {
-      if (!byType.has(t.type)) byType.set(t.type, []);
-      byType.get(t.type).push(t);
-    }
+    // Clear every complete triple in the tray. Normal play only ever adds one
+    // tile at a time (so at most one triple forms), but a reshuffle can create
+    // several at once — loop until the tray is stable.
     let matched = false;
-    for (const [, group] of byType) {
-      if (group.length >= 3) {
-        const three = group.slice(0, 3);
-        for (const t of three) {
-          t.matched = true;
-          this.tray.splice(this.tray.indexOf(t), 1);
-          this.history.splice(this.history.indexOf(t), 1);
-          this._popMatch(t.container);
-        }
-        matched = true;
+    for (;;) {
+      const byType = new Map();
+      for (const t of this.tray) {
+        if (!byType.has(t.type)) byType.set(t.type, []);
+        byType.get(t.type).push(t);
       }
+      let cleared = false;
+      for (const [, group] of byType) {
+        if (group.length >= 3) {
+          const three = group.slice(0, 3);
+          for (const t of three) {
+            t.matched = true;
+            this.tray.splice(this.tray.indexOf(t), 1);
+            this.history.splice(this.history.indexOf(t), 1);
+            this._popMatch(t.container);
+          }
+          matched = true;
+          cleared = true;
+        }
+      }
+      if (!cleared) break;
     }
     if (matched) {
       this.audio.play("merge_click");
@@ -370,6 +377,104 @@ export class GameScene extends PIXI.Container {
 
   restart() {
     if (this.rawArr) this.loadLevel(this.rawArr, this.levelNum);
+  }
+
+  // Reshuffle the FACES of the tiles still on the play board into a fresh,
+  // still-guaranteed-solvable arrangement. The bottom tray (the pre-match deck)
+  // is NOT touched — collected tiles keep their faces. Positions/coverage are
+  // unchanged and no progress is lost; only board tile types are reassigned.
+  // Unlike restart(), the level is NOT rebuilt.
+  reshuffle() {
+    if (this.locked) return;
+    const boardTiles = this.tiles.filter((t) => !t.matched && !t.inTray);
+    if (boardTiles.length === 0) return;
+
+    const order = this._boardRemovalOrder(boardTiles); // fresh valid removal order (refs)
+    const B = order.length;
+    const numTypes = TYPES_PER_LEVEL[this.levelNum] || 5;
+
+    // The deck's open groups (each tray type currently holds 1 or 2 — a full 3
+    // would have cleared). We finish these off with the FIRST board removals,
+    // then fill the rest of the board with fresh triples. Types are independent
+    // of coverage, so we can lay any type onto any position of `order`.
+    const pending = new Map();
+    for (const t of this.tray) pending.set(t.type, (pending.get(t.type) || 0) + 1);
+    const pairs = [];   // tray types needing 1 more to complete
+    const singles = []; // tray types needing 2 more
+    for (const [ty, c] of pending) {
+      if (c % 3 === 2) pairs.push(ty);
+      else if (c % 3 === 1) singles.push(ty);
+    }
+
+    // Order matters for the 7-slot limit: completing pairs frees slots fastest,
+    // so do those first, then singles. Following this sequence keeps the tray at
+    // ≤7 as long as the deck isn't 6 lone singletons (an already-lost state the
+    // board can't rescue without touching the deck — then we just fall back to a
+    // self-contained board so the reshuffle is still a fresh, valid board).
+    const feasible = singles.length <= 5;
+    const typeSeq = [];
+    if (feasible) {
+      for (const ty of pairs) typeSeq.push(ty);
+      for (const ty of singles) typeSeq.push(ty, ty);
+    }
+    // Remaining board tiles become fresh triples (one type each, palette variety
+    // first). This never breaks solvability — each triple is self-contained.
+    const numFresh = Math.floor((B - typeSeq.length) / 3);
+    const freshTypes = [];
+    for (let g = 0; g < numFresh; g++) {
+      freshTypes.push(g < numTypes ? g : Math.floor(Math.random() * numTypes));
+    }
+    for (let i = freshTypes.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [freshTypes[i], freshTypes[j]] = [freshTypes[j], freshTypes[i]];
+    }
+    for (const ty of freshTypes) typeSeq.push(ty, ty, ty);
+    // Guard: only trips if the active count isn't a multiple of 3 (a valid board
+    // never is) — keep any tail tiles matchable rather than stranded.
+    while (typeSeq.length < B) typeSeq.push(typeSeq[typeSeq.length - 1] ?? 0);
+
+    for (let i = 0; i < B; i++) {
+      const tile = order[i];
+      tile.type = typeSeq[i];
+      tile.sprite.texture = this.tileTextures[tile.type];
+    }
+
+    // Publish the new known-good clearing order (board tiles only — the leading
+    // ones complete the deck's open groups). Used by solveTap / tests.
+    this.solutionOrder = order.map((t) => t.id);
+    this._refreshFreeStates();
+    this._updateProgress();
+  }
+
+  // A fresh valid removal order (a linear extension of the covering DAG) over
+  // the given board tiles, honouring their live coverage. Types are independent
+  // of coverage, so any type can later be assigned to any position in this order.
+  _boardRemovalOrder(boardTiles) {
+    const present = new Set(boardTiles.map((t) => t.id));
+    const remaining = new Map();
+    for (const t of boardTiles) {
+      let c = 0;
+      for (const cid of t.coverers) if (present.has(cid)) c++;
+      remaining.set(t.id, c);
+    }
+    const free = boardTiles.filter((t) => remaining.get(t.id) === 0);
+    const order = [];
+    const done = new Set();
+    while (order.length < boardTiles.length && free.length) {
+      const k = Math.floor(Math.random() * free.length);
+      const t = free[k];
+      free[k] = free[free.length - 1];
+      free.pop();
+      done.add(t.id);
+      order.push(t);
+      for (const belowId of t.covered) {
+        if (!present.has(belowId) || done.has(belowId)) continue;
+        const r = remaining.get(belowId) - 1;
+        remaining.set(belowId, r);
+        if (r === 0) free.push(this.tiles[belowId]);
+      }
+    }
+    return order;
   }
 
   // ---- outcomes ------------------------------------------------------------

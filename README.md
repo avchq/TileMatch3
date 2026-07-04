@@ -13,7 +13,10 @@ Tap any **fully-uncovered** tile to move it to the tray at the bottom. Collect
 **3 of the same fruit** to clear them. Clear the whole board to win — you're
 returned to the lobby, now advanced to the next level. If the 7-slot tray fills
 up with no match, you lose (**Try Again** restarts the level in place). In-game
-buttons: **Undo** (return the last collected tile) and **Restart**.
+buttons: **Undo** (return the last collected tile) and **Reshuffle** (redeal the
+faces of the tiles still on the play board into a fresh arrangement that's still
+guaranteed solvable — the bottom tray/deck is left untouched, and positions and
+progress are kept, so the level is **not** restarted).
 
 ## Run it
 Because it uses ES modules and `fetch`, it must be served over HTTP (not
