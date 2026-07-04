@@ -2,11 +2,13 @@ import { GameScene } from "./game.js";
 import { LobbyScene } from "./lobby.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
+import { AssetManager, PRELOAD_GROUPS, MANIFEST } from "./assets.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 const MAX_LEVEL = 3;
 const LEVEL_KEY = "tilemaster.level"; // persisted "next level to play"
+const MUTE_KEY = "tilemaster.muted";  // persisted sound on/off preference
 
 function loadSavedLevel() {
   const n = parseInt(localStorage.getItem(LEVEL_KEY) || "1", 10);
@@ -14,6 +16,12 @@ function loadSavedLevel() {
 }
 function saveLevel(n) {
   try { localStorage.setItem(LEVEL_KEY, String(n)); } catch (_) {}
+}
+function loadMuted() {
+  return localStorage.getItem(MUTE_KEY) === "1";
+}
+function saveMuted(m) {
+  try { localStorage.setItem(MUTE_KEY, m ? "1" : "0"); } catch (_) {}
 }
 
 async function boot() {
@@ -42,29 +50,22 @@ async function boot() {
   resize();
 
   // ---- assets --------------------------------------------------------------
+  // Procedural (no network): tile faces + tray slot are drawn at runtime.
   const tileTextures = makeTileTextures(128);
   const slotTexture = makeSlotTexture(120);
 
-  const bgUrls = { 1: "assets/bg/bg1.jpg", 2: "assets/bg/bg2.jpg", 3: "assets/bg/bg14.jpg" };
-  const backgrounds = {};
-  await Promise.all(
-    Object.entries(bgUrls).map(async ([k, url]) => {
-      backgrounds[k] = await PIXI.Assets.load(url);
-    })
-  );
-
+  // Network assets flow through the AssetManager: PRELOAD the essential minimum
+  // (shared audio + levels 1–3), then LAZY-load any further level on demand.
   const audio = new AudioManager();
-  audio.add("Game_bgm", "assets/audio/Game_bgm.mp3", { loop: true, volume: 0.4 });
-  audio.add("tile_bop", "assets/audio/tile_bop.mp3", { volume: 0.7 });
-  audio.add("merge_click", "assets/audio/merge_click.mp3", { volume: 0.8 });
-  audio.add("win", "assets/audio/win.mp3", { volume: 0.8 });
-  audio.add("fail", "assets/audio/fail.mp3", { volume: 0.7 });
-  audio.add("btn_01", "assets/audio/btn_01.mp3", { volume: 0.6 });
+  const assets = new AssetManager(audio);
 
-  const levels = {};
-  for (const n of [1, 2, 3]) {
-    levels[n] = await (await fetch(`assets/levels/level${n}.json`)).json();
-  }
+  const loadingEl = document.getElementById("loading");
+  await assets.preload(PRELOAD_GROUPS, (done, total) => {
+    if (loadingEl) loadingEl.textContent = `Loading… ${Math.round((done / total) * 100)}%`;
+  });
+
+  // Shared, live maps the scenes read from (mutated in place as groups load).
+  const backgrounds = assets.backgrounds;
 
   // ---- scenes --------------------------------------------------------------
   // The player is on a given level (persisted). The lobby is the landing screen
@@ -79,10 +80,19 @@ async function boot() {
     scene.visible = false;
     lobby.show(level, opts);
   }
-  function startLevel(level) {
+  async function startLevel(level) {
+    // Lazy-load this level's assets if they weren't part of the preload set
+    // (levels 1–3 are already in memory, so this resolves instantly for them).
+    if (assets.hasLevel(level) && !assets.levelData(level)) {
+      if (loadingEl) { loadingEl.textContent = "Loading…"; loadingEl.style.display = "flex"; }
+      try { await assets.ensureLevel(level); }
+      finally { if (loadingEl) loadingEl.style.display = "none"; }
+    }
+    const data = assets.levelData(level);
+    if (!data) return;
     lobby.hide();
     scene.visible = true;
-    if (levels[level]) scene.loadLevel(levels[level], level);
+    scene.loadLevel(data, level);
   }
 
   lobby.onPlay = (level) => startLevel(level);
@@ -97,22 +107,51 @@ async function boot() {
   // land on the lobby at the player's saved level
   showLobby(currentLevel);
 
-  // start bgm on first user gesture (autoplay policy)
-  const startAudio = () => {
-    audio.playBgm("Game_bgm");
-    window.removeEventListener("pointerdown", startAudio);
-  };
-  window.addEventListener("pointerdown", startAudio);
+  // Restore the persisted sound preference (without re-persisting it), and keep
+  // it in sync whenever the in-game mute button is toggled.
+  audio.onMutedChange = saveMuted;
+  audio.setMuted(loadMuted(), { persist: false });
+  if (scene.muteBtn) scene.muteBtn.label.text = audio.muted ? "✕" : "♪";
 
-  document.getElementById("loading").style.display = "none";
+  // Background music for the lobby. Select the track now (it plays immediately
+  // if the browser permits autoplay). Browsers gate audio behind a user gesture,
+  // so also arm listeners that resume the context on the first interaction —
+  // any pointer / touch / mouse / key event, anywhere on the page. We keep the
+  // listeners until the context is confirmed running, so a gesture the browser
+  // doesn't honour (or one made while muted) simply retries on the next one.
+  audio.playBgm("Game_bgm");
+  const gestureEvents = ["pointerdown", "mousedown", "touchstart", "click", "keydown"];
+  const unlockAudio = () => {
+    // unlock() resumes synchronously within the gesture; remove the listeners
+    // only once the context is confirmed running (or the player has muted).
+    audio.unlock().then(() => {
+      if (audio.isRunning() || audio.muted) {
+        gestureEvents.forEach((ev) => window.removeEventListener(ev, unlockAudio, true));
+      }
+    });
+  };
+  gestureEvents.forEach((ev) => window.addEventListener(ev, unlockAudio, true));
+
+  if (loadingEl) loadingEl.style.display = "none";
 
   // ---- test / debug API (used by the headless verification driver) ---------
   window.__game = {
-    app, scene, lobby,
+    app, scene, lobby, assets, audio,
     currentLevel: () => currentLevel,
     inLobby: () => lobby.visible,
     lobbyButtonText: () => lobby.playBtn.label.text,
     startLevel,
+    playSound: (name) => audio.play(name),
+    soundNames: () => Object.keys(audio.buffers),
+    manifest: MANIFEST,
+    loadedGroups: () => [...assets._loaded],
+    audioState: () => ({
+      muted: audio.muted,
+      bgmStarted: !!audio._bgmSource,
+      ctx: audio._ctx ? audio._ctx.state : "none",
+      persistedMuted: localStorage.getItem(MUTE_KEY),
+    }),
+    setMuted: (m) => audio.setMuted(m),
     state: () => ({
       level: scene.levelNum,
       boardCount: scene.boardCount,

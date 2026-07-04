@@ -47,16 +47,37 @@ python3 -m http.server 8099
   (`onLevelComplete`) rather than self-looping.
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
   **"Level &lt;n&gt;"** play button, level-progress dots, and title.
-- `src/main.js` boots Pixi, loads assets, owns the lobby ⇄ game flow, and
-  persists the current level in `localStorage` (`tilemaster.level`).
+- `src/main.js` boots Pixi, owns the lobby ⇄ game flow, and persists the
+  current level in `localStorage` (`tilemaster.level`).
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
+
+### Asset management (`src/assets.js` + `src/audio.js`)
+Assets are declared in a **manifest** and organised into groups: a shared
+`core` group plus one `levelN` group per level.
+- **Preload** — on boot, `AssetManager.preload()` loads the essential minimum:
+  `core` audio + the `level1`–`level3` groups (backgrounds + level data). This
+  is everything needed to finish the first three levels.
+- **Lazy load** — any further level is fetched on demand via
+  `ensureLevel(n)` (called from `startLevel`), so adding level 4+ is just
+  another manifest entry — its assets download only when the player reaches it.
+  Loads are idempotent and de-duplicated (cached results + shared in-flight
+  promises), so nothing is fetched twice.
+- **Audio** uses the **Web Audio API**: each file is fetched and decoded into an
+  in-memory `AudioBuffer` **once**, and every play spins up a throwaway
+  `AudioBufferSourceNode`. Sounds overlap freely and playback makes **no network
+  request** — replacing the old HTML5-`Audio` `cloneNode()` approach that
+  re-fetched the file from the server on every single play.
+- **Background music** starts in the lobby on initial load. Browsers that block
+  autoplay before a user gesture start it on the first pointer interaction
+  instead. The mute preference is persisted (`localStorage: tilemaster.muted`),
+  so if the player switches sound off it stays off across reloads.
 
 ## Layout
 ```
 JS/
   index.html
   vendor/pixi.min.js
-  src/{main,game,level,icons,audio,tween}.js
+  src/{main,game,lobby,level,icons,audio,assets,tween}.js
   assets/
     levels/level{1,2,3}.json
     bg/*.jpg

@@ -1,47 +1,113 @@
-// Simple HTML5 Audio manager. SFX are cloned per play so they can overlap.
+// Web Audio manager. Each sound file is fetched + decoded exactly ONCE into an
+// in-memory AudioBuffer (see AssetManager). Playback spins up a throwaway
+// AudioBufferSourceNode from that buffer — so sounds overlap freely and NO
+// network request is made per play (the previous HTML5 `cloneNode()` approach
+// re-fetched the file from the server every single time a sound was played).
 
 export class AudioManager {
   constructor() {
-    this.sounds = {};   // name -> { el, volume, loop }
     this.muted = false;
-    this._bgm = null;
+    this.buffers = {};      // name -> { buffer, volume, loop }
+    this._ctx = null;
+    this._bgmName = null;
+    this._bgmSource = null;
+    this.onMutedChange = null; // (muted) => void — host persists the preference
   }
 
-  add(name, url, { loop = false, volume = 1 } = {}) {
-    const el = new Audio(url);
-    el.loop = loop;
-    el.volume = volume;
-    el.preload = "auto";
-    this.sounds[name] = { el, volume, loop };
+  _ensureCtx() {
+    if (!this._ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) this._ctx = new AC();
+    }
+    return this._ctx;
   }
 
+  /** Decode a fetched audio file (ArrayBuffer) into a reusable AudioBuffer. */
+  async register(name, arrayBuffer, { loop = false, volume = 1 } = {}) {
+    const ctx = this._ensureCtx();
+    if (!ctx) return; // Web Audio unavailable — play() will simply no-op
+    // decodeAudioData detaches its input; slice so callers keep their copy.
+    const buffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    this.buffers[name] = { buffer, volume, loop };
+  }
+
+  isRunning() {
+    return !!this._ctx && this._ctx.state === "running";
+  }
+
+  /**
+   * Resume the context + start the bgm. MUST be called synchronously from a
+   * user-gesture handler (click / touch / key) — browser autoplay policy only
+   * permits resume() to take effect while a user activation is in progress.
+   * Returns a promise that resolves once the resume settles.
+   */
+  unlock() {
+    const ctx = this._ensureCtx();
+    if (!ctx) return Promise.resolve();
+    if (ctx.state === "running") {
+      this._startBgm();
+      return Promise.resolve();
+    }
+    return ctx.resume().then(() => this._startBgm()).catch(() => {});
+  }
+
+  _source(entry, loop) {
+    const ctx = this._ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = entry.buffer;
+    src.loop = loop;
+    const gain = ctx.createGain();
+    gain.gain.value = entry.volume;
+    src.connect(gain).connect(ctx.destination);
+    return src;
+  }
+
+  /** Fire-and-forget one-shot (used for SFX). Overlaps freely, no network. */
   play(name) {
     if (this.muted) return;
-    const s = this.sounds[name];
-    if (!s) return;
-    if (s.loop) {
-      s.el.currentTime = 0;
-      s.el.play().catch(() => {});
-      this._bgm = s.el;
-    } else {
-      const c = s.el.cloneNode();
-      c.volume = s.volume;
-      c.play().catch(() => {});
-    }
+    const entry = this.buffers[name];
+    if (!entry || !this._ctx) return;
+    const src = this._source(entry, false);
+    src.start(0);
+    return src;
   }
 
+  // Select the bgm track and start it IF the context is already running. Does
+  // NOT call resume() — so calling it on page load never triggers the browser's
+  // "AudioContext was not allowed to start" warning. Use unlock() from a gesture
+  // to actually resume a suspended context.
   playBgm(name) {
-    const s = this.sounds[name];
-    if (!s) return;
-    this._bgm = s.el;
-    if (!this.muted) s.el.play().catch(() => {});
+    if (!this.buffers[name]) return;
+    this._bgmName = name;
+    this._startBgm();
   }
 
-  setMuted(m) {
-    this.muted = m;
-    if (this._bgm) {
-      if (m) this._bgm.pause();
-      else this._bgm.play().catch(() => {});
+  // A BufferSource started while the context is suspended does not reliably
+  // begin when it later resumes, so we only create the source once the context
+  // is actually running.
+  _startBgm() {
+    if (this.muted || !this._bgmName || this._bgmSource || !this._ctx) return;
+    if (this._ctx.state !== "running") return; // wait for a gesture -> unlock()
+    const entry = this.buffers[this._bgmName];
+    if (!entry) return;
+    const src = this._source(entry, true);
+    src.start(0);
+    this._bgmSource = src;
+  }
+
+  _stopBgm() {
+    if (this._bgmSource) {
+      try { this._bgmSource.stop(); } catch (_) {}
+      this._bgmSource = null;
     }
+  }
+
+  setMuted(m, { persist = true } = {}) {
+    this.muted = m;
+    // Un-muting happens via a click on the mute button — itself a user gesture —
+    // so unlock() may resume the context here.
+    if (m) this._stopBgm();
+    else this.unlock();
+    if (persist && this.onMutedChange) this.onMutedChange(m);
   }
 }
