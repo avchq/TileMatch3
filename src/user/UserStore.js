@@ -14,6 +14,8 @@ export class UserStore {
     this.adapter = adapter || makeAdapter(this.platform);
     this.user = null;
     this._saveTimer = null;
+    this._saving = null;  // in-flight save promise (serializes async adapter writes)
+    this._dirty = false;  // a change arrived while a save was in flight
     this._flush = this._flush.bind(this);
   }
 
@@ -59,8 +61,48 @@ export class UserStore {
     this.save();
   }
 
-  async save() {
-    if (!this.user) return;
-    try { await this.adapter.save(this.user.id, this.user.toJSON()); } catch (_) {}
+  // Serialized, last-write-wins save. Crucial for the (async) cloud adapters —
+  // FBInstant / Telegram / Devvit writes take a network round-trip, so without
+  // serialization two overlapping saves could land out of order and an older
+  // snapshot could clobber a newer one. Here a save requested while another is
+  // in flight just marks the store dirty; when the current write settles we do
+  // exactly ONE more write of the latest snapshot. Returns the in-flight promise.
+  save() {
+    if (!this.user) return Promise.resolve();
+    this._pendingData = this.user.toJSON(); // newest snapshot always wins
+    if (this._saving) { this._dirty = true; return this._saving; }
+    const id = this.user.id;
+    this._saving = (async () => {
+      try {
+        do {
+          this._dirty = false;
+          await this.adapter.save(id, this._pendingData);
+        } while (this._dirty);
+      } catch (_) {
+        // swallow — a failed save is retried on the next change
+      } finally {
+        this._saving = null;
+      }
+    })();
+    return this._saving;
+  }
+
+  // Reset the record for this player back to a fresh profile, on WHATEVER
+  // storage backend is active (localStorage today; FBInstant / Telegram / Devvit
+  // once wired). Identity is preserved. This is the correct, platform-agnostic
+  // way to "reset progress" — it does NOT rely on the user manually clearing
+  // localStorage (which would do nothing on a cloud backend).
+  async reset() {
+    // Stop pending + in-flight writes so nothing resurrects the old record.
+    if (this._saveTimer) { clearTimeout(this._saveTimer); this._saveTimer = null; }
+    this._dirty = false;
+    if (this._saving) { try { await this._saving; } catch (_) {} }
+
+    // Remove the stored record (adapter-specific), then reset the model in place.
+    try { await this.adapter.clear(this.user.id); } catch (_) {}
+    this.user.reset(); // in-place → external refs & listeners stay valid; emits changes
+    // The emitted changes queue a debounced save that persists the clean
+    // defaults, so storage ends in a consistent, valid state on every backend.
+    return this.user;
   }
 }

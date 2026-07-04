@@ -5,6 +5,11 @@
 //   identify()      -> { id, platform, name }
 //   load(id)        -> plain object | null   (a previously-saved User.toJSON())
 //   save(id, data)  -> void                  (data is User.toJSON())
+//   clear(id)       -> void                  (remove the saved record for id)
+//
+// All four are async (return Promises) so cloud-backed adapters (FBInstant,
+// Telegram, Devvit) drop in without changing the contract. identity is a fixed,
+// platform-owned id — clear() wipes the DATA, never the identity.
 //
 // The LocalStorageAdapter is fully working and is the default on the open web.
 // The three platform adapters are STUBS: they extend LocalStorageAdapter so that
@@ -52,6 +57,12 @@ export class LocalStorageAdapter {
     try { localStorage.setItem(this._key(id), JSON.stringify(data)); } catch (_) {}
   }
 
+  async clear(id) {
+    // Remove the saved profile only — the identity (UID_KEY) is kept, matching
+    // cloud platforms where the player id is fixed and cannot be deleted.
+    try { localStorage.removeItem(this._key(id)); } catch (_) {}
+  }
+
   _key(id) { return `${USER_KEY}:${id}`; }
 }
 
@@ -65,6 +76,7 @@ export class FacebookInstantAdapter extends LocalStorageAdapter {
   //   return { id: FBInstant.player.getID(), platform: "facebook", name: FBInstant.player.getName() }
   // TODO(SDK): load(id)   -> const d = await FBInstant.player.getDataAsync(["user"]); return d.user ?? null
   // TODO(SDK): save(id,d) -> await FBInstant.player.setDataAsync({ user: d })
+  // TODO(SDK): clear(id)  -> await FBInstant.player.setDataAsync({ user: null }) (can't delete — overwrite)
 }
 
 export class TelegramAdapter extends LocalStorageAdapter {
@@ -74,6 +86,7 @@ export class TelegramAdapter extends LocalStorageAdapter {
   //   (validate Telegram.WebApp.initData server-side before trusting the id).
   // TODO(SDK): load/save  -> Telegram.WebApp.CloudStorage.getItem/setItem("user", cb)
   //   (callback API — wrap in a Promise), or round-trip through the bot backend.
+  // TODO(SDK): clear(id)  -> Telegram.WebApp.CloudStorage.removeItem("user", cb)
 }
 
 export class RedditAdapter extends LocalStorageAdapter {
@@ -81,5 +94,6 @@ export class RedditAdapter extends LocalStorageAdapter {
   // TODO(SDK): Reddit games run on Devvit — identity + storage are server-side.
   //   The webview posts messages to the Devvit runtime, which resolves the user
   //   (reddit.getCurrentUser()) and persists per-user state (redis / kv). Swap
-  //   identify()/load()/save() to that postMessage bridge when integrating.
+  //   identify()/load()/save()/clear() to that postMessage bridge when integrating
+  //   (clear -> redis.del / kv delete of the per-user key).
 }

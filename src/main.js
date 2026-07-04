@@ -164,6 +164,7 @@ async function boot() {
     setMuted: (m) => audio.setMuted(m),
     setPageVisible: (v) => audio.setPageVisible(v),
     flushSave: () => store._flush(),
+    reset: () => store.reset(),
     state: () => ({
       level: scene.levelNum,
       boardCount: scene.boardCount,

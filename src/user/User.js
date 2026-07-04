@@ -89,6 +89,21 @@ export class User {
     this._emit("settings");
   }
 
+  // ---- reset ---------------------------------------------------------------
+  /** Wipe progress / wallet / settings back to defaults, KEEPING identity
+   *  (id / platform / name). Mutates in place so existing references and
+   *  listeners stay valid, and emits a change in every domain so the store
+   *  autosaves and any UI updates. */
+  reset() {
+    const d = defaults();
+    this.progress = { ...d.progress };
+    this.wallet = { ...d.wallet };
+    this.settings = { ...d.settings };
+    this._emit("progress");
+    this._emit("wallet");
+    this._emit("settings");
+  }
+
   // ---- serialization -------------------------------------------------------
   toJSON() {
     return {

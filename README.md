@@ -89,16 +89,23 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   `settings` (`music`, `sound`). It emits a domain-tagged change event on every
   mutation and (de)serializes via `toJSON`/`fromJSON` with a `version` for
   forward migrations.
-- **`adapters.js`** — a small async storage/identity contract
-  (`identify` / `load` / `save`). `LocalStorageAdapter` is the working default on
-  the open web. `FacebookInstantAdapter` / `TelegramAdapter` / `RedditAdapter`
-  are **stubs** that persist to `localStorage` for now and mark the exact SDK
-  calls (`// TODO(SDK):`) to swap in later (`FBInstant.player`,
+- **`adapters.js`** — a small **async** storage/identity contract
+  (`identify` / `load` / `save` / `clear`). `LocalStorageAdapter` is the working
+  default on the open web. `FacebookInstantAdapter` / `TelegramAdapter` /
+  `RedditAdapter` are **stubs** that persist to `localStorage` for now and mark
+  the exact SDK calls (`// TODO(SDK):`) to swap in later (`FBInstant.player`,
   `Telegram.WebApp.CloudStorage`, Devvit KV) — no code outside this file changes
-  when a platform is wired in for real.
+  when a platform is wired in for real. Identity is platform-owned and fixed;
+  `clear()` wipes the *data*, never the id.
 - **`platform.js`** — `detectPlatform()` + `makeAdapter()` pick the adapter at boot.
 - **`UserStore.js`** — resolves identity, loads/creates the profile, and
-  **autosaves** (debounced) on every change plus on tab hide/close.
+  **autosaves** (debounced) on every change plus a flush on tab hide/close. The
+  save is **serialized (last-write-wins)** so the slow, async cloud adapters
+  can't race two writes out of order; the exit-flush only writes when a change
+  is actually pending, so a bare refresh never resurrects data you just cleared.
+  `reset()` wipes the record on **whatever backend is active** (not by clearing
+  `localStorage` by hand — that does nothing on a cloud backend) and returns the
+  profile to defaults, keeping identity.
 
 The game is not published yet, so there is no legacy migration — new players
 start fresh. `main.js` sources the current level + audio settings from the User
