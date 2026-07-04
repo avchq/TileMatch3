@@ -50,6 +50,10 @@ python3 -m http.server 8099
   (`onLevelComplete`) rather than self-looping.
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
   **"Level &lt;n&gt;"** play button, level-progress dots, and title.
+- `src/settings.js` is the `SettingsScene` — an overlay opened by the **cog
+  button** in the top-right of both the lobby and the level. It has **Music** and
+  **Sound** toggles (driving `audio.setMusic` / `setSound`, which persist to the
+  User object) and a **Back** button that returns to the scene underneath.
 - `src/main.js` boots Pixi, owns the lobby ⇄ game flow, and reads/writes player
   state (level, settings, wallet) through the **User object** (see below).
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
@@ -73,8 +77,8 @@ Assets are declared in a **manifest** and organised into groups: a shared
 - **Background music** starts in the lobby on initial load. Browsers that block
   autoplay before a user gesture start it on the first pointer interaction
   instead. **Music** (bgm) and **Sound** (sfx) are two independent channels
-  (`audio.setMusic` / `audio.setSound`); the in-game "♪" button is a compat master
-  mute over both. Both preferences live on the User object (see below). When the
+  (`audio.setMusic` / `audio.setSound`), toggled from the **settings screen**
+  (see below). Both preferences live on the User object (see below). When the
   tab is hidden (player switches to another tab / minimises) the audio context is
   **suspended** so nothing is audible, and resumed on return — *without* changing
   the saved music/sound settings (`audio.setPageVisible`, driven by
@@ -116,7 +120,7 @@ object and writes changes back to it.
 JS/
   index.html
   vendor/pixi.min.js
-  src/{main,game,lobby,level,icons,audio,assets,tween}.js
+  src/{main,game,lobby,settings,level,icons,audio,assets,tween}.js
   src/user/{User,adapters,platform,UserStore}.js
   assets/
     levels/level{1,2,3}.json

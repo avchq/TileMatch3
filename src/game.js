@@ -1,5 +1,6 @@
 import { parseLevel, computeCoverers, assignSolvableTypes, mulberry32 } from "./level.js";
 import { easeOutCubic, easeOutBack, tween } from "./tween.js";
+import { makeCogButton } from "./settings.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -11,7 +12,7 @@ const TRAY_SLOTS = 7;
 const SLOT = 84;
 
 const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
-const TRAY_Y = 1168;
+const TRAY_Y = 1140;
 
 // distinct tile types per level (every one is guaranteed to appear on the
 // board; at least 7 per level, growing with difficulty)
@@ -41,6 +42,7 @@ export class GameScene extends PIXI.Container {
     this.levelNum = 1;
     this.locked = false;    // blocks input during win/lose transitions
     this.onLevelComplete = null; // (levelNum) => void — set by the host (main.js)
+    this.onSettings = null;      // () => void — open the settings screen
 
     this._buildHud();
     this._buildTraySlots();
@@ -86,16 +88,16 @@ export class GameScene extends PIXI.Container {
     this.progressText.position.set(DESIGN_W / 2, 128);
     this.hudLayer.addChild(this.progressText);
 
-    // buttons row (bottom of screen)
-    const by = 1270;
-    this.hudLayer.addChild(this._makeButton("🔀 Reshuffle", 250, 74, 175, by, 0xff8a3d, () => this.reshuffle()));
-    this.hudLayer.addChild(this._makeButton("⤺ Undo", 190, 74, 610, by, 0x4d8dff, () => this.undo()));
+    // buttons row — round, icon-only. Placed BELOW the tray panel (whose bottom
+    // edge sits at TRAY_Y + SLOT/2 + 18) so the two never overlap.
+    const by = 1266;
+    this.hudLayer.addChild(this._makeRoundButton("🔀", 54, 175, by, 0xff8a3d, () => this.reshuffle()));
+    this.hudLayer.addChild(this._makeRoundButton("⤺", 54, 575, by, 0x4d8dff, () => this.undo()));
 
-    this.muteBtn = this._makeButton("♪", 74, 74, 690, 84, 0x2f9e6a, () => {
-      this.audio.setMuted(!this.audio.muted);
-      this.muteBtn.label.text = this.audio.muted ? "✕" : "♪";
-    });
-    this.hudLayer.addChild(this.muteBtn);
+    // Settings (cog) — top-right. Opens the settings screen via the host.
+    const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
+    cog.position.set(690, 84);
+    this.hudLayer.addChild(cog);
   }
 
   _makeButton(label, w, h, cx, cy, color, onClick) {
@@ -117,6 +119,32 @@ export class GameScene extends PIXI.Container {
       onClick();
     });
     c.on("pointerdown", () => (c.scale.set(0.94)));
+    c.on("pointerup", () => c.scale.set(1));
+    c.on("pointerupoutside", () => c.scale.set(1));
+    return c;
+  }
+
+  // A round, icon-only action button (r = radius). Same press feel as _makeButton.
+  _makeRoundButton(icon, r, cx, cy, color, onClick) {
+    const c = new PIXI.Container();
+    c.position.set(cx, cy);
+    const g = new PIXI.Graphics();
+    g.beginFill(color).drawCircle(0, 0, r).endFill();
+    g.lineStyle(4, 0xffffff, 0.35).drawCircle(0, 0, r);
+    const t = new PIXI.Text(icon, {
+      fontFamily: "Arial", fontSize: Math.round(r * 0.95), fontWeight: "800", fill: 0xffffff,
+    });
+    t.anchor.set(0.5);
+    c.addChild(g, t);
+    c.label = t;
+    c.eventMode = "static";
+    c.cursor = "pointer";
+    c.hitArea = new PIXI.Circle(0, 0, r);
+    c.on("pointertap", () => {
+      this.audio.play("btn_01");
+      onClick();
+    });
+    c.on("pointerdown", () => c.scale.set(0.94));
     c.on("pointerup", () => c.scale.set(1));
     c.on("pointerupoutside", () => c.scale.set(1));
     return c;

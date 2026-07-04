@@ -1,5 +1,6 @@
 import { GameScene } from "./game.js";
 import { LobbyScene } from "./lobby.js";
+import { SettingsScene } from "./settings.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
 import { AssetManager, PRELOAD_GROUPS, MANIFEST } from "./assets.js";
@@ -66,7 +67,13 @@ async function boot() {
 
   const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio);
   const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL);
-  root.addChild(scene, lobby);
+  const settings = new SettingsScene(app, audio);
+  root.addChild(scene, lobby, settings); // settings overlays whichever scene is active
+
+  // The cog button in either scene opens the settings overlay; Back just hides it,
+  // returning to whatever scene is underneath.
+  lobby.onSettings = () => settings.open();
+  scene.onSettings = () => settings.open();
 
   function showLobby(level, opts) {
     scene.visible = false;
@@ -105,7 +112,6 @@ async function boot() {
   audio.setSound(user.settings.sound, { persist: false });
   audio.onMusicChange = (on) => user.setMusic(on);
   audio.onSoundChange = (on) => user.setSound(on);
-  if (scene.muteBtn) scene.muteBtn.label.text = audio.muted ? "✕" : "♪";
 
   // Background music for the lobby. Select the track now (it plays immediately
   // if the browser permits autoplay). Browsers gate audio behind a user gesture,
@@ -136,7 +142,9 @@ async function boot() {
 
   // ---- test / debug API (used by the headless verification driver) ---------
   window.__game = {
-    app, scene, lobby, assets, audio, store,
+    app, scene, lobby, settings, assets, audio, store,
+    openSettings: () => settings.open(),
+    settingsVisible: () => settings.visible,
     currentLevel: () => currentLevel,
     inLobby: () => lobby.visible,
     lobbyButtonText: () => lobby.playBtn.label.text,

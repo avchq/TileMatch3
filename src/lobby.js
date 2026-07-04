@@ -4,6 +4,7 @@
 // buttons, same palette + backgrounds) in the spirit of the original Cocos game.
 
 import { tween, easeOutBack } from "./tween.js";
+import { makeCogButton } from "./settings.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -15,7 +16,8 @@ export class LobbyScene extends PIXI.Container {
     this.backgrounds = backgrounds; // { 1: tex, 2: tex, 3: tex }
     this.audio = audio;
     this.maxLevel = maxLevel;
-    this.onPlay = null; // (levelNum) => void
+    this.onPlay = null;     // (levelNum) => void
+    this.onSettings = null; // () => void — open the settings screen
 
     this.bgLayer = new PIXI.Container();
     this.uiLayer = new PIXI.Container();
@@ -63,6 +65,11 @@ export class LobbyScene extends PIXI.Container {
     this.hint.anchor.set(0.5);
     this.hint.position.set(DESIGN_W / 2, 960);
     this.uiLayer.addChild(this.hint);
+
+    // Settings (cog) — top-right. Opens the settings screen via the host.
+    const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
+    cog.position.set(690, 84);
+    this.uiLayer.addChild(cog);
   }
 
   _makePlayButton() {
