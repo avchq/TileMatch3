@@ -80,6 +80,40 @@ try:
         s = st()
         assert s["boardCount"] == b1 - 3 and len(s["tray"]) == 0, "a matched triple cannot be undone"
 
+        # 5) the tray GROUPS matches: a tile whose type is already present lands
+        #    next to that group; an unmatched tile goes on the end. undo() still
+        #    removes the LAST-ADDED tile (add-order), not the visually-last one.
+        def tap_id(i):
+            page.evaluate(f"window.__game.scene._onTapTile(window.__game.scene.tiles[{i}])")
+            time.sleep(0.35)
+        def tray():
+            return page.evaluate("window.__game.scene.tray.map(t => ({id: t.id, type: t.type}))")
+
+        fresh()
+        by_type = {}
+        for t in page.evaluate("window.__game.freeTiles()"):
+            by_type.setdefault(t["type"], []).append(t["id"])
+        # need a type with >=2 free tiles (X) plus a different type with >=1 (Y)
+        X = next((ty for ty, ids in by_type.items() if len(ids) >= 2), None)
+        Y = next((ty for ty in by_type if ty != X), None)
+        assert X is not None and Y is not None, "need two free of one type and one of another"
+        x1, x2 = by_type[X][0], by_type[X][1]
+        y1 = by_type[Y][0]
+
+        tap_id(x1)   # [x1]
+        tap_id(y1)   # no match -> [x1, y1]
+        tap_id(x2)   # matches X -> inserted next to x1 -> [x1, x2, y1]
+        order = tray()
+        print("grouped tray:", order, "| X,Y =", X, Y)
+        assert [t["id"] for t in order] == [x1, x2, y1], \
+            f"a matching tile must land next to its group: {order}"
+        assert [t["type"] for t in order] == [X, X, Y]
+
+        undo()       # last added was x2 (a middle slot) -> that is what pops
+        order = tray()
+        assert [t["id"] for t in order] == [x1, y1], \
+            f"undo must remove the last-added tile (x2), not the visual last: {order}"
+
         page.screenshot(path=f"{SC}/undo_state.png")
         print("PAGE ERRORS:", len(errs), errs[:5])
         assert not errs

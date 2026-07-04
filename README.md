@@ -9,14 +9,18 @@ On load you land on the **lobby** screen, which shows a big centred
 **"Level &lt;n&gt;"** button for the level you're on (progress is saved in
 `localStorage`, so it's remembered between visits). Tap it to start.
 
-Tap any **fully-uncovered** tile to move it to the tray at the bottom. Collect
+Tap any **fully-uncovered** tile to move it to the tray at the bottom. The tray
+keeps **matching types grouped**: a collected tile drops in next to others of its
+kind, or onto the end (top) of the row if its type isn't there yet. Collect
 **3 of the same fruit** to clear them. Clear the whole board to win — you're
 returned to the lobby, now advanced to the next level. If the 7-slot tray fills
 up with no match, you lose (**Try Again** restarts the level in place). In-game
-buttons: **Undo** (return the last collected tile) and **Reshuffle** (redeal the
-faces of the tiles still on the play board into a fresh arrangement that's still
-guaranteed solvable — the bottom tray/deck is left untouched, and positions and
-progress are kept, so the level is **not** restarted).
+buttons: **Undo** (return the last-added tile — the most recent one, wherever
+grouping placed it in the tray) and **Reshuffle** (redeal the faces of the tiles
+still on the play board into a fresh arrangement that's still guaranteed solvable
+— the bottom tray/deck is left untouched, and positions and progress are kept, so
+the level is **not** restarted). The **cog** (top-left) opens Settings and the
+**‹ Back** button beside it leaves the level for the lobby with progress kept.
 
 ## Run it
 Because it uses ES modules and `fetch`, it must be served over HTTP (not
@@ -46,12 +50,15 @@ python3 -m http.server 8099
   with only 3 tray slots. Distinct types per level: 7 / 8 / 9 (every one is
   guaranteed to appear on the board).
 - `src/game.js` holds the `GameScene` (board layout, coverage/free-state logic,
-  tray, matching, win/lose, animations). On a win it calls back to the host
-  (`onLevelComplete`) rather than self-looping.
+  tray, matching, win/lose, animations). The tray keeps same-type tiles grouped
+  as they're collected while `history` records raw add-order, so **Undo** always
+  pops the most recently added tile. On a win it calls back to the host
+  (`onLevelComplete`) rather than self-looping; the top-left **Back** button
+  calls `onExit` to return to the lobby mid-level (progress untouched).
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
   **"Level &lt;n&gt;"** play button, level-progress dots, and title.
 - `src/settings.js` is the `SettingsScene` — an overlay opened by the **cog
-  button** in the top-right of both the lobby and the level. It has **Music** and
+  button** in the top-left of both the lobby and the level. It has **Music** and
   **Sound** toggles (driving `audio.setMusic` / `setSound`, which persist to the
   User object) and a **Back** button that returns to the scene underneath.
 - `src/main.js` boots Pixi, owns the lobby ⇄ game flow, and reads/writes player

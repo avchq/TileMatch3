@@ -314,9 +314,17 @@ export class GameScene extends PIXI.Container {
     t.sprite.tint = 0xffffff;
     t.container.eventMode = "none";
 
-    // insert into tray, grouped by type (stable)
-    this.tray.push(t);
-    this.tray.sort((a, b) => a.type - b.type);
+    // Insert into the tray keeping matches together: if a tile of the same type
+    // is already in the tray, drop this one in right after the last of its kind
+    // so the group stays contiguous; otherwise it goes on the top (end) of the
+    // stack. `history` keeps the raw add-order so undo() always pops the tile
+    // that was added last, wherever grouping placed it.
+    let lastMatch = -1;
+    for (let i = this.tray.length - 1; i >= 0; i--) {
+      if (this.tray[i].type === t.type) { lastMatch = i; break; }
+    }
+    if (lastMatch >= 0) this.tray.splice(lastMatch + 1, 0, t);
+    else this.tray.push(t);
     this.history.push(t);
 
     this.audio.play("tile_bop");

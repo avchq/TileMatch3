@@ -57,7 +57,9 @@ line per test.
 
 - **`undo_test.py`** — undo is a multi-step stack: it restores collected tiles
   one at a time back to the board, is a no-op on empty history, and cannot undo a
-  completed triple (matched tiles leave the history).
+  completed triple (matched tiles leave the history). Also checks tray grouping:
+  a collected tile lands next to its matching group, and undo still pops the
+  last-added tile even from a middle slot.
 - **`reshuffle_test.py`** — reshuffle reassigns the board tile faces while keeping
   the level, board count, and the tray/deck unchanged, and stays in the level.
 
