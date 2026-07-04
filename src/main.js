@@ -126,6 +126,12 @@ async function boot() {
   };
   gestureEvents.forEach((ev) => window.addEventListener(ev, unlockAudio, true));
 
+  // Silence audio while the tab is hidden (switched to another tab / minimised)
+  // and restore it on return — without altering the player's music/sound settings.
+  document.addEventListener("visibilitychange", () => {
+    audio.setPageVisible(document.visibilityState === "visible");
+  });
+
   if (loadingEl) loadingEl.style.display = "none";
 
   // ---- test / debug API (used by the headless verification driver) ---------
@@ -155,6 +161,7 @@ async function boot() {
     setMusic: (on) => audio.setMusic(on),
     setSound: (on) => audio.setSound(on),
     setMuted: (m) => audio.setMuted(m),
+    setPageVisible: (v) => audio.setPageVisible(v),
     flushSave: () => store._flush(),
     state: () => ({
       level: scene.levelNum,

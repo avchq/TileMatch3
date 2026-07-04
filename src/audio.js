@@ -14,6 +14,7 @@ export class AudioManager {
     this._ctx = null;
     this._bgmName = null;
     this._bgmSource = null;
+    this._bgSuspended = false; // true only while WE paused a running ctx for a hidden tab
     this.onMusicChange = null; // (on) => void — host persists the preference
     this.onSoundChange = null; // (on) => void
   }
@@ -130,5 +131,25 @@ export class AudioManager {
   setMuted(m) {
     this.setMusic(!m);
     this.setSound(!m);
+  }
+
+  // Pause/resume audio when the tab loses/gains visibility. This silences the
+  // music while the player is on another tab WITHOUT changing their music/sound
+  // settings: we suspend the whole context (playback position is preserved) and
+  // resume it on return. We only auto-resume a context we ourselves suspended,
+  // so a still-locked (pre-gesture) context is never resumed here — that would
+  // both fail and log an autoplay warning.
+  setPageVisible(visible) {
+    const ctx = this._ctx;
+    if (!ctx) return;
+    if (!visible) {
+      if (ctx.state === "running") {
+        this._bgSuspended = true;
+        ctx.suspend().catch(() => {});
+      }
+    } else if (this._bgSuspended) {
+      this._bgSuspended = false;
+      ctx.resume().then(() => this._startBgm()).catch(() => {});
+    }
   }
 }

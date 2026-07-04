@@ -71,7 +71,11 @@ Assets are declared in a **manifest** and organised into groups: a shared
   autoplay before a user gesture start it on the first pointer interaction
   instead. **Music** (bgm) and **Sound** (sfx) are two independent channels
   (`audio.setMusic` / `audio.setSound`); the in-game "♪" button is a compat master
-  mute over both. Both preferences live on the User object (see below).
+  mute over both. Both preferences live on the User object (see below). When the
+  tab is hidden (player switches to another tab / minimises) the audio context is
+  **suspended** so nothing is audible, and resumed on return — *without* changing
+  the saved music/sound settings (`audio.setPageVisible`, driven by
+  `visibilitychange`).
 
 ### User & persistence (`src/user/`)
 All per-player state lives on one platform-agnostic **`User`** object, ready for
