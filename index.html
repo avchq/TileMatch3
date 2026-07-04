@@ -11,7 +11,15 @@
       font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
       -webkit-tap-highlight-color: transparent;
     }
-    #game { position: fixed; inset: 0; }
+    /* Center the game and keep it at the original 750:1334 aspect ratio. */
+    #game {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #game canvas {
+      /* JS sets the pixel dimensions; these preserve the aspect ratio. */
+      display: block;
+    }
     #loading {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
       color: #cdd6e6; font-size: 20px; letter-spacing: .5px; z-index: 10;

@@ -13,8 +13,9 @@ const SLOT = 84;
 const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1168;
 
-// distinct tile types per level (grows with difficulty)
-const TYPES_PER_LEVEL = { 1: 3, 2: 4, 3: 5 };
+// distinct tile types per level (every one is guaranteed to appear on the
+// board; at least 7 per level, growing with difficulty)
+const TYPES_PER_LEVEL = { 1: 7, 2: 8, 3: 9 };
 
 export class GameScene extends PIXI.Container {
   constructor(app, tileTextures, slotTexture, backgrounds, audio) {

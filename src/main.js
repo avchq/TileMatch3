@@ -6,6 +6,9 @@ const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
 async function boot() {
+  // Render at the original design resolution; the canvas ELEMENT is then scaled
+  // to fit the viewport while preserving the original 750:1334 aspect ratio, so
+  // the displayed view always matches the original game exactly (no distortion).
   const app = new PIXI.Application({
     width: DESIGN_W,
     height: DESIGN_H,
@@ -16,16 +19,13 @@ async function boot() {
   });
   document.getElementById("game").appendChild(app.view);
 
-  // Root that we scale to fit the viewport (letterboxed).
   const root = new PIXI.Container();
   app.stage.addChild(root);
 
   function resize() {
-    const w = window.innerWidth, h = window.innerHeight;
-    app.renderer.resize(w, h);
-    const scale = Math.min(w / DESIGN_W, h / DESIGN_H);
-    root.scale.set(scale);
-    root.position.set((w - DESIGN_W * scale) / 2, (h - DESIGN_H * scale) / 2);
+    const scale = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_H);
+    app.view.style.width = `${Math.round(DESIGN_W * scale)}px`;
+    app.view.style.height = `${Math.round(DESIGN_H * scale)}px`;
   }
   window.addEventListener("resize", resize);
   resize();

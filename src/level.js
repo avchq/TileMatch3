@@ -97,12 +97,24 @@ export function assignSolvableTypes(tiles, numTypes, rng) {
     }
   }
 
+  // One type per triple. Guarantee every type in the palette appears at least
+  // once (so a level shows `numTypes` distinct tiles) when there are enough
+  // triples: seed the first `numTypes` groups with 0..numTypes-1, fill the rest
+  // randomly, then shuffle the group→type mapping. Solvability is unaffected —
+  // each triple is still a single type, consecutive in a valid removal order.
+  const numGroups = Math.floor(order.length / 3);
+  const groupTypes = [];
+  for (let g = 0; g < numGroups; g++) {
+    groupTypes.push(g < numTypes ? g : Math.floor(rng() * numTypes));
+  }
+  for (let i = groupTypes.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [groupTypes[i], groupTypes[j]] = [groupTypes[j], groupTypes[i]];
+  }
+
   const types = new Array(n).fill(0);
-  for (let g = 0; g * 3 < order.length; g++) {
-    const t = Math.floor(rng() * numTypes);
-    for (let s = 0; s < 3 && g * 3 + s < order.length; s++) {
-      types[order[g * 3 + s]] = t;
-    }
+  for (let g = 0; g < numGroups; g++) {
+    for (let s = 0; s < 3; s++) types[order[g * 3 + s]] = groupTypes[g];
   }
   tiles.forEach((t, i) => (t.type = types[i]));
   // Expose a known-good clearing order (indices into `tiles`) for auto-solve /
