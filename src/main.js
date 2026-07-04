@@ -75,6 +75,12 @@ async function boot() {
   lobby.onSettings = () => settings.open();
   scene.onSettings = () => settings.open();
 
+  // Back button inside the level: stop play and return to the lobby at the level
+  // the player is on. The User record is untouched here, so anything changed
+  // during the level (progress, wallet, settings) has already autosaved and
+  // persists across the transition.
+  scene.onExit = () => showLobby(currentLevel);
+
   function showLobby(level, opts) {
     scene.visible = false;
     lobby.show(level, opts);
@@ -149,6 +155,7 @@ async function boot() {
     inLobby: () => lobby.visible,
     lobbyButtonText: () => lobby.playBtn.label.text,
     startLevel,
+    exitLevel: () => scene.onExit && scene.onExit(),
     reshuffle: () => scene.reshuffle(),
     playSound: (name) => audio.play(name),
     soundNames: () => Object.keys(audio.buffers),

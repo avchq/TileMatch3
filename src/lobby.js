@@ -66,9 +66,9 @@ export class LobbyScene extends PIXI.Container {
     this.hint.position.set(DESIGN_W / 2, 960);
     this.uiLayer.addChild(this.hint);
 
-    // Settings (cog) — top-right. Opens the settings screen via the host.
+    // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
-    cog.position.set(690, 84);
+    cog.position.set(60, 84);
     this.uiLayer.addChild(cog);
   }
 

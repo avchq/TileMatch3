@@ -43,6 +43,7 @@ export class GameScene extends PIXI.Container {
     this.locked = false;    // blocks input during win/lose transitions
     this.onLevelComplete = null; // (levelNum) => void — set by the host (main.js)
     this.onSettings = null;      // () => void — open the settings screen
+    this.onExit = null;          // () => void — leave the level, back to the lobby
 
     this._buildHud();
     this._buildTraySlots();
@@ -94,10 +95,16 @@ export class GameScene extends PIXI.Container {
     this.hudLayer.addChild(this._makeRoundButton("🔀", 54, 175, by, 0xff8a3d, () => this.reshuffle()));
     this.hudLayer.addChild(this._makeRoundButton("⤺", 54, 575, by, 0x4d8dff, () => this.undo()));
 
-    // Settings (cog) — top-right. Opens the settings screen via the host.
+    // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
-    cog.position.set(690, 84);
+    cog.position.set(60, 84);
     this.hudLayer.addChild(cog);
+
+    // Back — sits next to the cog. Stops the level and returns to the lobby;
+    // any user-record changes made during the level are left intact (persisted).
+    this.hudLayer.addChild(
+      this._makeRoundButton("‹", 38, 148, 84, 0x334063, () => this.onExit && this.onExit())
+    );
   }
 
   _makeButton(label, w, h, cx, cy, color, onClick) {
