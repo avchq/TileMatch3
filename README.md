@@ -1,8 +1,8 @@
 # Tile Match 3 — Pixi.js Port
 
 A JavaScript/[Pixi.js](https://pixijs.com) port of the Cocos Creator game in
-`../cocos` ("Tile Match 3"), a stacked-tile match-3 game. Playable
-through **levels 1–3**.
+`../cocos` ("Tile Match 3"), a stacked-tile match-3 game. The playable levels are
+declared in `src/levelConfig.js` (currently **4**).
 
 ## Gameplay
 On load you land on the **lobby** screen, which shows a big centred
@@ -62,20 +62,30 @@ python3 -m http.server 8099
   **Sound** toggles (driving `audio.setMusic` / `setSound`, which persist to the
   User object) and a **Back** button that returns to the scene underneath.
 - `src/main.js` boots Pixi, owns the lobby ⇄ game flow, and reads/writes player
-  state (level, settings, wallet) through the **User object** (see below).
+  state (level, settings, wallet) through the **User object** (see below). Its
+  `MAX_LEVEL` is imported from `src/levelConfig.js` (= number of levels there).
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
+### Levels (`src/levelConfig.js`)
+Every level is declared in **one place** — the `LEVELS` array in
+`src/levelConfig.js`. Each entry is just `{ background, data, preload? }` (paths
+to a background image and a level-data JSON, plus an optional preload flag).
+**Adding a level is a single one-line append** — nothing else needs editing:
+- `MAX_LEVEL` is exported as `LEVELS.length`, so the array's length is the
+  highest playable level (consumed by `main.js` and the lobby).
+- `src/assets.js` builds its load **manifest** from `LEVELS` (level *N* ↔ entry
+  *N-1*), so a new entry is automatically loadable.
+
 ### Asset management (`src/assets.js` + `src/audio.js`)
-Assets are declared in a **manifest** and organised into groups: a shared
-`core` group plus one `levelN` group per level.
+Assets are organised into groups: a shared `core` group plus one `levelN` group
+per level, the latter generated from the `LEVELS` config above.
 - **Preload** — on boot, `AssetManager.preload()` loads the essential minimum:
-  `core` audio + the `level1`–`level3` groups (backgrounds + level data). This
-  is everything needed to finish the first three levels.
-- **Lazy load** — any further level is fetched on demand via
-  `ensureLevel(n)` (called from `startLevel`), so adding level 4+ is just
-  another manifest entry — its assets download only when the player reaches it.
-  Loads are idempotent and de-duplicated (cached results + shared in-flight
-  promises), so nothing is fetched twice.
+  `core` audio + every level flagged `preload: true` in the config (backgrounds
+  + level data).
+- **Lazy load** — any level *not* flagged for preload is fetched on demand via
+  `ensureLevel(n)` (called from `startLevel`), so its assets download only when
+  the player reaches it. Loads are idempotent and de-duplicated (cached results
+  + shared in-flight promises), so nothing is fetched twice.
 - **Audio** uses the **Web Audio API**: each file is fetched and decoded into an
   in-memory `AudioBuffer` **once**, and every play spins up a throwaway
   `AudioBufferSourceNode`. Sounds overlap freely and playback makes **no network
@@ -127,10 +137,10 @@ object and writes changes back to it.
 JS/
   index.html
   vendor/pixi.min.js
-  src/{main,game,lobby,settings,level,icons,audio,assets,tween}.js
+  src/{main,game,lobby,settings,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,platform,UserStore}.js
   assets/
-    levels/level{1,2,3}.json
+    levels/level{1,2,3,4}.json
     bg/*.jpg
     audio/*.mp3
 ```

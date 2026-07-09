@@ -1,17 +1,24 @@
 // Asset management: manifest-driven preloading + lazy, on-demand loading.
 //
-// Assets are grouped. The `core` group plus one group per level. On boot we
-// PRELOAD the essential minimum — everything needed to complete levels 1–3.
-// Any further level's assets are LAZY-loaded on demand via ensureLevel(), so
-// adding level 4+ is just another manifest entry: its background + level data
-// (and any new audio) are fetched only when the player actually reaches it.
+// Assets are grouped: a shared `core` group plus one group per level. The level
+// groups are generated from the LEVELS config (src/levelConfig.js) — the single
+// place levels are declared — so adding a level is a one-line config edit with
+// no changes here. On boot we PRELOAD `core` + every level flagged `preload`;
+// any other level's assets are LAZY-loaded on demand via ensureLevel(), fetched
+// only when the player actually reaches it.
 //
 // Every network asset is fetched EXACTLY ONCE and cached in memory:
 //   - audio  -> decoded to an AudioBuffer (played from RAM, no per-play GET)
 //   - images -> PIXI.Texture (PIXI.Assets caches by URL)
 //   - levels -> parsed JSON
 
-// The single source of truth for what exists and where it lives.
+import { LEVELS } from "./levelConfig.js";
+
+const levelGroup = (n) => `level${n}`;
+
+// The single source of truth for what exists and where it lives. `core` is
+// hand-authored; the per-level groups are built from LEVELS (level N === entry
+// N-1), each keyed by level number so ensureLevel(n) can find it.
 export const MANIFEST = {
   // Shared assets used across all levels — preloaded once.
   core: {
@@ -24,17 +31,21 @@ export const MANIFEST = {
       { name: "btn_01", url: "assets/audio/btn_01.mp3", volume: 0.6 },
     ],
   },
-  // Per-level assets. Keyed by level number so a future level is just a new
-  // "levelN" entry here — no other code changes needed to lazy-load it.
-  level1: { backgrounds: { 1: "assets/bg/bg1.jpg" }, levels: { 1: "assets/levels/level1.json" } },
-  level2: { backgrounds: { 2: "assets/bg/bg2.jpg" }, levels: { 2: "assets/levels/level2.json" } },
-  level3: { backgrounds: { 3: "assets/bg/bg14.jpg" }, levels: { 3: "assets/levels/level3.json" } },
 };
+LEVELS.forEach((lvl, i) => {
+  const n = i + 1;
+  MANIFEST[levelGroup(n)] = {
+    backgrounds: { [n]: lvl.background },
+    levels: { [n]: lvl.data },
+  };
+});
 
-// The essential minimum to preload on boot: shared assets + levels 1–3.
-export const PRELOAD_GROUPS = ["core", "level1", "level2", "level3"];
-
-const levelGroup = (n) => `level${n}`;
+// The essential minimum to preload on boot: shared assets + every level the
+// config marks `preload`. The rest lazy-load on demand.
+export const PRELOAD_GROUPS = [
+  "core",
+  ...LEVELS.flatMap((lvl, i) => (lvl.preload ? [levelGroup(i + 1)] : [])),
+];
 
 export class AssetManager {
   constructor(audio) {

@@ -4,11 +4,11 @@ import { SettingsScene } from "./settings.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
 import { AssetManager, PRELOAD_GROUPS, MANIFEST } from "./assets.js";
+import { MAX_LEVEL } from "./levelConfig.js";
 import { UserStore } from "./user/UserStore.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
-const MAX_LEVEL = 3;
 
 async function boot() {
   // Render at the original design resolution; the canvas ELEMENT is then scaled
