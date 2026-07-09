@@ -198,8 +198,12 @@ export class GameScene extends PIXI.Container {
     const positions = parseLevel(rawArr);
     const { coverers, covered } = computeCoverers(positions);
     const numTypes = TYPES_PER_LEVEL[levelNum] || 5;
-    // seed varies per attempt for fresh boards, but stays solvable by construction
-    const seed = (levelNum * 1000 + Math.floor(Math.random() * 100000)) >>> 0;
+    // Deterministic seed derived only from the level number, so a level's type
+    // layout is identical every time it loads (a given tile — e.g. strawberry —
+    // is always in the same spot across reloads/sessions). Multiplying by a large
+    // odd constant spreads adjacent levels to well-separated RNG streams. Still
+    // solvable by construction; the Reshuffle button is the way to re-randomise.
+    const seed = (levelNum * 0x9e3779b1) >>> 0;
     assignSolvableTypes(positions, numTypes, mulberry32(seed));
     this.solutionOrder = positions.solutionOrder || [];
 

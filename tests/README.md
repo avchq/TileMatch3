@@ -62,6 +62,9 @@ line per test.
   last-added tile even from a middle slot.
 - **`reshuffle_test.py`** — reshuffle reassigns the board tile faces while keeping
   the level, board count, and the tray/deck unchanged, and stays in the level.
+- **`layout_test.py`** — a level's type layout is deterministic: the same fruit
+  lands on the same position across re-loads and full page reloads, different
+  levels differ, and the fixed board is still solvable to a win.
 
 ### User profile & persistence
 

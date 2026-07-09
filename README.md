@@ -48,7 +48,11 @@ python3 -m http.server 8099
   derives a valid removal order (a linear extension of the covering DAG) and
   gives each consecutive triple one type, so every board can always be cleared
   with only 3 tray slots. Distinct types per level: 7 / 8 / 9 (every one is
-  guaranteed to appear on the board).
+  guaranteed to appear on the board). Tile **positions** come straight from the
+  level file, and the type assignment is seeded **only from the level number**
+  (`game.js` `loadLevel`), so a level's layout is **deterministic** — the same
+  fruit is in the same spot on every load/reload/session. (**Reshuffle** is the
+  intentional way to re-randomise the faces mid-game.)
 - `src/game.js` holds the `GameScene` (board layout, coverage/free-state logic,
   tray, matching, win/lose, animations). The tray keeps same-type tiles grouped
   as they're collected while `history` records raw add-order, so **Undo** always

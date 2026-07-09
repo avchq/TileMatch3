@@ -14,6 +14,7 @@ export const LEVELS = [
   { background: "assets/bg/bg2.jpg",  data: "assets/levels/level2.json", preload: true },
   { background: "assets/bg/bg14.jpg", data: "assets/levels/level3.json", preload: true },
   { background: "assets/bg/bg14.jpg", data: "assets/levels/level4.json" },
+  { background: "assets/bg/bg1.jpg", data: "assets/levels/level5.json" },
 ];
 
 // The highest playable level is simply how many levels are configured.
