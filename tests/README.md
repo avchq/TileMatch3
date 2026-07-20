@@ -69,6 +69,11 @@ line per test.
   user record: a fresh profile has the starter stock, each use decrements it and
   updates the count bubble, a depleted helper is disabled and its action is a
   no-op, the inventory persists across a reload, and a grant re-enables it live.
+- **`wand_test.py`** — the Wand helper completes one triple end to end: from an
+  empty tray it banks a fresh triple off the board (space-neutral), a waiting
+  pair is finished by pulling a single tile (freeing two slots), a rapid
+  double-tap spends only one charge, at zero stock it's disabled/greyed and a
+  no-op, and the spent stock persists across a reload.
 
 ### User profile & persistence
 

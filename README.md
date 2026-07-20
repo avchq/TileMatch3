@@ -15,16 +15,27 @@ kind, or onto the end (top) of the row if its type isn't there yet. Collect
 **3 of the same fruit** to clear them. Clear the whole board to win — you're
 returned to the lobby, now advanced to the next level. If the 7-slot tray fills
 up with no match, you lose (**Try Again** restarts the level in place). In-game
-**helpers** (boosters): **Undo** (return the last-added tile — the most recent
-one, wherever grouping placed it in the tray; **disabled/greyed-out when the tray
-is empty**, as there's nothing to undo) and **Reshuffle** (redeal the faces of the
-tiles still on the play board into a fresh arrangement that's still guaranteed
-solvable — the bottom tray/deck is left untouched, and positions and progress are
-kept, so the level is **not** restarted). Each helper is drawn from a **limited
-inventory** stored on the player profile — a count **bubble** on the button shows
-how many uses remain, every use spends one, and once you hit **0** the helper is
-disabled until you get more (new players start with a small stock; see the User
-object below). The **cog** (top-left) opens Settings and the
+**helpers** (boosters), a row of three below the tray: **Reshuffle** (left),
+**Wand** (middle), **Undo** (right).
+- **Undo** — return the last-added tile (the most recent one, wherever grouping
+  placed it in the tray); **disabled/greyed-out when the tray is empty**, as
+  there's nothing to undo.
+- **Wand** (magic hint) — **guarantee one instant match**: the tiles needed to
+  complete a triple fly from the board into the tray and immediately clear,
+  relieving tray pressure. It picks the cheapest colour to finish — a colour
+  already holding a **pair** in the tray (pull 1 more, frees two slots), else a
+  colour holding a **single** (pull 2), else, on an empty tray, a fresh colour
+  off the board (pull a full 3). Tiles are drawn most-accessible-first so the
+  move reads as one you could have made.
+- **Reshuffle** — redeal the faces of the tiles still on the play board into a
+  fresh arrangement that's still guaranteed solvable; the bottom tray/deck is
+  left untouched, and positions and progress are kept, so the level is **not**
+  restarted.
+
+Each helper is drawn from a **limited inventory** stored on the player profile —
+a count **bubble** on the button shows how many uses remain, every use spends
+one, and once you hit **0** the helper is disabled until you get more (new
+players start with a small stock; see the User object below). The **cog** (top-left) opens Settings and the
 **‹ Back** button beside it leaves the level for the lobby with progress kept.
 
 ## Run it
@@ -62,10 +73,15 @@ python3 -m http.server 8099
 - `src/game.js` holds the `GameScene` (board layout, coverage/free-state logic,
   tray, matching, win/lose, animations). The tray keeps same-type tiles grouped
   as they're collected while `history` records raw add-order, so **Undo** always
-  pops the most recently added tile. The **Undo** and **Reshuffle** helpers are
-  gated on the player's booster inventory (`user.useBooster(...)`): each press
-  spends one, the buttons carry a live count bubble, and they disable at 0 (Undo
-  also disables while the tray is empty). On a win it calls back to the host
+  pops the most recently added tile. The **Undo**, **Wand**, and **Reshuffle**
+  helpers are gated on the player's booster inventory (`user.useBooster(...)`):
+  each press spends one, the buttons carry a live count bubble, and they disable
+  at 0 (Undo also disables while the tray is empty; Wand while the board is).
+  **Wand** (`wand()` / `_wandPick()`) completes exactly one triple — it selects
+  the cheapest colour to finish (waiting pair → single → fresh board colour),
+  flies the missing tiles in most-accessible-first, and locks input until the
+  triple resolves so a rapid double-tap can't spend two charges. (An upgraded
+  "super" wand tied to a win-streak meta shares the button but isn't built.) On a win it calls back to the host
   (`onLevelComplete`) rather than self-looping; the top-left **Back** button
   calls `onExit` to return to the lobby mid-level (progress untouched).
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
@@ -121,9 +137,10 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
 - **`User.js`** — the model: a stable `id`, `platform`, `progress` (next level),
   a **multi-currency `wallet`** (`coins`, `gems`, … — a keyed map, so new
   currencies need no code change: `credit`/`debit`/`balance`/`canAfford`), a
-  **helper/booster inventory** (`boosters` — a keyed map of `undo`/`shuffle`… →
-  remaining uses, mirroring the wallet: `boosterCount`/`hasBooster`/`grantBooster`
-  /`useBooster`; new players get a small starter stock), and `settings` (`music`,
+  **helper/booster inventory** (`boosters` — a keyed map of
+  `undo`/`shuffle`/`wand`… → remaining uses, mirroring the wallet:
+  `boosterCount`/`hasBooster`/`grantBooster`/`useBooster`; new players get a
+  small starter stock), and `settings` (`music`,
   `sound`). It emits a domain-tagged change event on every mutation and
   (de)serializes via `toJSON`/`fromJSON` with a `version` for forward migrations.
 - **`adapters.js`** — a small **async** storage/identity contract

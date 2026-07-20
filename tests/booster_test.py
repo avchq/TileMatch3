@@ -35,7 +35,7 @@ try:
         # 1) A fresh profile carries the starter inventory, and it's serialized.
         inv = boosters()
         print("STARTER inventory:", inv)
-        assert inv == {"undo": 3, "shuffle": 3}, inv
+        assert inv == {"undo": 3, "shuffle": 3, "wand": 3}, inv
 
         page.evaluate("window.__game.startLevel(1)")
         time.sleep(0.7)

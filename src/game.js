@@ -57,8 +57,12 @@ export class GameScene extends PIXI.Container {
   _updateBoosters() {
     const undoLeft = this.user ? this.user.boosterCount("undo") : 0;
     const shuffleLeft = this.user ? this.user.boosterCount("shuffle") : 0;
+    const wandLeft = this.user ? this.user.boosterCount("wand") : 0;
     this._setBoosterButton(this.undoBtn, this.undoBadge, undoLeft, undoLeft > 0 && this.history.length > 0);
     this._setBoosterButton(this.shuffleBtn, this.shuffleBadge, shuffleLeft, shuffleLeft > 0);
+    // Wand completes one triple from the board, so it needs both stock and at
+    // least one tile still on the board to have anything to bring in.
+    this._setBoosterButton(this.wandBtn, this.wandBadge, wandLeft, wandLeft > 0 && this.boardCount > 0);
   }
 
   _setBoosterButton(btn, badge, count, usable) {
@@ -120,10 +124,13 @@ export class GameScene extends PIXI.Container {
     // (see _updateBoosters).
     const by = 1266;
     this.shuffleBtn = this._makeRoundButton("🔀", 54, 175, by, 0xff8a3d, () => this.reshuffle());
+    this.wandBtn = this._makeRoundButton("🪄", 54, 375, by, 0x9b59f6, () => this.wand());
     this.undoBtn = this._makeRoundButton("⤺", 54, 575, by, 0x4d8dff, () => this.undo());
     this.shuffleBadge = this._makeCountBadge(175 + 38, by - 38);
+    this.wandBadge = this._makeCountBadge(375 + 38, by - 38);
     this.undoBadge = this._makeCountBadge(575 + 38, by - 38);
-    this.hudLayer.addChild(this.shuffleBtn, this.undoBtn, this.shuffleBadge, this.undoBadge);
+    this.hudLayer.addChild(this.shuffleBtn, this.wandBtn, this.undoBtn,
+      this.shuffleBadge, this.wandBadge, this.undoBadge);
 
     // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
@@ -399,7 +406,10 @@ export class GameScene extends PIXI.Container {
 
   _layoutTray() {
     this.tray.forEach((t, i) => {
-      const pos = this.slotPositions[i];
+      // Normal play never exceeds TRAY_SLOTS, but the Wand can momentarily bring
+      // the tray over capacity before the completed triple clears in the same
+      // beat — clamp to the last slot so we never index past slotPositions.
+      const pos = this.slotPositions[Math.min(i, TRAY_SLOTS - 1)];
       this._animateTo(t.container, pos.x, pos.y, 200, easeOutCubic);
       this._animateScale(t.container, SLOT / TILE_DRAW, 200);
     });
@@ -484,6 +494,122 @@ export class GameScene extends PIXI.Container {
     this._layoutTray();
     this._updateProgress();
     this._updateBoosters();
+  }
+
+  // The Wand ("hint") helper: guarantee one instant match. It picks a single
+  // colour that reaches a triple most cheaply (a waiting pair first, then any
+  // tray colour, else a fresh colour off the board), flies the missing tiles
+  // from the board into the tray, and lets them resolve and clear — freeing tray
+  // space. A consumable like the other helpers: one charge per use, disabled at
+  // zero. (The upgraded "super" wand that clears several sets shares this button
+  // but is out of scope here.)
+  wand() {
+    if (this.locked) return;                       // won/lost, or a wand animation in flight
+    if (!this.user || !this.user.hasBooster("wand")) return; // no stock -> disabled, no-op
+    const pick = this._wandPick();
+    if (!pick || pick.tiles.length === 0) return;  // nothing to bring in -> don't spend a charge
+    if (!this.user.useBooster("wand")) return;      // spend one charge
+
+    // Lock out further input (incl. a second wand tap) until the tiles land and
+    // the triple resolves, so a rapid double-tap can't spend two charges.
+    this.locked = true;
+    for (const t of pick.tiles) {
+      t.inTray = true;
+      this.boardCount--;
+      // free up tiles beneath, exactly as a manual collect would
+      for (const belowId of t.covered) {
+        const b = this.tiles[belowId];
+        if (!b.inTray && !b.matched) b.aliveCovers = Math.max(0, b.aliveCovers - 1);
+      }
+      // reparent to the tray keeping world position, then group with its kind
+      const gp = t.container.getGlobalPosition();
+      this.boardLayer.removeChild(t.container);
+      this.trayLayer.addChild(t.container);
+      const local = this.trayLayer.toLocal(gp);
+      t.container.position.set(local.x, local.y);
+      t.sprite.tint = 0xffffff;
+      t.container.eventMode = "none";
+      let lastMatch = -1;
+      for (let i = this.tray.length - 1; i >= 0; i--) {
+        if (this.tray[i].type === t.type) { lastMatch = i; break; }
+      }
+      if (lastMatch >= 0) this.tray.splice(lastMatch + 1, 0, t);
+      else this.tray.push(t);
+      this.history.push(t);
+    }
+    this._refreshFreeStates();
+    this.audio.play("tile_bop");
+    this._layoutTray();
+    this._updateProgress();
+
+    // Let the tiles fly in, then unlock and resolve the completed triple.
+    setTimeout(() => {
+      this.locked = false;
+      this._settle();
+      this._updateBoosters();
+    }, 360);
+  }
+
+  // Choose the colour the Wand completes and the board tiles it pulls in.
+  // Selection order (cheapest-to-complete first, per the spec):
+  //   1) a colour already holding a PAIR in the tray -> pull 1 more (frees 2 slots)
+  //   2) else a colour holding a SINGLE in the tray  -> pull 2 more (frees 1 slot)
+  //   3) else (empty tray) a colour off the board    -> pull a full 3 (space-neutral)
+  // Ties resolve by tray order (cases 1–2) / by preferring a completable colour
+  // then tile face id (case 3). Board tiles are drawn most-accessible first
+  // (fewest live coverers, then id) so the move reads as one the player could
+  // have made. Returns null if the board is empty. `tiles` may be short of the
+  // ideal count if the board lacks enough of the colour — the triple just won't
+  // complete this time (handled by the caller, no crash).
+  _wandPick() {
+    const boardTiles = this.tiles.filter((t) => !t.matched && !t.inTray);
+    if (boardTiles.length === 0) return null;
+
+    // tray composition, remembering first-appearance order
+    const trayCount = new Map();
+    const trayOrder = [];
+    for (const t of this.tray) {
+      if (!trayCount.has(t.type)) { trayCount.set(t.type, 0); trayOrder.push(t.type); }
+      trayCount.set(t.type, trayCount.get(t.type) + 1);
+    }
+    // board tiles grouped by face
+    const boardByType = new Map();
+    for (const t of boardTiles) {
+      if (!boardByType.has(t.type)) boardByType.set(t.type, []);
+      boardByType.get(t.type).push(t);
+    }
+
+    let chosenType = null, need = 0;
+    // 1) a waiting pair (a match cleared at 3, so tray counts are only 1 or 2)
+    for (const ty of trayOrder) {
+      if (trayCount.get(ty) === 2) { chosenType = ty; need = 1; break; }
+    }
+    // 2) any single already in the tray
+    if (chosenType === null) {
+      for (const ty of trayOrder) {
+        if (trayCount.get(ty) === 1) { chosenType = ty; need = 2; break; }
+      }
+    }
+    // 3) empty tray: pick a board colour — prefer one with a full triple to give
+    //    (smallest face id among those), else the most plentiful colour.
+    if (chosenType === null) {
+      const types = [...boardByType.keys()].sort((a, b) => a - b);
+      let best = null;
+      for (const ty of types) {
+        if (boardByType.get(ty).length >= 3) { best = ty; break; }
+      }
+      if (best === null) {
+        for (const ty of types) {
+          if (best === null || boardByType.get(ty).length > boardByType.get(best).length) best = ty;
+        }
+      }
+      chosenType = best; need = 3;
+    }
+
+    const avail = (boardByType.get(chosenType) || [])
+      .slice()
+      .sort((a, b) => a.aliveCovers - b.aliveCovers || a.id - b.id);
+    return { type: chosenType, tiles: avail.slice(0, need) };
   }
 
   restart() {

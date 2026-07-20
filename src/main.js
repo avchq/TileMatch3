@@ -157,6 +157,7 @@ async function boot() {
     startLevel,
     exitLevel: () => scene.onExit && scene.onExit(),
     reshuffle: () => scene.reshuffle(),
+    wand: () => scene.wand(),
     playSound: (name) => audio.play(name),
     soundNames: () => Object.keys(audio.buffers),
     manifest: MANIFEST,
@@ -180,12 +181,15 @@ async function boot() {
     boosterState: () => ({
       undoUsable: scene.undoBtn.eventMode === "static",
       shuffleUsable: scene.shuffleBtn.eventMode === "static",
+      wandUsable: scene.wandBtn.eventMode === "static",
       // greyed-out appearance (alpha < 1) — mirrors "usable" so the look matches
       // whether a tap actually does anything.
       undoDimmed: scene.undoBtn.alpha < 1,
       shuffleDimmed: scene.shuffleBtn.alpha < 1,
+      wandDimmed: scene.wandBtn.alpha < 1,
       undoBadge: scene.undoBadge.text.text,
       shuffleBadge: scene.shuffleBadge.text.text,
+      wandBadge: scene.wandBadge.text.text,
     }),
     setMusic: (on) => audio.setMusic(on),
     setSound: (on) => audio.setSound(on),

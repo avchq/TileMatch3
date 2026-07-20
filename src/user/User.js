@@ -16,8 +16,8 @@ export const CURRENCIES = ["coins", "gems"];
 // here — no other model change is required. New players get a small starter
 // stock so the helpers are usable out of the box; once a helper hits 0 it is
 // shown disabled until the player earns/buys more.
-export const BOOSTERS = ["undo", "shuffle"];
-const STARTER_BOOSTERS = { undo: 3, shuffle: 3 };
+export const BOOSTERS = ["undo", "shuffle", "wand"];
+const STARTER_BOOSTERS = { undo: 3, shuffle: 3, wand: 3 };
 
 const defaults = () => ({
   version: SCHEMA_VERSION,
