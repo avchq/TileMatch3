@@ -1,5 +1,5 @@
 import { parseLevel, computeCoverers, assignSolvableTypes, mulberry32 } from "./level.js";
-import { easeOutCubic, easeOutBack, tween } from "./tween.js";
+import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.js";
 import { makeCogButton } from "./settings.js";
 import { typesForLevel } from "./levelConfig.js";
 
@@ -39,6 +39,7 @@ export class GameScene extends PIXI.Container {
     this.boardCount = 0;
     this.levelNum = 1;
     this.locked = false;    // blocks input during win/lose transitions
+    this._autoRunning = false; // true while the Auto Complete sweep animates
     this.onLevelComplete = null; // (levelNum) => void — set by the host (main.js)
     this.onSettings = null;      // () => void — open the settings screen
     this.onExit = null;          // () => void — leave the level, back to the lobby
@@ -55,6 +56,17 @@ export class GameScene extends PIXI.Container {
   // remaining-uses count in a bubble, and is disabled (greyed-out, ignores taps)
   // when the player has none left — or, for Undo, when there's nothing to undo.
   _updateBoosters() {
+    // The Auto Complete sweep owns the HUD row while it runs — leave it alone.
+    if (this._autoRunning) return;
+    // When the endgame is trivially solvable, Auto Complete REPLACES the three
+    // helpers in the row: hide them (buttons + badges) and show the wide button.
+    const avail = this._autoAvailable();
+    this.autoBtn.visible = avail;
+    for (const n of [this.shuffleBtn, this.wandBtn, this.undoBtn,
+      this.shuffleBadge, this.wandBadge, this.undoBadge]) n.visible = !avail;
+    if (avail) return; // helpers hidden — skip the per-helper refresh below
+                       // (it would otherwise force each badge back to visible)
+
     const undoLeft = this.user ? this.user.boosterCount("undo") : 0;
     const shuffleLeft = this.user ? this.user.boosterCount("shuffle") : 0;
     const wandLeft = this.user ? this.user.boosterCount("wand") : 0;
@@ -63,6 +75,17 @@ export class GameScene extends PIXI.Container {
     // Wand completes one triple from the board, so it needs both stock and at
     // least one tile still on the board to have anything to bring in.
     this._setBoosterButton(this.wandBtn, this.wandBadge, wandLeft, wandLeft > 0 && this.boardCount > 0);
+  }
+
+  // Auto Complete becomes available only in a trivially-solvable endgame: a small
+  // number of tiles left (≤ 4 easy triples) with NONE still covered, so every
+  // remaining tile is directly reachable. The remaining count is always a
+  // multiple of 3 (each clear removes exactly 3), so this can never grant a win
+  // over a genuinely unmatchable leftover.
+  _autoAvailable() {
+    return !this.locked && this.boardCount > 0
+      && (this.boardCount + this.tray.length) <= 12
+      && !this.tiles.some((t) => !t.inTray && !t.matched && t.aliveCovers > 0);
   }
 
   _setBoosterButton(btn, badge, count, usable) {
@@ -131,6 +154,14 @@ export class GameScene extends PIXI.Container {
     this.undoBadge = this._makeCountBadge(575 + 38, by - 38);
     this.hudLayer.addChild(this.shuffleBtn, this.wandBtn, this.undoBtn,
       this.shuffleBadge, this.wandBadge, this.undoBadge);
+
+    // Auto Complete — a wide pill sharing the helper baseline, centred over the
+    // three round buttons. Hidden until the endgame is trivially solvable, when
+    // it REPLACES the helpers (see _updateBoosters / _autoAvailable).
+    this.autoBtn = this._makeButton("✓ Auto Complete", 460, 92, DESIGN_W / 2, by, 0x39c06a,
+      () => this.autoComplete());
+    this.autoBtn.visible = false;
+    this.hudLayer.addChild(this.autoBtn);
 
     // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
@@ -257,6 +288,7 @@ export class GameScene extends PIXI.Container {
     this.tray = [];
     this.history = [];
     this.locked = false;
+    this._autoRunning = false; // clear in case a prior level ended via Auto Complete
 
     const positions = parseLevel(rawArr);
     const { coverers, covered } = computeCoverers(positions);
@@ -610,6 +642,93 @@ export class GameScene extends PIXI.Container {
       .slice()
       .sort((a, b) => a.aliveCovers - b.aliveCovers || a.id - b.id);
     return { type: chosenType, tiles: avail.slice(0, need) };
+  }
+
+  // Auto Complete: sweep every remaining tile into a pile, then fly them one by
+  // one along a curved path into the tray's first slot, discarding each on
+  // arrival — and win the level. Free (no booster). Only reachable when
+  // _autoAvailable() holds (a trivially-solvable endgame). Locks input for the
+  // whole sweep so a rapid double-tap can't launch it twice.
+  async autoComplete() {
+    if (this.locked || this._autoRunning || !this._autoAvailable()) return;
+    this.locked = true;
+    this._autoRunning = true;
+
+    // The animation owns the HUD row — hide every helper node and the button.
+    for (const n of [this.shuffleBtn, this.wandBtn, this.undoBtn,
+      this.shuffleBadge, this.wandBadge, this.undoBadge, this.autoBtn]) n.visible = false;
+
+    const ticker = this.app.ticker;
+    const remaining = [
+      ...this.tiles.filter((t) => !t.inTray && !t.matched), // board
+      ...this.tray,                                          // rack
+    ];
+
+    // Stage every tile on fxLayer (above board + tray, below the win overlay),
+    // keeping its on-screen position, and stop any in-flight tray/board tween so
+    // it can't fight the sweep.
+    for (const t of remaining) {
+      const cont = t.container;
+      if (cont.__mv) { ticker.remove(cont.__mv); cont.__mv = null; }
+      if (cont.__sc) { ticker.remove(cont.__sc); cont.__sc = null; }
+      const gp = cont.getGlobalPosition();
+      cont.parent.removeChild(cont);
+      this.fxLayer.addChild(cont);
+      const local = this.fxLayer.toLocal(gp);
+      cont.position.set(local.x, local.y);
+      cont.eventMode = "none";
+      t.sprite.tint = 0xffffff;
+    }
+
+    // Phase A — gather into a loose pile near the board centre.
+    const pile = { x: DESIGN_W / 2, y: 720 };
+    this.audio.play("tile_bop");
+    await Promise.all(remaining.map((t, i) => {
+      const cont = t.container;
+      const sx = cont.x, sy = cont.y, ss = cont.scale.x;
+      const jx = ((i % 5) - 2) * 12, jy = (Math.floor(i / 5) - 1) * 12; // small heap jitter
+      const tx = pile.x + jx, ty = pile.y + jy, ts = 0.7;
+      return tween(ticker, {
+        duration: 320, ease: easeOutCubic,
+        onUpdate: (e) => {
+          cont.x = sx + (tx - sx) * e;
+          cont.y = sy + (ty - sy) * e;
+          cont.scale.set(ss + (ts - ss) * e);
+        },
+      });
+    }));
+
+    // Phase B — stream tiles one by one along a quadratic Bézier into slot 0.
+    const slot0 = this.slotPositions[0];
+    const C = { x: 240, y: 540 };          // control point → gentle rise then dive
+    const endScale = SLOT / TILE_DRAW;
+    await Promise.all(remaining.map(async (t, i) => {
+      const cont = t.container;
+      await delay(ticker, i * 90);         // stagger the launches
+      const p0x = cont.x, p0y = cont.y, s0 = cont.scale.x;
+      await tween(ticker, {
+        duration: 460, ease: easeInOutQuad,
+        onUpdate: (e) => {
+          const u = 1 - e;
+          cont.x = u * u * p0x + 2 * u * e * C.x + e * e * slot0.x;
+          cont.y = u * u * p0y + 2 * u * e * C.y + e * e * slot0.y;
+          cont.scale.set(s0 + (endScale - s0) * e);
+        },
+      });
+      this._popMatch(cont);                // pulse + fade + destroy = "discarded"
+    }));
+    await delay(ticker, 260);              // let the final pop finish before the overlay
+
+    // Finalize: everything is cleared. Mark tiles matched, empty the tray/history,
+    // and declare the win directly (never via _checkEnd, which early-returns on
+    // locked and could branch to _lose).
+    for (const t of remaining) t.matched = true;
+    this.tray = [];
+    this.history = [];
+    this.boardCount = 0;
+    this._autoRunning = false;
+    this._updateProgress();
+    this._win();
   }
 
   restart() {

@@ -35,7 +35,14 @@ up with no match, you lose (**Try Again** restarts the level in place). In-game
 Each helper is drawn from a **limited inventory** stored on the player profile —
 a count **bubble** on the button shows how many uses remain, every use spends
 one, and once you hit **0** the helper is disabled until you get more (new
-players start with a small stock; see the User object below). The **cog** (top-left) opens Settings and the
+players start with a small stock; see the User object below).
+
+When the board is down to a **trivially solvable endgame** — **12 or fewer tiles
+left** (≤ 4 easy triples) with **nothing still covered** — an **Auto Complete**
+button appears in the helper row, **replacing** the three helpers. It's **free**
+(not a booster). Press it and every remaining tile gathers into a pile, then
+flies one-by-one along a curved path into the tray's first slot, popping on
+arrival — when the last one lands, the level is won. The **cog** (top-left) opens Settings and the
 **‹ Back** button beside it leaves the level for the lobby with progress kept.
 
 ## Run it
@@ -81,7 +88,16 @@ python3 -m http.server 8099
   the cheapest colour to finish (waiting pair → single → fresh board colour),
   flies the missing tiles in most-accessible-first, and locks input until the
   triple resolves so a rapid double-tap can't spend two charges. (An upgraded
-  "super" wand tied to a win-streak meta shares the button but isn't built.) On a win it calls back to the host
+  "super" wand tied to a win-streak meta shares the button but isn't built.)
+  **Auto Complete** (`autoComplete()` / `_autoAvailable()`) is a **free** endgame
+  shortcut, not a booster: when `boardCount + tray.length ≤ 12` and no board tile
+  is still covered, `_updateBoosters` swaps the three round helpers for a wide
+  **Auto Complete** pill in the same row. Pressing it stages every remaining tile
+  on `fxLayer`, gathers them into a pile, then flies each along a quadratic
+  Bézier into the tray's first slot (staggered), `_popMatch`-ing it on arrival,
+  and calls `_win()` once the board is empty. Input is locked for the whole sweep
+  (`_autoRunning`), which is reset in `loadLevel` so the next level's helper row
+  returns. On a win it calls back to the host
   (`onLevelComplete`) rather than self-looping; the top-left **Back** button
   calls `onExit` to return to the lobby mid-level (progress untouched).
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred

@@ -74,6 +74,12 @@ line per test.
   pair is finished by pulling a single tile (freeing two slots), a rapid
   double-tap spends only one charge, at zero stock it's disabled/greyed and a
   no-op, and the spent stock persists across a reload.
+- **`auto_test.py`** — the free Auto Complete button appears (replacing the three
+  helpers) exactly when the endgame is trivial (≤12 tiles left, none covered):
+  the availability flag matches the gate at every step of a level-1 descent and
+  the HUD row mirrors it, pressing it sweeps every tile into the first slot and
+  wins the level (board/rack empty, overlay shown), Continue advances a level,
+  and the next level's helper row recovers (the `_autoRunning` reset).
 
 ### User profile & persistence
 
