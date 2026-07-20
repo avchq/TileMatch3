@@ -20,6 +20,10 @@ try:
         page.reload()
         page.wait_for_function("window.__game && window.__game.settings", timeout=20000)
         time.sleep(0.5)
+        # Undo is a helper consumed from the inventory; top it up so this test
+        # exercises undo MECHANICS without running out (booster gating is covered
+        # in booster_test.py).
+        page.evaluate("window.__game.grantBooster('undo', 999)")
 
         def st():   return page.evaluate("window.__game.state()")
         def tap():  page.evaluate("window.__game.solveTap()"); time.sleep(0.35)

@@ -65,7 +65,7 @@ async function boot() {
   // starts play.
   let currentLevel = user.progress.level;
 
-  const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio);
+  const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user);
   const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL);
   const settings = new SettingsScene(app, audio);
   root.addChild(scene, lobby, settings); // settings overlays whichever scene is active
@@ -174,6 +174,19 @@ async function boot() {
     balance: (cur) => user.balance(cur),
     credit: (cur, n) => user.credit(cur, n),
     debit: (cur, n) => user.debit(cur, n),
+    // ---- helper (booster) inventory ----
+    boosterCount: (kind) => user.boosterCount(kind),
+    grantBooster: (kind, n) => user.grantBooster(kind, n),
+    boosterState: () => ({
+      undoUsable: scene.undoBtn.eventMode === "static",
+      shuffleUsable: scene.shuffleBtn.eventMode === "static",
+      // greyed-out appearance (alpha < 1) — mirrors "usable" so the look matches
+      // whether a tap actually does anything.
+      undoDimmed: scene.undoBtn.alpha < 1,
+      shuffleDimmed: scene.shuffleBtn.alpha < 1,
+      undoBadge: scene.undoBadge.text.text,
+      shuffleBadge: scene.shuffleBadge.text.text,
+    }),
     setMusic: (on) => audio.setMusic(on),
     setSound: (on) => audio.setSound(on),
     setMuted: (m) => audio.setMuted(m),

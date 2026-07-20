@@ -11,6 +11,14 @@ export const SCHEMA_VERSION = 1;
 // other code change is required.
 export const CURRENCIES = ["coins", "gems"];
 
+// In-game helpers ("boosters") the player can spend during a level. Like the
+// wallet, the inventory is a keyed map, so adding a helper is just a new code
+// here — no other model change is required. New players get a small starter
+// stock so the helpers are usable out of the box; once a helper hits 0 it is
+// shown disabled until the player earns/buys more.
+export const BOOSTERS = ["undo", "shuffle"];
+const STARTER_BOOSTERS = { undo: 3, shuffle: 3 };
+
 const defaults = () => ({
   version: SCHEMA_VERSION,
   id: "",
@@ -18,6 +26,7 @@ const defaults = () => ({
   name: "",
   progress: { level: 1 },        // next level to play (room to grow: stars, completed[]…)
   wallet: { coins: 0, gems: 0 }, // currency code -> balance
+  boosters: { ...STARTER_BOOSTERS }, // helper code -> remaining uses
   settings: { music: true, sound: true },
 });
 
@@ -31,12 +40,13 @@ export class User {
     // shallow-merge each sub-object over defaults so missing fields are filled
     this.progress = { ...d.progress, ...(data.progress || {}) };
     this.wallet = { ...d.wallet, ...(data.wallet || {}) };
+    this.boosters = { ...d.boosters, ...(data.boosters || {}) };
     this.settings = { ...d.settings, ...(data.settings || {}) };
     this._listeners = new Set();
   }
 
   // ---- change events -------------------------------------------------------
-  /** Subscribe. Callback is fn(domain, user) where domain ∈ progress|wallet|settings.
+  /** Subscribe. Callback is fn(domain, user) where domain ∈ progress|wallet|boosters|settings.
    *  Returns an unsubscribe function. */
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
   off(fn) { this._listeners.delete(fn); }
@@ -73,6 +83,27 @@ export class User {
     return true;
   }
 
+  // ---- boosters (helper inventory, code-agnostic) -------------------------
+  /** Remaining uses of a helper (0 if unknown/empty). */
+  boosterCount(kind) { return this.boosters[kind] || 0; }
+  hasBooster(kind) { return this.boosterCount(kind) > 0; }
+  /** Add helper uses. Returns the new count. */
+  grantBooster(kind, amount = 1) {
+    const n = Math.max(0, Math.floor(amount) || 0);
+    if (!n) return this.boosterCount(kind);
+    this.boosters[kind] = this.boosterCount(kind) + n;
+    this._emit("boosters");
+    return this.boosters[kind];
+  }
+  /** Consume one use of a helper. Returns false (changing nothing) if the
+   *  inventory is empty, so callers can gate the helper on the return value. */
+  useBooster(kind) {
+    if (!this.hasBooster(kind)) return false;
+    this.boosters[kind] = this.boosterCount(kind) - 1;
+    this._emit("boosters");
+    return true;
+  }
+
   // ---- settings ------------------------------------------------------------
   get music() { return this.settings.music; }
   get sound() { return this.settings.sound; }
@@ -98,9 +129,11 @@ export class User {
     const d = defaults();
     this.progress = { ...d.progress };
     this.wallet = { ...d.wallet };
+    this.boosters = { ...d.boosters };
     this.settings = { ...d.settings };
     this._emit("progress");
     this._emit("wallet");
+    this._emit("boosters");
     this._emit("settings");
   }
 
@@ -113,6 +146,7 @@ export class User {
       name: this.name,
       progress: { ...this.progress },
       wallet: { ...this.wallet },
+      boosters: { ...this.boosters },
       settings: { ...this.settings },
     };
   }

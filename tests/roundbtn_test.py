@@ -20,6 +20,10 @@ try:
         page.reload()
         page.wait_for_function("window.__game && window.__game.settings", timeout=20000)
         time.sleep(0.6)
+        # Undo/Reshuffle are helpers consumed from inventory — top up so the
+        # buttons are enabled for the click test.
+        page.evaluate("window.__game.grantBooster('undo', 999)")
+        page.evaluate("window.__game.grantBooster('shuffle', 999)")
         page.evaluate("window.__game.startLevel(1)")
         time.sleep(0.8)
         page.screenshot(path=f"{SC}/roundbtn_level.png")

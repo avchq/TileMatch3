@@ -43,6 +43,10 @@ try:
         page.evaluate("() => localStorage.clear()")
         page.reload()
         page.wait_for_function("window.__game && window.__game.scene", timeout=20000)
+        # Reshuffle is a helper consumed from the inventory; top it up so this test
+        # exercises reshuffle MECHANICS without running out (gating is covered in
+        # booster_test.py).
+        page.evaluate("window.__game.grantBooster('shuffle', 999)")
 
         page.evaluate("window.__game.startLevel(1)")
         time.sleep(0.6)

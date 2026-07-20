@@ -65,6 +65,10 @@ line per test.
 - **`layout_test.py`** — a level's type layout is deterministic: the same fruit
   lands on the same position across re-loads and full page reloads, different
   levels differ, and the fixed board is still solvable to a win.
+- **`booster_test.py`** — the Undo/Shuffle helpers draw from an inventory on the
+  user record: a fresh profile has the starter stock, each use decrements it and
+  updates the count bubble, a depleted helper is disabled and its action is a
+  no-op, the inventory persists across a reload, and a grant re-enables it live.
 
 ### User profile & persistence
 

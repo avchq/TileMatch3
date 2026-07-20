@@ -16,13 +16,14 @@ const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1140;
 
 export class GameScene extends PIXI.Container {
-  constructor(app, tileTextures, slotTexture, backgrounds, audio) {
+  constructor(app, tileTextures, slotTexture, backgrounds, audio, user) {
     super();
     this.app = app;
     this.tileTextures = tileTextures;
     this.slotTexture = slotTexture;
     this.backgrounds = backgrounds; // { 1: tex, 2: tex, 3: tex }
     this.audio = audio;
+    this.user = user; // player profile — the helper (booster) inventory lives here
 
     this.bgLayer = new PIXI.Container();
     this.boardLayer = new PIXI.Container();
@@ -44,16 +45,32 @@ export class GameScene extends PIXI.Container {
 
     this._buildHud();
     this._buildTraySlots();
-    this._updateUndoButton();
+    // Keep the helper buttons in sync when the inventory changes elsewhere
+    // (e.g. a reward grant), not just when we spend one during a level.
+    if (this.user) this.user.on((domain) => { if (domain === "boosters") this._updateBoosters(); });
+    this._updateBoosters();
   }
 
-  // Enable the Undo button only when there's a collected tile to return; grey it
-  // out and stop taking taps when the tray/history is empty (nothing to undo).
-  _updateUndoButton() {
-    const enabled = this.history.length > 0;
-    this.undoBtn.eventMode = enabled ? "static" : "none";
-    this.undoBtn.cursor = enabled ? "pointer" : "default";
-    this.undoBtn.alpha = enabled ? 1 : 0.4;
+  // Reflect the helper (booster) inventory on the HUD: each helper shows its
+  // remaining-uses count in a bubble, and is disabled (greyed-out, ignores taps)
+  // when the player has none left — or, for Undo, when there's nothing to undo.
+  _updateBoosters() {
+    const undoLeft = this.user ? this.user.boosterCount("undo") : 0;
+    const shuffleLeft = this.user ? this.user.boosterCount("shuffle") : 0;
+    this._setBoosterButton(this.undoBtn, this.undoBadge, undoLeft, undoLeft > 0 && this.history.length > 0);
+    this._setBoosterButton(this.shuffleBtn, this.shuffleBadge, shuffleLeft, shuffleLeft > 0);
+  }
+
+  _setBoosterButton(btn, badge, count, usable) {
+    btn.eventMode = usable ? "static" : "none";
+    btn.cursor = usable ? "pointer" : "default";
+    // Grey the button out whenever it can't be used right now — an empty stock
+    // OR (for Undo) an empty tray with no move to undo. The count bubble still
+    // shows the owned stock so the player sees they have helpers in reserve.
+    btn.alpha = usable ? 1 : 0.4;
+    badge.text.text = String(count);
+    badge.visible = true; // always show the stock, even at 0, so the player sees it
+    badge.dim(count === 0);
   }
 
   // ---- static chrome -------------------------------------------------------
@@ -98,11 +115,15 @@ export class GameScene extends PIXI.Container {
 
     // buttons row — round, icon-only. Placed BELOW the tray panel (whose bottom
     // edge sits at TRAY_Y + SLOT/2 + 18) so the two never overlap.
+    // Helper (booster) buttons. Each carries a count bubble showing how many
+    // uses remain in the player's inventory; both are disabled when empty
+    // (see _updateBoosters).
     const by = 1266;
-    this.hudLayer.addChild(this._makeRoundButton("🔀", 54, 175, by, 0xff8a3d, () => this.reshuffle()));
-    // Undo — kept disabled while there's nothing to undo (empty tray/history).
+    this.shuffleBtn = this._makeRoundButton("🔀", 54, 175, by, 0xff8a3d, () => this.reshuffle());
     this.undoBtn = this._makeRoundButton("⤺", 54, 575, by, 0x4d8dff, () => this.undo());
-    this.hudLayer.addChild(this.undoBtn);
+    this.shuffleBadge = this._makeCountBadge(175 + 38, by - 38);
+    this.undoBadge = this._makeCountBadge(575 + 38, by - 38);
+    this.hudLayer.addChild(this.shuffleBtn, this.undoBtn, this.shuffleBadge, this.undoBadge);
 
     // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
@@ -166,6 +187,32 @@ export class GameScene extends PIXI.Container {
     return c;
   }
 
+  // A small count "bubble" pinned to a button's top-right corner, showing how
+  // many uses of a helper remain. dim(true) greys it to signal an empty stock.
+  _makeCountBadge(cx, cy) {
+    const c = new PIXI.Container();
+    c.position.set(cx, cy);
+    c.eventMode = "none"; // decorative — never intercepts taps meant for the button
+    const r = 20;
+    const g = new PIXI.Graphics();
+    const draw = (fill) => {
+      g.clear();
+      g.beginFill(fill).drawCircle(0, 0, r).endFill();
+      g.lineStyle(3, 0xffffff, 0.9).drawCircle(0, 0, r);
+    };
+    draw(0x2ecc71);
+    const t = new PIXI.Text("0", {
+      fontFamily: "Arial", fontSize: 26, fontWeight: "900", fill: 0xffffff,
+      stroke: 0x14361f, strokeThickness: 4,
+    });
+    t.anchor.set(0.5);
+    c.addChild(g, t);
+    c.text = t;
+    // Green bubble when stocked, muted grey when empty.
+    c.dim = (empty) => draw(empty ? 0x8a93ab : 0x2ecc71);
+    return c;
+  }
+
   _buildTraySlots() {
     this.slotContainer = new PIXI.Container();
     const totalW = TRAY_SLOTS * SLOT + (TRAY_SLOTS - 1) * 6;
@@ -222,7 +269,7 @@ export class GameScene extends PIXI.Container {
     this._layoutBoard();
     this._refreshFreeStates();
     this._updateProgress();
-    this._updateUndoButton();
+    this._updateBoosters();
   }
 
   _createTile(p, id, coverers, covered) {
@@ -344,7 +391,7 @@ export class GameScene extends PIXI.Container {
     this.audio.play("tile_bop");
     this._layoutTray();
     this._updateProgress();
-    this._updateUndoButton();
+    this._updateBoosters();
 
     // settle after the slide-in
     setTimeout(() => this._settle(), 190);
@@ -389,7 +436,7 @@ export class GameScene extends PIXI.Container {
     if (matched) {
       this.audio.play("merge_click");
       this._layoutTray();
-      this._updateUndoButton();
+      this._updateBoosters();
     }
     this._checkEnd();
   }
@@ -411,6 +458,10 @@ export class GameScene extends PIXI.Container {
 
   undo() {
     if (this.locked) return;
+    if (this.history.length === 0) return;      // nothing to undo
+    // Undo is a helper: consume one from the inventory. If the player has none,
+    // the button is already disabled — this also guards the debug/test entry.
+    if (!this.user || !this.user.useBooster("undo")) return;
     const t = this.history.pop();
     if (!t) return;
     const idx = this.tray.indexOf(t);
@@ -432,7 +483,7 @@ export class GameScene extends PIXI.Container {
     this._refreshFreeStates();
     this._layoutTray();
     this._updateProgress();
-    this._updateUndoButton();
+    this._updateBoosters();
   }
 
   restart() {
@@ -448,6 +499,9 @@ export class GameScene extends PIXI.Container {
     if (this.locked) return;
     const boardTiles = this.tiles.filter((t) => !t.matched && !t.inTray);
     if (boardTiles.length === 0) return;
+    // Reshuffle is a helper: consume one from the inventory (button is disabled
+    // when empty; this also guards the debug/test entry point).
+    if (!this.user || !this.user.useBooster("shuffle")) return;
 
     const order = this._boardRemovalOrder(boardTiles); // fresh valid removal order (refs)
     const B = order.length;
