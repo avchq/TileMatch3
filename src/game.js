@@ -1,6 +1,7 @@
 import { parseLevel, computeCoverers, assignSolvableTypes, mulberry32 } from "./level.js";
 import { easeOutCubic, easeOutBack, tween } from "./tween.js";
 import { makeCogButton } from "./settings.js";
+import { typesForLevel } from "./levelConfig.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -13,10 +14,6 @@ const SLOT = 84;
 
 const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1140;
-
-// distinct tile types per level (every one is guaranteed to appear on the
-// board; at least 7 per level, growing with difficulty)
-const TYPES_PER_LEVEL = { 1: 7, 2: 8, 3: 9 };
 
 export class GameScene extends PIXI.Container {
   constructor(app, tileTextures, slotTexture, backgrounds, audio) {
@@ -47,6 +44,16 @@ export class GameScene extends PIXI.Container {
 
     this._buildHud();
     this._buildTraySlots();
+    this._updateUndoButton();
+  }
+
+  // Enable the Undo button only when there's a collected tile to return; grey it
+  // out and stop taking taps when the tray/history is empty (nothing to undo).
+  _updateUndoButton() {
+    const enabled = this.history.length > 0;
+    this.undoBtn.eventMode = enabled ? "static" : "none";
+    this.undoBtn.cursor = enabled ? "pointer" : "default";
+    this.undoBtn.alpha = enabled ? 1 : 0.4;
   }
 
   // ---- static chrome -------------------------------------------------------
@@ -93,7 +100,9 @@ export class GameScene extends PIXI.Container {
     // edge sits at TRAY_Y + SLOT/2 + 18) so the two never overlap.
     const by = 1266;
     this.hudLayer.addChild(this._makeRoundButton("🔀", 54, 175, by, 0xff8a3d, () => this.reshuffle()));
-    this.hudLayer.addChild(this._makeRoundButton("⤺", 54, 575, by, 0x4d8dff, () => this.undo()));
+    // Undo — kept disabled while there's nothing to undo (empty tray/history).
+    this.undoBtn = this._makeRoundButton("⤺", 54, 575, by, 0x4d8dff, () => this.undo());
+    this.hudLayer.addChild(this.undoBtn);
 
     // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
@@ -197,7 +206,7 @@ export class GameScene extends PIXI.Container {
 
     const positions = parseLevel(rawArr);
     const { coverers, covered } = computeCoverers(positions);
-    const numTypes = TYPES_PER_LEVEL[levelNum] || 5;
+    const numTypes = typesForLevel(levelNum);
     // Deterministic seed derived only from the level number, so a level's type
     // layout is identical every time it loads (a given tile — e.g. strawberry —
     // is always in the same spot across reloads/sessions). Multiplying by a large
@@ -213,6 +222,7 @@ export class GameScene extends PIXI.Container {
     this._layoutBoard();
     this._refreshFreeStates();
     this._updateProgress();
+    this._updateUndoButton();
   }
 
   _createTile(p, id, coverers, covered) {
@@ -334,6 +344,7 @@ export class GameScene extends PIXI.Container {
     this.audio.play("tile_bop");
     this._layoutTray();
     this._updateProgress();
+    this._updateUndoButton();
 
     // settle after the slide-in
     setTimeout(() => this._settle(), 190);
@@ -378,6 +389,7 @@ export class GameScene extends PIXI.Container {
     if (matched) {
       this.audio.play("merge_click");
       this._layoutTray();
+      this._updateUndoButton();
     }
     this._checkEnd();
   }
@@ -420,6 +432,7 @@ export class GameScene extends PIXI.Container {
     this._refreshFreeStates();
     this._layoutTray();
     this._updateProgress();
+    this._updateUndoButton();
   }
 
   restart() {
@@ -438,7 +451,7 @@ export class GameScene extends PIXI.Container {
 
     const order = this._boardRemovalOrder(boardTiles); // fresh valid removal order (refs)
     const B = order.length;
-    const numTypes = TYPES_PER_LEVEL[this.levelNum] || 5;
+    const numTypes = typesForLevel(this.levelNum);
 
     // The deck's open groups (each tray type currently holds 1 or 2 — a full 3
     // would have cleared). We finish these off with the FIRST board removals,
