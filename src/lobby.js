@@ -19,11 +19,22 @@ export class LobbyScene extends PIXI.Container {
     this.onPlay = null;     // (levelNum) => void
     this.onSettings = null; // () => void — open the settings screen
 
+    // Responsive layout state (updated by layout()); defaults to the base design.
+    this.viewW = DESIGN_W; this.viewH = DESIGN_H;
+
     this.bgLayer = new PIXI.Container();
     this.uiLayer = new PIXI.Container();
     this.addChild(this.bgLayer, this.uiLayer);
 
     this._buildStatic();
+  }
+
+  // Reflow into a DW×DH design area: centre the UI block in the safe area and
+  // extend the background to cover the whole view (see GameScene.layout).
+  layout(DW, DH) {
+    this.viewW = DW; this.viewH = DH;
+    this.uiLayer.position.set((DW - DESIGN_W) / 2, (DH - DESIGN_H) / 2);
+    if (this.visible) this._buildBackground(this._level);
   }
 
   _buildStatic() {
@@ -104,14 +115,14 @@ export class LobbyScene extends PIXI.Container {
     const tex = this.backgrounds[levelNum] || this.backgrounds[1];
     if (tex) {
       const sp = new PIXI.Sprite(tex);
-      const scale = Math.max(DESIGN_W / tex.width, DESIGN_H / tex.height);
+      const scale = Math.max(this.viewW / tex.width, this.viewH / tex.height);
       sp.scale.set(scale);
       sp.anchor.set(0.5);
-      sp.position.set(DESIGN_W / 2, DESIGN_H / 2);
+      sp.position.set(this.viewW / 2, this.viewH / 2);
       this.bgLayer.addChild(sp);
     }
     const dark = new PIXI.Graphics();
-    dark.beginFill(0x0a1226, 0.5).drawRect(0, 0, DESIGN_W, DESIGN_H).endFill();
+    dark.beginFill(0x0a1226, 0.5).drawRect(0, 0, this.viewW, this.viewH).endFill();
     this.bgLayer.addChild(dark);
   }
 

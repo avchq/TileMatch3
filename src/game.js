@@ -33,6 +33,25 @@ export class GameScene extends PIXI.Container {
     this.overlayLayer = new PIXI.Container();
     this.addChild(this.bgLayer, this.boardLayer, this.trayLayer, this.fxLayer, this.hudLayer, this.overlayLayer);
 
+    // Responsive layout state (updated by layout()); defaults to the base design
+    // so the scene is correct even before the first layout() call.
+    this.viewW = DESIGN_W; this.viewH = DESIGN_H;
+    this.ox = 0; this.oy = 0;         // safe-area offsets: horizontal band, bottom anchor
+    this.boardTop = BOARD_AREA.top;
+    this.boardBottom = BOARD_AREA.bottom;
+    this.boardCX = DESIGN_W / 2;
+    this.boardCY = (BOARD_AREA.top + BOARD_AREA.bottom) / 2;
+
+    // The HUD splits into a top band (anchored to the top edge) and a bottom band
+    // (anchored to the bottom edge); the tray group is bottom-anchored too. Each
+    // band keeps its original 0..750 coords and is centred in a 750-wide safe area
+    // by layout(), so nothing is ever cropped and the extra space becomes margin.
+    this.hudTop = new PIXI.Container();
+    this.hudBottom = new PIXI.Container();
+    this.hudLayer.addChild(this.hudTop, this.hudBottom);
+    this.trayGroup = new PIXI.Container();
+    this.trayLayer.addChild(this.trayGroup);
+
     this.tiles = [];
     this.tray = [];
     this.history = [];      // collected tile refs, newest last (for undo)
@@ -100,6 +119,37 @@ export class GameScene extends PIXI.Container {
     badge.dim(count === 0);
   }
 
+  // ---- responsive layout ---------------------------------------------------
+
+  // Reflow the scene into a DW×DH design area. The host sizes the renderer to the
+  // whole viewport and scales the stage so the constraining dimension fills
+  // exactly, so DW ≥ 750 and DH ≥ 1334 — the larger dimension just gains extra
+  // room. The top HUD stays anchored to the top edge, the tray + helper row
+  // anchor to the bottom edge, the board fills the space between, and the
+  // background/overlays extend to cover the whole view (no letterbox bars).
+  layout(DW, DH) {
+    this.viewW = DW; this.viewH = DH;
+    this.ox = (DW - DESIGN_W) / 2; // centre the 750-wide safe area
+    this.oy = DH - DESIGN_H;       // push the bottom cluster to the bottom edge
+    this.hudTop.position.set(this.ox, 0);
+    this.hudBottom.position.set(this.ox, this.oy);
+    this.trayGroup.position.set(this.ox, this.oy);
+    this.boardTop = BOARD_AREA.top;
+    this.boardBottom = TRAY_Y + this.oy - 110; // grow the board down toward the tray
+    this.boardCX = DW / 2;
+    this.boardCY = (this.boardTop + this.boardBottom) / 2;
+    if (this.rawArr) {
+      this._buildBackground();
+      if (this.tiles.length) this._layoutBoard();
+    }
+    // Reflow an open win/lose overlay to the new centre.
+    if (this.overlayLayer.children.length && this._overlayGroup) {
+      this._overlayGroup.position.set(DW / 2, DH / 2);
+      this._overlayDim.clear();
+      this._overlayDim.beginFill(0x040814, 0.62).drawRect(0, 0, DW, DH).endFill();
+    }
+  }
+
   // ---- static chrome -------------------------------------------------------
 
   _buildBackground() {
@@ -107,15 +157,15 @@ export class GameScene extends PIXI.Container {
     const tex = this.backgrounds[this.levelNum] || this.backgrounds[1];
     if (tex) {
       const sp = new PIXI.Sprite(tex);
-      // cover-fit
-      const scale = Math.max(DESIGN_W / tex.width, DESIGN_H / tex.height);
+      // cover-fit the whole view so the background reaches every screen edge
+      const scale = Math.max(this.viewW / tex.width, this.viewH / tex.height);
       sp.scale.set(scale);
       sp.anchor.set(0.5);
-      sp.position.set(DESIGN_W / 2, DESIGN_H / 2);
+      sp.position.set(this.viewW / 2, this.viewH / 2);
       this.bgLayer.addChild(sp);
     }
     const dark = new PIXI.Graphics();
-    dark.beginFill(0x0a1226, 0.34).drawRect(0, 0, DESIGN_W, DESIGN_H).endFill();
+    dark.beginFill(0x0a1226, 0.34).drawRect(0, 0, this.viewW, this.viewH).endFill();
     this.bgLayer.addChild(dark);
   }
 
@@ -123,7 +173,7 @@ export class GameScene extends PIXI.Container {
     // top bar
     const bar = new PIXI.Graphics();
     bar.beginFill(0x0a1226, 0.35).drawRoundedRect(24, 40, DESIGN_W - 48, 120, 28).endFill();
-    this.hudLayer.addChild(bar);
+    this.hudTop.addChild(bar);
 
     this.levelText = new PIXI.Text("LEVEL 1", {
       fontFamily: "Arial", fontSize: 40, fontWeight: "900", fill: 0xffffff,
@@ -131,14 +181,14 @@ export class GameScene extends PIXI.Container {
     });
     this.levelText.anchor.set(0.5);
     this.levelText.position.set(DESIGN_W / 2, 84);
-    this.hudLayer.addChild(this.levelText);
+    this.hudTop.addChild(this.levelText);
 
     this.progressText = new PIXI.Text("", {
       fontFamily: "Arial", fontSize: 24, fontWeight: "700", fill: 0xcfe0ff,
     });
     this.progressText.anchor.set(0.5);
     this.progressText.position.set(DESIGN_W / 2, 128);
-    this.hudLayer.addChild(this.progressText);
+    this.hudTop.addChild(this.progressText);
 
     // buttons row — round, icon-only. Placed BELOW the tray panel (whose bottom
     // edge sits at TRAY_Y + SLOT/2 + 18) so the two never overlap.
@@ -152,7 +202,7 @@ export class GameScene extends PIXI.Container {
     this.shuffleBadge = this._makeCountBadge(175 + 38, by - 38);
     this.wandBadge = this._makeCountBadge(375 + 38, by - 38);
     this.undoBadge = this._makeCountBadge(575 + 38, by - 38);
-    this.hudLayer.addChild(this.shuffleBtn, this.wandBtn, this.undoBtn,
+    this.hudBottom.addChild(this.shuffleBtn, this.wandBtn, this.undoBtn,
       this.shuffleBadge, this.wandBadge, this.undoBadge);
 
     // Auto Complete — a wide pill sharing the helper baseline, centred over the
@@ -161,16 +211,16 @@ export class GameScene extends PIXI.Container {
     this.autoBtn = this._makeButton("✓ Auto Complete", 460, 92, DESIGN_W / 2, by, 0x39c06a,
       () => this.autoComplete());
     this.autoBtn.visible = false;
-    this.hudLayer.addChild(this.autoBtn);
+    this.hudBottom.addChild(this.autoBtn);
 
     // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
     cog.position.set(60, 84);
-    this.hudLayer.addChild(cog);
+    this.hudTop.addChild(cog);
 
     // Back — sits next to the cog. Stops the level and returns to the lobby;
     // any user-record changes made during the level are left intact (persisted).
-    this.hudLayer.addChild(
+    this.hudTop.addChild(
       this._makeRoundButton("‹", 38, 148, 84, 0x334063, () => this.onExit && this.onExit())
     );
   }
@@ -261,7 +311,7 @@ export class GameScene extends PIXI.Container {
     panel.beginFill(0x0a1226, 0.4)
       .drawRoundedRect(DESIGN_W / 2 - totalW / 2 - 18, TRAY_Y - SLOT / 2 - 18, totalW + 36, SLOT + 36, 26)
       .endFill();
-    this.trayLayer.addChild(panel);
+    this.trayGroup.addChild(panel);
     for (let i = 0; i < TRAY_SLOTS; i++) {
       const x = startX + i * (SLOT + 6);
       this.slotPositions.push({ x, y: TRAY_Y });
@@ -271,7 +321,7 @@ export class GameScene extends PIXI.Container {
       s.position.set(x, TRAY_Y);
       this.slotContainer.addChild(s);
     }
-    this.trayLayer.addChild(this.slotContainer);
+    this.trayGroup.addChild(this.slotContainer);
   }
 
   // ---- level setup ---------------------------------------------------------
@@ -343,15 +393,15 @@ export class GameScene extends PIXI.Container {
     }
     const spanX = (maxX - minX + 1) * CELL;
     const spanY = (maxY - minY + 1) * CELL + maxLayer * LIFT;
-    const areaW = DESIGN_W - 60;
-    const areaH = BOARD_AREA.bottom - BOARD_AREA.top;
+    const areaW = DESIGN_W - 60; // keep the board within the 750-wide safe band
+    const areaH = this.boardBottom - this.boardTop;
     this.boardScale = Math.min(1, areaW / spanX, areaH / spanY);
     const s = this.boardScale;
 
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
-    this.boardCX = BOARD_AREA.x;
-    this.boardCY = (BOARD_AREA.top + BOARD_AREA.bottom) / 2;
+    this.boardCX = this.viewW / 2;
+    this.boardCY = (this.boardTop + this.boardBottom) / 2;
 
     // draw order: lower layers first; within a layer, farther rows (higher gy) first
     const ordered = [...this.tiles].sort((a, b) =>
@@ -408,8 +458,8 @@ export class GameScene extends PIXI.Container {
     // reparent to tray keeping world position
     const gp = t.container.getGlobalPosition();
     this.boardLayer.removeChild(t.container);
-    this.trayLayer.addChild(t.container);
-    const local = this.trayLayer.toLocal(gp);
+    this.trayGroup.addChild(t.container);
+    const local = this.trayGroup.toLocal(gp);
     t.container.position.set(local.x, local.y);
     t.sprite.tint = 0xffffff;
     t.container.eventMode = "none";
@@ -517,7 +567,7 @@ export class GameScene extends PIXI.Container {
       if (!b.inTray && !b.matched) b.aliveCovers++;
     }
     // back to board
-    this.trayLayer.removeChild(t.container);
+    this.trayGroup.removeChild(t.container);
     this.boardLayer.addChild(t.container);
     t.container.eventMode = "static";
     this._layoutBoard();
@@ -556,8 +606,8 @@ export class GameScene extends PIXI.Container {
       // reparent to the tray keeping world position, then group with its kind
       const gp = t.container.getGlobalPosition();
       this.boardLayer.removeChild(t.container);
-      this.trayLayer.addChild(t.container);
-      const local = this.trayLayer.toLocal(gp);
+      this.trayGroup.addChild(t.container);
+      const local = this.trayGroup.toLocal(gp);
       t.container.position.set(local.x, local.y);
       t.sprite.tint = 0xffffff;
       t.container.eventMode = "none";
@@ -681,7 +731,7 @@ export class GameScene extends PIXI.Container {
     }
 
     // Phase A — gather into a loose pile near the board centre.
-    const pile = { x: DESIGN_W / 2, y: 720 };
+    const pile = { x: this.boardCX, y: this.boardCY };
     this.audio.play("tile_bop");
     await Promise.all(remaining.map((t, i) => {
       const cont = t.container;
@@ -699,8 +749,9 @@ export class GameScene extends PIXI.Container {
     }));
 
     // Phase B — stream tiles one by one along a quadratic Bézier into slot 0.
-    const slot0 = this.slotPositions[0];
-    const C = { x: 240, y: 540 };          // control point → gentle rise then dive
+    // slot 0 lives in the (offset) tray group; project it into fxLayer space.
+    const slot0 = this.fxLayer.toLocal(this.trayGroup.toGlobal(this.slotPositions[0]));
+    const C = { x: pile.x - 135, y: (pile.y + slot0.y) / 2 - 200 }; // rise then dive
     const endScale = SLOT / TILE_DRAW;
     await Promise.all(remaining.map(async (t, i) => {
       const cont = t.container;
@@ -859,32 +910,40 @@ export class GameScene extends PIXI.Container {
 
   _showOverlay(title, subtitle, btnLabel, onBtn) {
     this.overlayLayer.removeChildren();
+    // Full-view dim + a centred group whose children are laid out relative to its
+    // centre, so the panel stays centred on any screen (and reflows on resize).
     const dim = new PIXI.Graphics();
-    dim.beginFill(0x040814, 0.62).drawRect(0, 0, DESIGN_W, DESIGN_H).endFill();
+    dim.beginFill(0x040814, 0.62).drawRect(0, 0, this.viewW, this.viewH).endFill();
     dim.eventMode = "static";
     this.overlayLayer.addChild(dim);
+    this._overlayDim = dim;
+
+    const group = new PIXI.Container();
+    group.position.set(this.viewW / 2, this.viewH / 2);
+    this.overlayLayer.addChild(group);
+    this._overlayGroup = group;
 
     const panel = new PIXI.Graphics();
-    panel.beginFill(0x22335e, 1).drawRoundedRect(95, 500, 560, 360, 34).endFill();
-    panel.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(95, 500, 560, 360, 34);
-    this.overlayLayer.addChild(panel);
+    panel.beginFill(0x22335e, 1).drawRoundedRect(-280, -180, 560, 360, 34).endFill();
+    panel.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(-280, -180, 560, 360, 34);
+    group.addChild(panel);
 
     const tt = new PIXI.Text(title, {
       fontFamily: "Arial", fontSize: 56, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 6,
     });
-    tt.anchor.set(0.5); tt.position.set(DESIGN_W / 2, 590);
+    tt.anchor.set(0.5); tt.position.set(0, -90);
     const st = new PIXI.Text(subtitle, {
       fontFamily: "Arial", fontSize: 30, fill: 0xd7e2ff,
     });
-    st.anchor.set(0.5); st.position.set(DESIGN_W / 2, 660);
-    this.overlayLayer.addChild(tt, st);
+    st.anchor.set(0.5); st.position.set(0, -20);
+    group.addChild(tt, st);
 
-    const btn = this._makeButton(btnLabel, 320, 92, DESIGN_W / 2, 780, 0x39c06a, () => {
+    const btn = this._makeButton(btnLabel, 320, 92, 0, 100, 0x39c06a, () => {
       this.overlayLayer.removeChildren();
       onBtn();
     });
-    this.overlayLayer.addChild(btn);
+    group.addChild(btn);
 
     tt.scale.set(0.2);
     tween(this.app.ticker, {

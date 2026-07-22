@@ -60,12 +60,21 @@ export class SettingsScene extends PIXI.Container {
     this._build();
   }
 
+  // Reflow into a DW×DH design area: cover the whole view with the dim and keep
+  // the panel centred (see GameScene.layout).
+  layout(DW, DH) {
+    this.dim.clear();
+    this.dim.beginFill(0x040814, 0.72).drawRect(0, 0, DW, DH).endFill();
+    this.panel.position.set(DW / 2, DH / 2);
+  }
+
   _build() {
     // Full-screen dim that also swallows taps meant for the scene beneath.
     const dim = new PIXI.Graphics();
     dim.beginFill(0x040814, 0.72).drawRect(0, 0, DESIGN_W, DESIGN_H).endFill();
     dim.eventMode = "static";
     this.addChild(dim);
+    this.dim = dim;
 
     // Panel
     const pw = 600, ph = 580;

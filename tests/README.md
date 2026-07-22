@@ -52,6 +52,15 @@ line per test.
   audio channels and persist to the user profile.
 - **`roundbtn_test.py`** — the in-level round buttons (undo / reshuffle) are
   clickable at their HUD positions and drive their actions without errors.
+- **`orientation_test.py`** — the game fits **any** viewport with no letterbox
+  bars and never crops. Across a spread of resolutions (the required
+  `344×882`, `374×667`, `1024×366`, `412×914` plus a tablet-portrait and a
+  generic-landscape extra) it asserts, for both the lobby and inside a level,
+  that the canvas covers the viewport at its exact aspect ratio (uniform scale,
+  no stretch), the design area is never smaller than the 750×1334 nominal
+  (nothing cropped) with exactly one dimension filling it edge-to-edge, and the
+  board (centred), tray, and helper row all sit inside the view without
+  overlapping — resizing the viewport live between each check.
 
 ### Gameplay
 

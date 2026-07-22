@@ -11,12 +11,15 @@ const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
 async function boot() {
-  // Render at the original design resolution; the canvas ELEMENT is then scaled
-  // to fit the viewport while preserving the original 750:1334 aspect ratio, so
-  // the displayed view always matches the original game exactly (no distortion).
+  // The renderer fills the whole viewport; the stage is uniformly scaled so the
+  // constraining viewport dimension maps exactly onto the 750×1334 design (no
+  // distortion). The other dimension gains extra design units, which the scenes
+  // reflow into (top HUD to the top edge, tray/helpers to the bottom, board
+  // filling the middle, background covering everything) — so the game adapts to
+  // any aspect ratio, portrait or landscape, with no letterbox bars.
   const app = new PIXI.Application({
-    width: DESIGN_W,
-    height: DESIGN_H,
+    width: window.innerWidth,
+    height: window.innerHeight,
     backgroundColor: 0x10131a,
     antialias: true,
     resolution: Math.min(window.devicePixelRatio || 1, 2),
@@ -27,13 +30,9 @@ async function boot() {
   const root = new PIXI.Container();
   app.stage.addChild(root);
 
-  function resize() {
-    const scale = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_H);
-    app.view.style.width = `${Math.round(DESIGN_W * scale)}px`;
-    app.view.style.height = `${Math.round(DESIGN_H * scale)}px`;
-  }
-  window.addEventListener("resize", resize);
-  resize();
+  // resize() is defined once the scenes exist (it lays them out); see below.
+  let resize = () => {};
+  window.addEventListener("resize", () => resize());
 
   // ---- assets --------------------------------------------------------------
   // Procedural (no network): tile faces + tray slot are drawn at runtime.
@@ -69,6 +68,21 @@ async function boot() {
   const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL);
   const settings = new SettingsScene(app, audio);
   root.addChild(scene, lobby, settings); // settings overlays whichever scene is active
+
+  // Fit the viewport: size the renderer to the window, scale the stage so the
+  // constraining dimension fills exactly, then hand each scene the resulting
+  // design area (DW×DH, one dimension ≥ its nominal) to reflow into.
+  resize = () => {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const scale = Math.min(vw / DESIGN_W, vh / DESIGN_H);
+    const DW = vw / scale, DH = vh / scale;
+    app.renderer.resize(vw, vh);
+    root.scale.set(scale);
+    scene.layout(DW, DH);
+    lobby.layout(DW, DH);
+    settings.layout(DW, DH);
+  };
+  resize();
 
   // The cog button in either scene opens the settings overlay; Back just hides it,
   // returning to whatever scene is underneath.
@@ -153,6 +167,16 @@ async function boot() {
     settingsVisible: () => settings.visible,
     currentLevel: () => currentLevel,
     inLobby: () => lobby.visible,
+    // Responsive-fit info: the design area the scenes reflow into and how the
+    // renderer maps onto the viewport (used by the orientation/fit test).
+    view: () => ({
+      vw: window.innerWidth, vh: window.innerHeight,
+      canvasW: app.view.width, canvasH: app.view.height,
+      rootScale: root.scale.x,
+      designW: scene.viewW, designH: scene.viewH,
+      ox: scene.ox, oy: scene.oy,
+      boardCX: scene.boardCX, boardCY: scene.boardCY,
+    }),
     lobbyButtonText: () => lobby.playBtn.label.text,
     startLevel,
     exitLevel: () => scene.onExit && scene.onExit(),

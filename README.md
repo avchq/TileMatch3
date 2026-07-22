@@ -109,6 +109,20 @@ python3 -m http.server 8099
 - `src/main.js` boots Pixi, owns the lobby ⇄ game flow, and reads/writes player
   state (level, settings, wallet) through the **User object** (see below). Its
   `MAX_LEVEL` is imported from `src/levelConfig.js` (= number of levels there).
+- **Responsive layout** — the game fits **any** screen (any aspect ratio,
+  portrait or landscape) with **no letterbox bars** and no distortion.
+  `main.js`'s `resize()` sizes the renderer to the whole viewport and uniformly
+  scales the stage by `min(vw/750, vh/1334)`, so the *constraining* viewport
+  dimension maps exactly onto the 750×1334 design; the other dimension gains
+  extra design units. It then hands each scene the resulting design area
+  (`DW×DH`, one dimension ≥ its nominal) via `scene.layout(DW, DH)`. Each scene
+  reflows: the top HUD stays anchored to the **top** edge, the tray + helper row
+  anchor to the **bottom** edge, the board fills (and recentres in) the space
+  between, and the background/overlays cover the whole view. So a taller screen
+  spreads the chrome to the edges with a bigger board area, and a wide/landscape
+  screen centres the 750-wide safe area with the background filling the sides.
+  (`GameScene.layout` reflows the board/tray/overlay live, so a mid-level rotate
+  or resize just re-lays-out in place.)
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
 ### Levels (`src/levelConfig.js`)
