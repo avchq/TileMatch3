@@ -71,8 +71,10 @@ python3 -m http.server 8099
   derives a valid removal order (a linear extension of the covering DAG) and
   gives each consecutive triple one type, so every board can always be cleared
   with only 3 tray slots. The number of distinct types is **per-level**, set by
-  the `types` field of each entry in `src/levelConfig.js` (every one is
-  guaranteed to appear on the board). Tile **positions** come straight from the
+  the `types` field of each entry in `src/levelConfig.js` — either a fixed
+  integer or a `[min, max]` **range** resolved to a count that is random but
+  deterministic per level (every type is guaranteed to appear on the board).
+  Tile **positions** come straight from the
   level file, and the type assignment is seeded **only from the level number**
   (`game.js` `loadLevel`), so a level's layout is **deterministic** — the same
   fruit is in the same spot on every load/reload/session. (**Reshuffle** is the
@@ -129,7 +131,8 @@ python3 -m http.server 8099
 Every level is declared in **one place** — the `LEVELS` array in
 `src/levelConfig.js`. Each entry is `{ background, data, types, preload? }`
 (paths to a background image and a level-data JSON, the count of distinct tile
-faces the level uses, plus an optional preload flag).
+faces the level uses — an integer or a `[min, max]` range drawn deterministically
+per level — plus an optional preload flag).
 **Adding a level is a single one-line append** — nothing else needs editing:
 - `MAX_LEVEL` is exported as `LEVELS.length`, so the array's length is the
   highest playable level (consumed by `main.js` and the lobby).
