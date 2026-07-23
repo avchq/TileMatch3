@@ -394,9 +394,9 @@ export class GameScene extends PIXI.Container {
     }
     const spanX = (maxX - minX + 1) * CELL;
     const spanY = (maxY - minY + 1) * CELL + maxLayer * LIFT;
-    const areaW = DESIGN_W - 60; // keep the board within the 750-wide safe band
+    const areaW = this.viewW - 60; // fill the full available width, not a fixed band
     const areaH = this.boardBottom - this.boardTop;
-    this.boardScale = Math.min(1, areaW / spanX, areaH / spanY);
+    this.boardScale = Math.min(areaW / spanX, areaH / spanY); // no cap: grow to fill
     const s = this.boardScale;
 
     const cx = (minX + maxX) / 2;

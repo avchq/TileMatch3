@@ -65,6 +65,12 @@ line per test.
   (nothing cropped) with exactly one dimension filling it edge-to-edge, and the
   board (centred), tray, and helper row all sit inside the view without
   overlapping — resizing the viewport live between each check.
+- **`scaling_test.py`** — the board **scales to fill the screen** rather than
+  sitting at a fixed size. On a roomy portrait screen `boardScale` grows past
+  **1** (the old code capped it at 1.0, leaving big margins); the board footprint
+  fills most of the available width; and on a landscape screen it fills the
+  vertical band between the HUD and tray (~full `areaH`, not ~40 %). Also checks
+  the board never overflows its available width/height.
 
 ### Gameplay
 

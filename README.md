@@ -120,9 +120,14 @@ python3 -m http.server 8099
   (`DW×DH`, one dimension ≥ its nominal) via `scene.layout(DW, DH)`. Each scene
   reflows: the top HUD stays anchored to the **top** edge, the tray + helper row
   anchor to the **bottom** edge, the board fills (and recentres in) the space
-  between, and the background/overlays cover the whole view. So a taller screen
-  spreads the chrome to the edges with a bigger board area, and a wide/landscape
-  screen centres the 750-wide safe area with the background filling the sides.
+  between, and the background/overlays cover the whole view. The 750-wide safe
+  band centres the **HUD and tray** (background fills the sides on a wide screen);
+  the **board itself scales to fill** the actual available width and the vertical
+  band between the HUD and tray, with **no upper cap** — so tiles grow to use the
+  space and are genuinely sized to the screen (`GameScene._layoutBoard` fits the
+  board by `min((viewW-60)/spanX, areaH/spanY)`). On a very wide screen the board
+  may extend over the side background. So a taller screen spreads the chrome to
+  the edges with a bigger board, and a wider one enlarges the play area too.
   (`GameScene.layout` reflows the board/tray/overlay live, so a mid-level rotate
   or resize just re-lays-out in place.)
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
