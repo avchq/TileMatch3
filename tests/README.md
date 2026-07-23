@@ -52,6 +52,10 @@ line per test.
   audio channels and persist to the user profile.
 - **`roundbtn_test.py`** — the in-level round buttons (undo / reshuffle) are
   clickable at their HUD positions and drive their actions without errors.
+- **`cog_corner_test.py`** — the settings cog is pinned to the **top-left corner**
+  of the screen in both the lobby and inside a level, and stays there on viewports
+  taller than the 750×1334 design canvas (regression guard: the lobby cog used to
+  ride the vertically-centred UI layer and drifted down on tall screens).
 - **`orientation_test.py`** — the game fits **any** viewport with no letterbox
   bars and never crops. Across a spread of resolutions (the required
   `344×882`, `374×667`, `1024×366`, `412×914` plus a tablet-portrait and a

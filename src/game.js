@@ -217,6 +217,7 @@ export class GameScene extends PIXI.Container {
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
     cog.position.set(60, 84);
     this.hudTop.addChild(cog);
+    this.cog = cog;
 
     // Back — sits next to the cog. Stops the level and returns to the lobby;
     // any user-record changes made during the level are left intact (persisted).

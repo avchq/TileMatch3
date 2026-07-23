@@ -9,7 +9,7 @@ import { tween, easeOutBack } from "./tween.js";
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
-// A round HUD button showing a cog icon. Used top-right of the lobby and the
+// A round HUD button showing a cog icon. Used top-left of the lobby and the
 // level scene to open the settings screen. Caller positions it.
 export function makeCogButton(audio, onTap) {
   const size = 76;

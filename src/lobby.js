@@ -24,7 +24,8 @@ export class LobbyScene extends PIXI.Container {
 
     this.bgLayer = new PIXI.Container();
     this.uiLayer = new PIXI.Container();
-    this.addChild(this.bgLayer, this.uiLayer);
+    this.topHud  = new PIXI.Container(); // pinned to the screen's top edge
+    this.addChild(this.bgLayer, this.uiLayer, this.topHud);
 
     this._buildStatic();
   }
@@ -34,6 +35,7 @@ export class LobbyScene extends PIXI.Container {
   layout(DW, DH) {
     this.viewW = DW; this.viewH = DH;
     this.uiLayer.position.set((DW - DESIGN_W) / 2, (DH - DESIGN_H) / 2);
+    this.topHud.position.set((DW - DESIGN_W) / 2, 0);
     if (this.visible) this._buildBackground(this._level);
   }
 
@@ -80,7 +82,8 @@ export class LobbyScene extends PIXI.Container {
     // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
     cog.position.set(60, 84);
-    this.uiLayer.addChild(cog);
+    this.topHud.addChild(cog);
+    this.cog = cog;
   }
 
   _makePlayButton() {
