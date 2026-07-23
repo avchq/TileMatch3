@@ -1,7 +1,7 @@
 import { parseLevel, computeCoverers, assignSolvableTypes, mulberry32 } from "./level.js";
 import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.js";
 import { makeCogButton } from "./settings.js";
-import { makeCoinPill } from "./shop.js";
+import { makeCoinPill, makeCoinIcon } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
 
 const DESIGN_W = 750;
@@ -909,10 +909,11 @@ export class GameScene extends PIXI.Container {
     const last = this.levelNum >= 3;
     this._showOverlay(
       last ? "🏆 You Win!" : "Level Complete!",
-      `${last ? "You cleared levels 1–3" : "Great matching!"}  +${COIN_WIN_REWARD} 🪙`,
+      `${last ? "You cleared levels 1–3" : "Great matching!"}  +${COIN_WIN_REWARD}`,
       "Continue",
       // hand control back to the lobby, which advances to the next level
-      () => this.onLevelComplete && this.onLevelComplete(this.levelNum)
+      () => this.onLevelComplete && this.onLevelComplete(this.levelNum),
+      COIN_WIN_REWARD // show a gold coin next to the reward
     );
   }
 
@@ -922,7 +923,7 @@ export class GameScene extends PIXI.Container {
     this._showOverlay("Board Full!", "No moves left", "Try Again", () => this.restart());
   }
 
-  _showOverlay(title, subtitle, btnLabel, onBtn) {
+  _showOverlay(title, subtitle, btnLabel, onBtn, coinReward = 0) {
     this.overlayLayer.removeChildren();
     // Full-view dim + a centred group whose children are laid out relative to its
     // centre, so the panel stays centred on any screen (and reflows on resize).
@@ -950,8 +951,18 @@ export class GameScene extends PIXI.Container {
     const st = new PIXI.Text(subtitle, {
       fontFamily: "Arial", fontSize: 30, fill: 0xd7e2ff,
     });
-    st.anchor.set(0.5); st.position.set(0, -20);
     group.addChild(tt, st);
+    if (coinReward) {
+      // Lay out "subtitle" + a gold coin icon as a centred unit.
+      const icon = makeCoinIcon(16);
+      const gap = 12;
+      const total = st.width + gap + 32; // 32 = coin diameter
+      st.anchor.set(0, 0.5); st.position.set(-total / 2, -20);
+      icon.position.set(-total / 2 + st.width + gap + 16, -20);
+      group.addChild(icon);
+    } else {
+      st.anchor.set(0.5); st.position.set(0, -20);
+    }
 
     const btn = this._makeButton(btnLabel, 320, 92, 0, 100, 0x39c06a, () => {
       this.overlayLayer.removeChildren();

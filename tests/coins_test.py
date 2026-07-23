@@ -94,12 +94,13 @@ try:
         print("win reward gained:", gained)
         assert gained == 25, ("level win should award 25 coins", gained)
         overlay_txt = page.evaluate("""() => {
-            const g = window.__game.scene._overlayGroup; let s = '';
-            g && g.children.forEach(ch => { if (ch.text) s += ch.text + '|'; });
-            return s;
+            const out = [];
+            const walk = (n) => { if (!n) return; if (n.text) out.push(n.text); (n.children||[]).forEach(walk); };
+            walk(window.__game.scene._overlayGroup);
+            return out.join('|');
         }""")
         print("overlay text:", overlay_txt)
-        assert "🪙" in overlay_txt, ("win overlay should show the coin reward", overlay_txt)
+        assert ("+%d" % 25) in overlay_txt, ("win overlay should show the coin reward", overlay_txt)
 
         # 7) The coin balance persists across a reload (it's on the user record).
         page.evaluate("window.__game.flushSave()")

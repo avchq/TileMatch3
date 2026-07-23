@@ -22,32 +22,78 @@ const DESIGN_H = 1334;
 // Ordered so a summary always reads coins → wand → undo → reshuffle.
 const CONTENT_ICONS = [["wand", "🪄"], ["undo", "⤺"], ["shuffle", "🔀"]];
 
-// A one-line summary of what a package grants, e.g. "🪙 1200   🪄 3   ⤺ 5   🔀 1".
-function packageContents(pkg) {
+// Gold palette for the coin — drawn (not an emoji) so it renders a consistent GOLD
+// everywhere, independent of the host's emoji font (which can render 🪙 as silver).
+const COIN_RIM = 0xC8871A;   // dark gold edge
+const COIN_FACE = 0xFFCB2E;  // gold face
+const COIN_SHINE = 0xFFE9A0; // highlight
+
+// Draw a gold coin icon of the given radius, centred at (0,0). Reused everywhere a
+// coin is shown (the HUD pill, the shop balance header, package contents).
+export function makeCoinIcon(r) {
+  const g = new PIXI.Graphics();
+  g.beginFill(COIN_RIM).drawCircle(0, 0, r).endFill();          // outer rim
+  g.beginFill(COIN_FACE).drawCircle(0, 0, r * 0.8).endFill();   // gold face
+  g.lineStyle(Math.max(1, r * 0.1), COIN_RIM, 0.8).drawCircle(0, 0, r * 0.58); // inner ridge
+  g.lineStyle(0);
+  g.beginFill(COIN_SHINE, 0.85).drawEllipse(-r * 0.24, -r * 0.28, r * 0.24, r * 0.16).endFill(); // shine
+  return g;
+}
+
+// A small shopping-cart glyph (an affordance that the pill opens the shop). Emoji so
+// it's instantly recognizable; the coin is what had to be gold, not the cart.
+function makeCartIcon(size) {
+  const t = new PIXI.Text("🛒", { fontFamily: "Arial", fontSize: size });
+  t.anchor.set(0.5);
+  return t;
+}
+
+// Build a horizontal contents summary for a package: a gold coin icon + amount,
+// then the booster emoji counts (e.g. [🪙]1200  🪄 3  ⤺ 5  🔀 1). Left-anchored at x=0.
+function buildContents(pkg) {
+  const cont = new PIXI.Container();
+  let x = 0;
+  if (pkg.coins) {
+    const icon = makeCoinIcon(15);
+    icon.position.set(x + 15, 0);
+    cont.addChild(icon);
+    const t = new PIXI.Text(String(pkg.coins), {
+      fontFamily: "Arial", fontSize: 26, fontWeight: "700", fill: 0xffe27a,
+    });
+    t.anchor.set(0, 0.5); t.position.set(x + 36, 0);
+    cont.addChild(t);
+    x = t.position.x + t.width + 26;
+  }
   const parts = [];
-  if (pkg.coins) parts.push(`🪙 ${pkg.coins}`);
   for (const [kind, icon] of CONTENT_ICONS) {
     const n = pkg.boosters && pkg.boosters[kind];
     if (n) parts.push(`${icon} ${n}`);
   }
-  return parts.join("   ");
+  if (parts.length) {
+    const t = new PIXI.Text(parts.join("   "), {
+      fontFamily: "Arial", fontSize: 26, fontWeight: "700", fill: 0xcfe0ff,
+    });
+    t.anchor.set(0, 0.5); t.position.set(x, 0);
+    cont.addChild(t);
+  }
+  return cont;
 }
 
-// A coin balance "pill" for the top HUD: a 🪙 icon + the live coin count. Reads the
-// balance from the User model, refreshes itself on any wallet change, and calls
-// onTap (→ open the shop) when pressed. Caller positions it. Exposes update() and
-// destroy() (to drop the model subscription when the pill goes away).
+// A coin balance "pill" for the top HUD: a gold coin icon + the live coin count +
+// a small shopping-cart icon on the right (signalling that a tap opens the shop).
+// Reads the balance from the User model, refreshes itself on any wallet change, and
+// calls onTap when pressed. Caller positions it. Exposes update() and destroy() (to
+// drop the model subscription when the pill goes away).
 export function makeCoinPill(user, onTap) {
   const c = new PIXI.Container();
-  const w = 150, h = 60;
+  const w = 178, h = 60;
   const g = new PIXI.Graphics();
   g.beginFill(0x0a1226, 0.55).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2).endFill();
   g.lineStyle(3, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2);
   c.addChild(g);
 
-  const coin = new PIXI.Text("🪙", { fontFamily: "Arial", fontSize: 38 });
-  coin.anchor.set(0.5);
-  coin.position.set(-w / 2 + 26, 0);
+  const coin = makeCoinIcon(19);
+  coin.position.set(-w / 2 + 28, 0);
   c.addChild(coin);
 
   const label = new PIXI.Text("0", {
@@ -55,9 +101,13 @@ export function makeCoinPill(user, onTap) {
     stroke: 0x14361f, strokeThickness: 4,
   });
   label.anchor.set(0, 0.5);
-  label.position.set(-w / 2 + 50, 0);
+  label.position.set(-w / 2 + 52, 0);
   c.addChild(label);
   c.label = label;
+
+  const cart = makeCartIcon(30);
+  cart.position.set(w / 2 - 28, 0);
+  c.addChild(cart);
 
   c.update = () => { label.text = String(user ? user.balance("coins") : 0); };
   c.update();
@@ -133,14 +183,17 @@ export class ShopScene extends PIXI.Container {
     title.position.set(0, -ph / 2 + 66);
     this.panel.addChild(title);
 
-    // Live coin balance under the title.
-    this.balanceText = new PIXI.Text("🪙 0", {
-      fontFamily: "Arial", fontSize: 40, fontWeight: "900", fill: 0xffffff,
-      stroke: 0x14361f, strokeThickness: 5,
+    // Live coin balance under the title — a gold coin icon + amount, centred.
+    this.balanceGroup = new PIXI.Container();
+    this.balanceGroup.position.set(0, -ph / 2 + 136);
+    this.balanceIcon = makeCoinIcon(22);
+    this.balanceNum = new PIXI.Text("0", {
+      fontFamily: "Arial", fontSize: 40, fontWeight: "900", fill: 0xffe27a,
+      stroke: 0x5a3a00, strokeThickness: 5,
     });
-    this.balanceText.anchor.set(0.5);
-    this.balanceText.position.set(0, -ph / 2 + 136);
-    this.panel.addChild(this.balanceText);
+    this.balanceNum.anchor.set(0, 0.5);
+    this.balanceGroup.addChild(this.balanceIcon, this.balanceNum);
+    this.panel.addChild(this.balanceGroup);
 
     // One row per package.
     let y = -ph / 2 + 250;
@@ -169,10 +222,7 @@ export class ShopScene extends PIXI.Container {
     name.position.set(leftX, y - 24);
     this.panel.addChild(name);
 
-    const contents = new PIXI.Text(packageContents(pkg), {
-      fontFamily: "Arial", fontSize: 26, fontWeight: "700", fill: 0xcfe0ff,
-    });
-    contents.anchor.set(0, 0.5);
+    const contents = buildContents(pkg);
     contents.position.set(leftX, y + 22);
     this.panel.addChild(contents);
 
@@ -186,9 +236,13 @@ export class ShopScene extends PIXI.Container {
   }
 
   _refresh() {
-    if (this.balanceText) {
-      this.balanceText.text = `🪙 ${this.user ? this.user.balance("coins") : 0}`;
-    }
+    if (!this.balanceGroup) return;
+    this.balanceNum.text = String(this.user ? this.user.balance("coins") : 0);
+    // Re-centre the coin icon + amount as a unit under the title.
+    const r = 22, gap = 12;
+    const total = r * 2 + gap + this.balanceNum.width;
+    this.balanceIcon.position.set(-total / 2 + r, 0);
+    this.balanceNum.position.set(-total / 2 + r * 2 + gap, 0);
   }
 
   _makeButton(label, w, h, cx, cy, color, onClick) {

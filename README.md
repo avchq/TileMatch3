@@ -117,9 +117,13 @@ python3 -m http.server 8099
   summary (coins + booster icons), and a price button. Buying is delegated to the
   host's `onBuyPackage`, which runs the platform payment provider and, on success,
   applies the contents (`user.credit("coins", …)` + `user.grantBooster(kind, n)`).
-  `shop.js` also exports **`makeCoinPill(user, onTap)`** — the shared coin-balance
-  HUD control used by both the lobby and the level, which live-refreshes on any
-  `wallet` change (parallel to `makeCogButton` in `settings.js`). The coin reward for
+  `shop.js` also exports **`makeCoinIcon(r)`** — the coin is **drawn as a gold coin**
+  (not the 🪙 emoji, which some hosts render silver) so it's a consistent gold
+  everywhere it appears (HUD pill, shop balance header, package contents, the win
+  reward) — and **`makeCoinPill(user, onTap)`**, the shared coin-balance HUD control
+  used by both the lobby and the level: a gold coin + the live balance + a small
+  **shopping-cart** icon signalling that a tap opens the shop. It live-refreshes on
+  any `wallet` change (parallel to `makeCogButton` in `settings.js`). The coin reward for
   a win is `COIN_WIN_REWARD` in `game.js` (`_win()`). (Spending coins on helpers is
   done on-demand inside a level, not in the shop.)
 - `src/settings.js` is the `SettingsScene` — an overlay opened by the **cog
