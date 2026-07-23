@@ -1,6 +1,8 @@
 import { GameScene } from "./game.js";
 import { LobbyScene } from "./lobby.js";
 import { SettingsScene } from "./settings.js";
+import { ShopScene } from "./shop.js";
+import { makePayments } from "./user/payments.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
 import { AssetManager, PRELOAD_GROUPS, MANIFEST } from "./assets.js";
@@ -64,10 +66,15 @@ async function boot() {
   // starts play.
   let currentLevel = user.progress.level;
 
+  // The payment provider for real-money coin purchases (mock on the open web; FB /
+  // Telegram / Reddit providers swap in later — see user/payments.js).
+  const payments = makePayments(store.platform);
+
   const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user);
-  const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL);
+  const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL, user);
   const settings = new SettingsScene(app, audio);
-  root.addChild(scene, lobby, settings); // settings overlays whichever scene is active
+  const shop = new ShopScene(app, audio, user, payments);
+  root.addChild(scene, lobby, settings, shop); // settings/shop overlay whichever scene is active
 
   // Fit the viewport: size the renderer to the window, scale the stage so the
   // constraining dimension fills exactly, then hand each scene the resulting
@@ -81,6 +88,7 @@ async function boot() {
     scene.layout(DW, DH);
     lobby.layout(DW, DH);
     settings.layout(DW, DH);
+    shop.layout(DW, DH);
   };
   resize();
 
@@ -88,6 +96,27 @@ async function boot() {
   // returning to whatever scene is underneath.
   lobby.onSettings = () => settings.open();
   scene.onSettings = () => settings.open();
+
+  // Tapping the coin pill in either scene opens the shop overlay.
+  lobby.onShop = () => shop.open();
+  scene.onShop = () => shop.open();
+
+  // Real-money package purchase: run the platform payment provider, and only grant
+  // the contents here (the trusted host) on success — a coins credit plus any
+  // boosters in the package. A real integration validates the receipt server-side
+  // before this point (see user/payments.js). The resulting wallet/booster changes
+  // autosave and refresh the shop + coin pills + helper badges automatically.
+  async function purchasePackage(productId) {
+    try {
+      const res = await payments.purchase(productId);
+      if (res && res.ok) {
+        if (res.coins) user.credit("coins", res.coins);
+        for (const [kind, n] of Object.entries(res.boosters || {})) user.grantBooster(kind, n);
+      }
+      return res;
+    } catch (_) { return { ok: false }; } // cancelled / failed — nothing changes
+  }
+  shop.onBuyPackage = (productId) => purchasePackage(productId);
 
   // Back button inside the level: stop play and return to the lobby at the level
   // the player is on. The User record is untouched here, so anything changed
@@ -208,6 +237,17 @@ async function boot() {
     balance: (cur) => user.balance(cur),
     credit: (cur, n) => user.credit(cur, n),
     debit: (cur, n) => user.debit(cur, n),
+    // ---- shop / coins UI ----
+    openShop: () => shop.open(),
+    shopVisible: () => shop.visible,
+    coinPillText: () => ({ lobby: lobby.coinPill.label.text, game: scene.coinPill.label.text }),
+    packages: () => payments.getCatalog(),
+    // Buy a package via the payment provider; grants its contents (coins +
+    // boosters). Returns a promise resolving to the post-purchase profile snapshot.
+    buyPackage: async (productId) => {
+      await purchasePackage(productId);
+      return { coins: user.balance("coins"), boosters: user.toJSON().boosters };
+    },
     // ---- helper (booster) inventory ----
     boosterCount: (kind) => user.boosterCount(kind),
     grantBooster: (kind, n) => user.grantBooster(kind, n),

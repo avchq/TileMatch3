@@ -37,6 +37,13 @@ a count **bubble** on the button shows how many uses remain, every use spends
 one, and once you hit **0** the helper is disabled until you get more (new
 players start with a small stock; see the User object below).
 
+**Coins** are a spendable currency shown in a **coin pill** at the top-right of
+both the lobby and the level HUD. You **earn 25 coins for clearing a level** (the
+win overlay shows the reward). Tapping the coin pill opens the **Shop**, which sells
+**packages** for real money — each grants a mix of contents (a coins amount and/or a
+set of boosters), so a package can be a single item (just coins) or a bundle (e.g.
+1200 coins + 3 wands + 5 undos + 1 reshuffle). See the Shop + User sections below.
+
 When the board is down to a **trivially solvable endgame** — **12 or fewer tiles
 left** (≤ 4 easy triples) with **nothing still covered** — an **Auto Complete**
 button appears in the helper row, **replacing** the three helpers. It's **free**
@@ -104,13 +111,28 @@ python3 -m http.server 8099
   calls `onExit` to return to the lobby mid-level (progress untouched).
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
   **"Level &lt;n&gt;"** play button, level-progress dots, and title.
+- `src/shop.js` is the `ShopScene` — an overlay (modeled on `SettingsScene`)
+  opened by tapping the **coin pill** in either scene. It lists the **packages** for
+  sale (from `payments.js`), each row showing the package name, a one-line contents
+  summary (coins + booster icons), and a price button. Buying is delegated to the
+  host's `onBuyPackage`, which runs the platform payment provider and, on success,
+  applies the contents (`user.credit("coins", …)` + `user.grantBooster(kind, n)`).
+  `shop.js` also exports **`makeCoinPill(user, onTap)`** — the shared coin-balance
+  HUD control used by both the lobby and the level, which live-refreshes on any
+  `wallet` change (parallel to `makeCogButton` in `settings.js`). The coin reward for
+  a win is `COIN_WIN_REWARD` in `game.js` (`_win()`). (Spending coins on helpers is
+  done on-demand inside a level, not in the shop.)
 - `src/settings.js` is the `SettingsScene` — an overlay opened by the **cog
   button** in the top-left of both the lobby and the level. It has **Music** and
   **Sound** toggles (driving `audio.setMusic` / `setSound`, which persist to the
   User object) and a **Back** button that returns to the scene underneath.
 - `src/main.js` boots Pixi, owns the lobby ⇄ game flow, and reads/writes player
   state (level, settings, wallet) through the **User object** (see below). Its
-  `MAX_LEVEL` is imported from `src/levelConfig.js` (= number of levels there).
+  `MAX_LEVEL` is imported from `src/levelConfig.js` (= number of levels there). It
+  also constructs the **Shop** overlay and the **payment provider**
+  (`makePayments`), wires the coin-pill taps to open the shop, and owns
+  `purchasePackage` (run the provider, then grant the package's coins + boosters on
+  success).
 - **Responsive layout** — the game fits **any** screen (any aspect ratio,
   portrait or landscape) with **no letterbox bars** and no distortion.
   `main.js`'s `resize()` sizes the renderer to the whole viewport and uniformly
@@ -189,6 +211,31 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   `Telegram.WebApp.CloudStorage`, Devvit KV) — no code outside this file changes
   when a platform is wired in for real. Identity is platform-owned and fixed;
   `clear()` wipes the *data*, never the id.
+- **`payments.js`** — the **real-money purchase** contract, mirroring `adapters.js`
+  (one small async surface per platform): `getCatalog()` + `purchase(productId)`.
+  It exports the **`PACKAGES`** catalog — each package has an id, price, label, a
+  `coins` amount, and a `boosters` map (helper → count), so a package is a single
+  item (just coins) or a bundle. `MockPaymentProvider` is the working default on the
+  open web (it "succeeds" instantly with **no real charge**, so the flow is
+  testable). `FacebookInstantPayments` / `TelegramPayments` / `RedditPayments` are
+  **stubs** extending the mock, each marking the exact SDK calls to swap in later
+  (`// TODO(SDK):` — `FBInstant.payments.purchaseAsync`, `Telegram.WebApp.openInvoice`
+  for Stars/XTR, Devvit payments over the webview bridge) plus a `// TODO:` for
+  **server-side receipt validation before granting**. The provider is pure I/O: on
+  success it reports the package contents and the **host** (`main.js`
+  `purchasePackage`) applies them (`user.credit` + `user.grantBooster`), keeping the
+  trust boundary in one place. `makePayments(platform)` picks the provider at boot
+  (parallels `makeAdapter`).
+  - **Adding a package is a single append** to the `PACKAGES` array in
+    `payments.js` — nothing else needs editing. Give it a unique `id`, a `price`
+    string, a `label`, and its contents (`coins` and/or a `boosters` map, e.g.
+    `{ id: "power_pack", price: "$2.99", label: "Power Pack", coins: 200, boosters: { wand: 2 } }`).
+    The Shop builds its rows from `getCatalog()`, and the host grants the contents
+    generically, so the new package shows up and works with no UI or grant-logic
+    change. (For a real platform launch you must also register that `id` as a
+    product in the platform's store/catalog — Facebook / Telegram Stars / Devvit —
+    per the `// TODO(SDK):` markers; on the open-web mock provider no registration
+    is needed.)
 - **`platform.js`** — `detectPlatform()` + `makeAdapter()` pick the adapter at boot.
 - **`UserStore.js`** — resolves identity, loads/creates the profile, and
   **autosaves** (debounced) on every change plus a flush on tab hide/close. The
@@ -208,8 +255,8 @@ object and writes changes back to it.
 JS/
   index.html
   vendor/pixi.min.js
-  src/{main,game,lobby,settings,level,levelConfig,icons,audio,assets,tween}.js
-  src/user/{User,adapters,platform,UserStore}.js
+  src/{main,game,lobby,settings,shop,level,levelConfig,icons,audio,assets,tween}.js
+  src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
     levels/level{1,2,3,4}.json
     bg/*.jpg

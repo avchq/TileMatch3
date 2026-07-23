@@ -105,6 +105,12 @@ line per test.
 - **`user_test.py`** — a fresh profile has the expected defaults (platform, a
   non-empty id, level 1, zeroed wallet, music/sound on) and progress persists
   across a reload.
+- **`coins_test.py`** — coins are a spendable wallet currency with a top-HUD coin
+  pill (lobby + level) that updates live on credit; winning a level awards coins
+  (the win overlay shows the reward); the Shop lists packages for sale and buying one
+  via the mock payment provider grants its contents — a bundle grants coins **and** a
+  mix of boosters, a single-item pack grants only coins; the balance persists across
+  a reload.
 - **`reset_test.py`** — resetting the profile restores progress, wallet, and
   settings to defaults while preserving the identity (`id`), and the reset
   persists across a reload.

@@ -5,19 +5,22 @@
 
 import { tween, easeOutBack } from "./tween.js";
 import { makeCogButton } from "./settings.js";
+import { makeCoinPill } from "./shop.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
 export class LobbyScene extends PIXI.Container {
-  constructor(app, backgrounds, audio, maxLevel) {
+  constructor(app, backgrounds, audio, maxLevel, user) {
     super();
     this.app = app;
     this.backgrounds = backgrounds; // { 1: tex, 2: tex, 3: tex }
     this.audio = audio;
     this.maxLevel = maxLevel;
+    this.user = user;       // player profile — for the coin balance pill
     this.onPlay = null;     // (levelNum) => void
     this.onSettings = null; // () => void — open the settings screen
+    this.onShop = null;     // () => void — open the shop screen
 
     // Responsive layout state (updated by layout()); defaults to the base design.
     this.viewW = DESIGN_W; this.viewH = DESIGN_H;
@@ -84,6 +87,11 @@ export class LobbyScene extends PIXI.Container {
     cog.position.set(60, 84);
     this.topHud.addChild(cog);
     this.cog = cog;
+
+    // Coin balance pill — top-right, mirroring the cog. Tapping it opens the shop.
+    this.coinPill = makeCoinPill(this.user, () => this.onShop && this.onShop());
+    this.coinPill.position.set(DESIGN_W - 108, 84);
+    this.topHud.addChild(this.coinPill);
   }
 
   _makePlayButton() {

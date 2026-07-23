@@ -1,10 +1,15 @@
 import { parseLevel, computeCoverers, assignSolvableTypes, mulberry32 } from "./level.js";
 import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.js";
 import { makeCogButton } from "./settings.js";
+import { makeCoinPill } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
+
+// Coins awarded for completing a level — the free source of coins that seeds the
+// shop economy (packs are the paid source). A plain const, trivially tunable.
+const COIN_WIN_REWARD = 25;
 
 const CELL = 88;          // tile footprint in board units (px at scale 1)
 const TILE_DRAW = 96;     // drawn tile size (slightly larger than cell for overlap)
@@ -61,6 +66,7 @@ export class GameScene extends PIXI.Container {
     this._autoRunning = false; // true while the Auto Complete sweep animates
     this.onLevelComplete = null; // (levelNum) => void — set by the host (main.js)
     this.onSettings = null;      // () => void — open the settings screen
+    this.onShop = null;          // () => void — open the shop screen
     this.onExit = null;          // () => void — leave the level, back to the lobby
 
     this._buildHud();
@@ -189,6 +195,11 @@ export class GameScene extends PIXI.Container {
     this.progressText.anchor.set(0.5);
     this.progressText.position.set(DESIGN_W / 2, 128);
     this.hudTop.addChild(this.progressText);
+
+    // Coin balance pill — top-right of the HUD bar. Tapping it opens the shop.
+    this.coinPill = makeCoinPill(this.user, () => this.onShop && this.onShop());
+    this.coinPill.position.set(DESIGN_W - 108, 84);
+    this.hudTop.addChild(this.coinPill);
 
     // buttons row — round, icon-only. Placed BELOW the tray panel (whose bottom
     // edge sits at TRAY_Y + SLOT/2 + 18) so the two never overlap.
@@ -893,10 +904,12 @@ export class GameScene extends PIXI.Container {
   _win() {
     this.locked = true;
     this.audio.play("win");
+    // Award coins for clearing the level (the free source that seeds the shop).
+    if (this.user) this.user.credit("coins", COIN_WIN_REWARD);
     const last = this.levelNum >= 3;
     this._showOverlay(
       last ? "🏆 You Win!" : "Level Complete!",
-      last ? "You cleared levels 1–3" : "Great matching!",
+      `${last ? "You cleared levels 1–3" : "Great matching!"}  +${COIN_WIN_REWARD} 🪙`,
       "Continue",
       // hand control back to the lobby, which advances to the next level
       () => this.onLevelComplete && this.onLevelComplete(this.levelNum)
