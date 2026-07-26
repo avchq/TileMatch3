@@ -112,9 +112,12 @@ line per test.
   (`eventMode:"static"`). **Continue** follows the booster waterfall — a broke player
   gets the **ad tier** (free continue, no coins spent) and a player with coins gets
   the **coin tier** (spends exactly the config `continue` price); either way every
-  collected tile returns to the board (tray empties, board count restored) and play
-  resumes. **Replay** restarts the level in place; **Home** returns to the lobby
-  without advancing. The continue price comes from `assets/config/prices.json`.
+  collected tile **flies back** to the board — the return is animated, so input
+  stays **locked mid-flight** (asserted), and the tiles return in **reverse
+  placement order** (newest-first, like a run of Undos — asserted) before the tray
+  empties, the board count is restored, and play resumes. **Replay** restarts the
+  level in place; **Home** returns to the lobby without advancing. The continue price
+  comes from `assets/config/prices.json`.
 - **`auto_test.py`** — the free Auto Complete button appears (replacing the three
   helpers) exactly when the endgame is trivial (≤12 tiles left, none covered):
   the availability flag matches the gate at every step of a level-1 descent and

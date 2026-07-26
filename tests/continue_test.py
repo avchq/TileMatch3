@@ -31,6 +31,17 @@ try:
 
         def st():      return page.evaluate("window.__game.state()")
         def lst():     return page.evaluate("window.__game.loseState()")
+
+        # Poll until the animated fly-back has landed and play is unlocked again
+        # (the tile-return is animated, so this takes ~1s rather than being instant).
+        def wait_resumed(timeout=5.0):
+            end = time.time() + timeout
+            while time.time() < end:
+                s = st()
+                if s["overlay"] is False and s["locked"] is False:
+                    return s
+                time.sleep(0.1)
+            return st()
         def coins():   return page.evaluate("window.__game.balance('coins')")
         def credit(n): page.evaluate(f"window.__game.credit('coins', {n})")
         def cprice():  return page.evaluate("window.__game.continuePrice()")
@@ -79,11 +90,28 @@ try:
         assert ls["continueMode"] == "ad", ("broke player -> Continue on the ad tier", ls)
         assert st()["boardCount"] == full - 7, ("the 7 tiles sit in the tray", st())
 
-        # Continue via the ad (free): overlay closes, every tray tile returns to the
-        # board, coins are unchanged, and play resumes (unlocked + playable).
+        # Capture the tray placement order (oldest-first) so we can verify the tiles
+        # fly back in REVERSE order (newest-first, like a run of Undos).
+        placement = page.evaluate("window.__game.historyOrder()")
+        assert len(placement) == 7, ("history tracks all 7 tray tiles", placement)
+
+        # Continue via the ad (free): overlay closes, every tray tile flies back to
+        # the board (animated), coins are unchanged, and play resumes (unlocked +
+        # playable) once the sweep lands.
         page.evaluate("window.__game.pressLoseContinue()")
-        time.sleep(0.4)
-        s = st()
+        # Mid-flight: the overlay is already gone and the tray state is restored, but
+        # input stays LOCKED while the tiles animate home (the fly-back is animated,
+        # not an instant teleport).
+        time.sleep(0.2)
+        mid = st()
+        print("mid-flight:", mid, lst())
+        assert mid["overlay"] is False, ("overlay closed immediately", mid)
+        assert mid["locked"] is True, ("input locked during the animated fly-back", mid)
+        # The tiles are returned in REVERSE placement order (newest-first).
+        ret = page.evaluate("window.__game.returnOrder()")
+        print("placement:", placement, "return:", ret)
+        assert ret == placement[::-1], ("tiles fly back in reverse placement order", ret, placement)
+        s = wait_resumed()
         print("after ad-continue:", s, lst())
         assert lst()["loseOverlay"] is False and s["overlay"] is False, ("overlay closed", s)
         assert coins() == 0, "the ad-tier continue costs no coins"
@@ -103,8 +131,7 @@ try:
         assert ls["continueMode"] == "coins", ("affordable -> Continue on the coin tier", ls)
         c0 = coins()
         page.evaluate("window.__game.pressLoseContinue()")
-        time.sleep(0.4)
-        s = st()
+        s = wait_resumed()   # let the animated fly-back land and unlock
         print("after coin-continue:", s, "coins:", coins())
         assert coins() == c0 - price, ("Continue charged exactly the config price", coins(), c0, price)
         assert s["tray"] == [] and s["boardCount"] == full, ("tray returned to the board", s)

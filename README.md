@@ -67,8 +67,10 @@ its three buttons):
   shows a **gold coin + price** and a tap **spends coins**; if you **can't afford**
   it, the button shows a **📺 "watch an ad"** tag and a tap grants a **free**
   continue via a rewarded ad *(stubbed — grants immediately)*. On Continue, every
-  collected tile is **returned to its original board cell** (in the order it was
-  placed, mirroring **Undo**) and play resumes. The continue **price** lives in the
+  collected tile **flies back to its original board cell** — animated, **one at a
+  time**, in **reverse placement order** (newest first, exactly as a rapid run of
+  **Undo**s pops them off the top of the stack); input is locked until the last tile
+  lands, then play resumes. The continue **price** lives in the
   same `assets/config/prices.json` (the `continue` key), so it's tunable without
   touching code.
 
@@ -167,11 +169,14 @@ python3 -m http.server 8099
   **waterfall**: if the player can afford `continuePrice` (from `prices.json`'s
   `continue` key) the button shows a coin price and `_continueAfterLoss` **debits
   coins**; otherwise it shows a 📺 tag and grants a **free** continue via a stubbed
-  rewarded ad. On continue it closes the overlay, unlocks, and `_returnTrayToBoard()`
-  sends every collected tile home — the tile-return is the same `_returnTileToBoard(t)`
-  primitive **Undo** uses (cancel any in-flight tray tween, restore
-  coverage/`boardCount`, reparent to the board, snap to the original cell), walked
-  over `history` in **placement order** (oldest first).
+  rewarded ad. On continue it closes the overlay and `_returnTrayToBoard()` flies
+  every collected tile home — **animated**, one at a time, staggered over `history`
+  in **reverse placement order** (newest first — `history.slice().reverse()`, the
+  order a rapid run of **Undo**s would pop them). Each tile reuses the same
+  `_returnTileToBoard(t)` state primitive **Undo** uses (cancel any in-flight tray
+  tween, restore coverage/`boardCount`, reparent to the board); the tile then tweens
+  from its tray slot to its home cell (`_layoutBoard` supplies the target). Input
+  stays **locked** for the whole fly-back and unlocks when the last tile lands.
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
   **"Level &lt;n&gt;"** play button, level-progress dots, and title.
 - `src/shop.js` is the `ShopScene` — an overlay (modeled on `SettingsScene`)

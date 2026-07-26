@@ -291,6 +291,10 @@ async function boot() {
       // The dim swallows taps (modal) — nothing behind the overlay is tappable.
       dimModal: !!scene._overlayDim && scene._overlayDim.eventMode === "static",
     }),
+    // Tray placement order (tile ids, oldest-first) and the order tiles flew back
+    // to the board on the last Continue (newest-first — reverse placement order).
+    historyOrder: () => scene.history.map((t) => t.id),
+    returnOrder: () => scene._lastReturnOrder || null,
     pressLoseContinue: () => scene._loseBtns && scene._loseBtns.cont.emit("pointertap"),
     pressLoseHome: () => scene._loseBtns && scene._loseBtns.home.emit("pointertap"),
     pressLoseReplay: () => scene._loseBtns && scene._loseBtns.replay.emit("pointertap"),

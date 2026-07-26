@@ -711,22 +711,72 @@ export class GameScene extends PIXI.Container {
     this._updateBoosters();
   }
 
-  // Return EVERY collected tile from the tray to its original board cell, in the
-  // order the tiles were placed (oldest first — `history` is in placement order),
-  // mirroring a run of Undos. Used by Continue-after-loss to reset the tray so the
-  // player can keep going. Re-lays-out the board/tray once at the end.
-  _returnTrayToBoard() {
-    for (const t of this.history.slice()) this._returnTileToBoard(t);
-    // Safety net: sweep any tray tile not tracked in history (never expected).
-    for (const t of this.tray.slice()) this._returnTileToBoard(t);
+  // Return EVERY collected tile from the tray to its original board cell, ANIMATED:
+  // the tiles fly back one at a time in REVERSE placement order (newest first),
+  // exactly as a rapid run of Undos would pop them off the top of the stack. Used by
+  // Continue-after-loss to reset the tray so the player can keep going. Input stays
+  // locked for the whole sweep so a tile can't be tapped mid-flight; it unlocks when
+  // the last tile lands.
+  async _returnTrayToBoard() {
+    this.locked = true;
+    const ticker = this.app.ticker;
+
+    // Restore each tile's board state UP FRONT (synchronously) so boardCount,
+    // coverage, and the (now empty) tray are immediately correct; capture the
+    // tray-slot position to animate from. Walk history newest-first (reverse
+    // placement order); the trailing tray sweep is a safety net for any tile not
+    // tracked there (never expected).
+    const returning = [];
+    for (const t of [...this.history.slice().reverse(), ...this.tray.slice()]) {
+      if (this.tray.indexOf(t) < 0) continue; // already handled (dedup) / not in tray
+      const cont = t.container;
+      if (cont.__mv) { ticker.remove(cont.__mv); cont.__mv = null; }
+      if (cont.__sc) { ticker.remove(cont.__sc); cont.__sc = null; }
+      const gp = cont.getGlobalPosition();       // its current on-screen (tray) spot
+      const ss = cont.scale.x;
+      this._returnTileToBoard(t);                // restore state + reparent to board
+      const start = this.boardLayer.toLocal(gp); // same spot, in board space
+      cont.position.set(start.x, start.y);
+      cont.scale.set(ss);
+      returning.push({ t, cont, sx: start.x, sy: start.y, ss });
+    }
+    // Record the fly-back order (tile ids, newest-first) for tests/debug.
+    this._lastReturnOrder = returning.map((r) => r.t.id);
+
+    // _layoutBoard computes each tile's home cell (homeX/homeY/homeScale) and snaps
+    // everything there; re-seat the animating tiles back at their tray slot so they
+    // FLY home instead of teleporting.
     this._layoutBoard();
-    for (const t of this.tiles) {
-      if (!t.inTray && !t.matched) this._animateScale(t.container, t.homeScale, 1);
+    for (const r of returning) {
+      r.hx = r.t.homeX; r.hy = r.t.homeY; r.hs = r.t.homeScale;
+      r.cont.position.set(r.sx, r.sy);
+      r.cont.scale.set(r.ss);
     }
     this._refreshFreeStates();
-    this._layoutTray();
     this._updateProgress();
+    this._layoutTray();
     this._updateBoosters();
+
+    // Fly each tile from its tray slot to its home cell, staggered oldest-first.
+    if (returning.length) this.audio.play("tile_bop");
+    await Promise.all(returning.map(async (r, i) => {
+      await delay(ticker, i * 110);
+      const sx = r.cont.x, sy = r.cont.y, ss = r.cont.scale.x;
+      await tween(ticker, {
+        duration: 300, ease: easeOutCubic,
+        onUpdate: (e) => {
+          if (r.cont.destroyed) return;
+          r.cont.x = sx + (r.hx - sx) * e;
+          r.cont.y = sy + (r.hy - sy) * e;
+          r.cont.scale.set(ss + (r.hs - ss) * e);
+        },
+      });
+    }));
+
+    // Land: snap to the exact home cells, refresh interactivity, resume play.
+    this._layoutBoard();
+    this._refreshFreeStates();
+    this.locked = false;
   }
 
   // The Wand ("hint") helper: guarantee one instant match. It picks a single
@@ -1203,7 +1253,8 @@ export class GameScene extends PIXI.Container {
     this._loseBtns = null;
     this.overlayLayer.removeChildren();
     this._overlayGroup = null;
-    this.locked = false;
+    // _returnTrayToBoard animates the tiles home and owns the lock: it keeps input
+    // locked for the whole fly-back and unlocks when the last tile lands.
     this._returnTrayToBoard();
   }
 
