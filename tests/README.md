@@ -107,6 +107,14 @@ line per test.
   double-tap spends only one charge, and the spent stock persists across a reload.
   At zero stock (board up, no coins) it falls back to the **ad tier** rather than
   disabling — a tap watches a stubbed rewarded ad to complete a triple for free.
+- **`continue_test.py`** — filling the tray no longer dead-ends: it opens a modal
+  **"Out of Moves"** overlay (Home / Replay / Continue). The overlay dim is modal
+  (`eventMode:"static"`). **Continue** follows the booster waterfall — a broke player
+  gets the **ad tier** (free continue, no coins spent) and a player with coins gets
+  the **coin tier** (spends exactly the config `continue` price); either way every
+  collected tile returns to the board (tray empties, board count restored) and play
+  resumes. **Replay** restarts the level in place; **Home** returns to the lobby
+  without advancing. The continue price comes from `assets/config/prices.json`.
 - **`auto_test.py`** — the free Auto Complete button appears (replacing the three
   helpers) exactly when the endgame is trivial (≤12 tiles left, none covered):
   the availability flag matches the gate at every step of a level-1 descent and

@@ -32,6 +32,11 @@ export class GameScene extends PIXI.Container {
     // Coin prices for buying a helper when its stock hits 0 (from the JSON config;
     // see prices.json / main.js). A keyed map: helper code -> coin cost.
     this.boosterPrices = (prices && prices.boosters) || {};
+    // Coin price to CONTINUE a lost round (tray full): return every collected tile
+    // to the board and keep playing. Tunable via the same JSON config (prices.json,
+    // "continue" key). null when unconfigured — Continue then always falls back to
+    // the free rewarded-ad tier.
+    this.continuePrice = (prices && typeof prices.continue === "number") ? prices.continue : null;
 
     this.bgLayer = new PIXI.Container();
     this.boardLayer = new PIXI.Container();
@@ -67,6 +72,7 @@ export class GameScene extends PIXI.Container {
     this.levelNum = 1;
     this.locked = false;    // blocks input during win/lose transitions
     this._autoRunning = false; // true while the Auto Complete sweep animates
+    this._loseBtns = null;  // { cont, home, replay } while the Out-of-Moves overlay is up
     this.onLevelComplete = null; // (levelNum) => void — set by the host (main.js)
     this.onSettings = null;      // () => void — open the settings screen
     this.onShop = null;          // () => void — open the shop screen
@@ -446,6 +452,7 @@ export class GameScene extends PIXI.Container {
     this.history = [];
     this.locked = false;
     this._autoRunning = false; // clear in case a prior level ended via Auto Complete
+    this._loseBtns = null;     // drop any stale Out-of-Moves overlay refs
 
     const positions = parseLevel(rawArr);
     const { coverers, covered } = computeCoverers(positions);
@@ -655,17 +662,21 @@ export class GameScene extends PIXI.Container {
     this.progressText.text = `${this.boardCount} tiles left`;
   }
 
-  undo() {
-    if (this.locked) return;
-    if (this.history.length === 0) return;      // nothing to undo
-    // Undo is a helper: get one to spend via the acquisition ladder (own → buy with
-    // coins → watch an ad), then use it. See _acquireBooster.
-    if (!this._acquireBooster("undo")) return;
-    const t = this.history.pop();
-    if (!t) return;
+  // Return one collected tile from the tray back to the board: restore its board
+  // state (inTray/coverage/boardCount), remove it from the tray + history, and
+  // reparent it. Cancels any in-flight tray-slide tween FIRST — if the tile was
+  // collected moments ago, its _layoutTray slide (container.__mv) is still running
+  // and would keep lerping it toward its old tray slot after we reparent, dropping
+  // it at a wrong spot instead of its home cell (the "undo returns a tile to a
+  // random position" bug). Does NOT re-lay-out the board/tray or refresh states —
+  // the caller batches that once (Undo returns one tile; Continue returns them
+  // all). Returns false if the tile isn't in the tray.
+  _returnTileToBoard(t) {
     const idx = this.tray.indexOf(t);
-    if (idx < 0) return;
+    if (idx < 0) return false;
     this.tray.splice(idx, 1);
+    const h = this.history.indexOf(t);
+    if (h >= 0) this.history.splice(h, 1);
     t.inTray = false;
     this.boardCount++;
     // restore coverage on tiles beneath
@@ -673,22 +684,45 @@ export class GameScene extends PIXI.Container {
       const b = this.tiles[belowId];
       if (!b.inTray && !b.matched) b.aliveCovers++;
     }
-
-    // Back to the board. Cancel any in-flight tray-slide tween on this tile FIRST:
-    // if it was collected moments ago, its _layoutTray slide (container.__mv) is
-    // still running and would keep lerping the tile toward its old tray slot after
-    // we reparent — dropping it at a wrong spot instead of its home cell. This was
-    // the "undo returns a tile to a random position" bug.
     const cont = t.container;
     if (cont.__mv) { this.app.ticker.remove(cont.__mv); cont.__mv = null; }
-
     this.trayGroup.removeChild(cont);
     this.boardLayer.addChild(cont);
     cont.eventMode = "static";
+    return true;
+  }
+
+  undo() {
+    if (this.locked) return;
+    if (this.history.length === 0) return;      // nothing to undo
+    // Undo is a helper: get one to spend via the acquisition ladder (own → buy with
+    // coins → watch an ad), then use it. See _acquireBooster.
+    if (!this._acquireBooster("undo")) return;
+    // Send the most-recently-added tile home (also drops it from history).
+    const t = this.history[this.history.length - 1];
+    if (!t || !this._returnTileToBoard(t)) return;
     // _layoutBoard snaps the tile to its ORIGINAL cell — homeX/homeY are recomputed
     // from its immutable grid coords (gx/gy) — and lays out the other board tiles.
     this._layoutBoard();
-    this._animateScale(cont, t.homeScale, 1);
+    this._animateScale(t.container, t.homeScale, 1);
+    this._refreshFreeStates();
+    this._layoutTray();
+    this._updateProgress();
+    this._updateBoosters();
+  }
+
+  // Return EVERY collected tile from the tray to its original board cell, in the
+  // order the tiles were placed (oldest first — `history` is in placement order),
+  // mirroring a run of Undos. Used by Continue-after-loss to reset the tray so the
+  // player can keep going. Re-lays-out the board/tray once at the end.
+  _returnTrayToBoard() {
+    for (const t of this.history.slice()) this._returnTileToBoard(t);
+    // Safety net: sweep any tray tile not tracked in history (never expected).
+    for (const t of this.tray.slice()) this._returnTileToBoard(t);
+    this._layoutBoard();
+    for (const t of this.tiles) {
+      if (!t.inTray && !t.matched) this._animateScale(t.container, t.homeScale, 1);
+    }
     this._refreshFreeStates();
     this._layoutTray();
     this._updateProgress();
@@ -1028,10 +1062,152 @@ export class GameScene extends PIXI.Container {
   _lose() {
     this.locked = true;
     this.audio.play("fail");
-    this._showOverlay("Board Full!", "No moves left", "Try Again", () => this.restart());
+    this._showLoseOverlay();
+  }
+
+  // The "Out of Moves" overlay, shown when the tray fills with no match left (or a
+  // rare stranded-deck end). It is strictly MODAL — the full-view dim swallows every
+  // tap and there is NO close affordance, so the only ways out are its three
+  // buttons:
+  //   • Home     → leave to the lobby, progress kept (onExit)
+  //   • Replay   → restart this level from scratch
+  //   • Continue → PAY to keep playing this very board: return every collected tile
+  //                to its origin (mirroring Undo) and resume. It follows the same
+  //                waterfall as the helpers — spend coins when the player can afford
+  //                the continue price, else watch a rewarded ad (free). The button's
+  //                face reflects which tier applies (coin price vs 📺). See
+  //                _continueAfterLoss / _makeContinueButton.
+  _showLoseOverlay() {
+    this.overlayLayer.removeChildren();
+    const dim = new PIXI.Graphics();
+    dim.beginFill(0x040814, 0.62).drawRect(0, 0, this.viewW, this.viewH).endFill();
+    dim.eventMode = "static"; // modal: swallow taps meant for the board/helpers
+    this.overlayLayer.addChild(dim);
+    this._overlayDim = dim;
+
+    const group = new PIXI.Container();
+    group.position.set(this.viewW / 2, this.viewH / 2);
+    this.overlayLayer.addChild(group);
+    this._overlayGroup = group;
+
+    const panel = new PIXI.Graphics();
+    panel.beginFill(0x22335e, 1).drawRoundedRect(-290, -230, 580, 470, 34).endFill();
+    panel.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(-290, -230, 580, 470, 34);
+    group.addChild(panel);
+
+    const tt = new PIXI.Text("Out of Moves", {
+      fontFamily: "Arial", fontSize: 52, fontWeight: "900", fill: 0xffe27a,
+      stroke: 0x5a3a00, strokeThickness: 6,
+    });
+    tt.anchor.set(0.5); tt.position.set(0, -162);
+    const stt = new PIXI.Text("The tray is full — keep going?", {
+      fontFamily: "Arial", fontSize: 28, fill: 0xd7e2ff,
+    });
+    stt.anchor.set(0.5); stt.position.set(0, -104);
+    group.addChild(tt, stt);
+
+    // Continue — the primary action. Its face reflects the pay waterfall: a coin
+    // price when affordable, else a 📺 rewarded-ad tag.
+    const canPay = this.continuePrice != null && !!this.user
+      && this.user.canAfford("coins", this.continuePrice);
+    const cont = this._makeContinueButton(canPay, () => this._continueAfterLoss());
+    cont.position.set(0, -22);
+    group.addChild(cont);
+
+    // Secondary row: Home (lobby) | Replay (restart).
+    const home = this._makeButton("Home", 250, 88, -136, 116, 0x556080, () => {
+      this._loseBtns = null;
+      this.overlayLayer.removeChildren();
+      if (this.onExit) this.onExit();
+    });
+    const replay = this._makeButton("Replay", 250, 88, 136, 116, 0x4d8dff, () => {
+      this._loseBtns = null;
+      this.overlayLayer.removeChildren();
+      this.restart();
+    });
+    group.addChild(home, replay);
+    this._loseBtns = { cont, home, replay };
+
+    tt.scale.set(0.2);
+    tween(this.app.ticker, {
+      duration: 420, ease: easeOutBack,
+      onUpdate: (e) => tt.scale.set(0.2 + 0.8 * e),
+    });
+  }
+
+  // Build the Continue button for the lose overlay. `canPay` picks the tier the
+  // face shows: a gold coin + the continue price ("pay coins") when true, else a
+  // 📺 "watch an ad" glyph (a free continue via a rewarded ad). Its `_payMode`
+  // ("coins" | "ad") is exposed for tests. Pressing it runs `onClick` either way;
+  // _continueAfterLoss re-derives the tier and charges/ads accordingly.
+  _makeContinueButton(canPay, onClick) {
+    const w = 440, h = 104;
+    const c = new PIXI.Container();
+    const g = new PIXI.Graphics();
+    g.beginFill(0x39c06a).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
+    g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
+    c.addChild(g);
+    const label = new PIXI.Text("Continue", {
+      fontFamily: "Arial", fontSize: 34, fontWeight: "800", fill: 0xffffff,
+    });
+    label.anchor.set(0, 0.5);
+    c.addChild(label);
+    if (canPay) {
+      // [ Continue  🪙 price ] — laid out as one centred unit.
+      const coin = makeCoinIcon(17);
+      const amt = new PIXI.Text(String(this.continuePrice), {
+        fontFamily: "Arial", fontSize: 34, fontWeight: "900", fill: 0xffe27a,
+        stroke: 0x5a3a00, strokeThickness: 4,
+      });
+      amt.anchor.set(0, 0.5);
+      const gap1 = 20, gap2 = 8, coinD = 34;
+      const total = label.width + gap1 + coinD + gap2 + amt.width;
+      label.position.set(-total / 2, 0);
+      coin.position.set(-total / 2 + label.width + gap1 + coinD / 2, 0);
+      amt.position.set(coin.position.x + coinD / 2 + gap2, 0);
+      c.addChild(coin, amt);
+    } else {
+      // [ Continue  📺 ] — free continue via a rewarded ad.
+      const ad = new PIXI.Text("📺", { fontFamily: "Arial", fontSize: 34 });
+      ad.anchor.set(0, 0.5);
+      const gap = 16;
+      const total = label.width + gap + ad.width;
+      label.position.set(-total / 2, 0);
+      ad.position.set(-total / 2 + label.width + gap, 0);
+      c.addChild(ad);
+    }
+    c._payMode = canPay ? "coins" : "ad";
+    c.eventMode = "static";
+    c.cursor = "pointer";
+    c.on("pointertap", () => { this.audio.play("btn_01"); onClick(); });
+    c.on("pointerdown", () => c.scale.set(0.96));
+    c.on("pointerup", () => c.scale.set(1));
+    c.on("pointerupoutside", () => c.scale.set(1));
+    return c;
+  }
+
+  // Pay to continue a lost round. Charge the continue price in coins when the
+  // player can afford it; otherwise watch a (stubbed) rewarded ad for a free
+  // continue — the same waterfall the helpers use. On success, close the overlay,
+  // unlock input, and return every collected tile to the board so play resumes.
+  // A no-op only if there's no user.
+  // TODO(SDK): on the ad tier, show a real rewarded ad and only continue on a
+  //   completed view (FBInstant / Telegram / Devvit ad units).
+  _continueAfterLoss() {
+    if (!this.user) return;
+    if (this.continuePrice != null && this.user.canAfford("coins", this.continuePrice)) {
+      if (!this.user.debit("coins", this.continuePrice)) return; // lost a race for coins
+    }
+    // else: can't afford (or no price configured) -> rewarded ad, free continue.
+    this._loseBtns = null;
+    this.overlayLayer.removeChildren();
+    this._overlayGroup = null;
+    this.locked = false;
+    this._returnTrayToBoard();
   }
 
   _showOverlay(title, subtitle, btnLabel, onBtn, coinReward = 0) {
+    this._loseBtns = null; // this path is the win overlay — no lose buttons live
     this.overlayLayer.removeChildren();
     // Full-view dim + a centred group whose children are laid out relative to its
     // centre, so the panel stays centred on any screen (and reflows on resize).

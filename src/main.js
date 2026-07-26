@@ -278,6 +278,22 @@ async function boot() {
       shuffleMode: scene.shuffleBtn._boosterMode,
       wandMode: scene.wandBtn._boosterMode,
     }),
+    // ---- out-of-moves / continue overlay ----
+    // Coin price to continue a lost round (from prices.json "continue"; null if
+    // unconfigured -> Continue always falls back to the free ad tier).
+    continuePrice: () => scene.continuePrice,
+    loseState: () => ({
+      overlayCount: scene.overlayLayer.children.length,
+      loseOverlay: !!scene._loseBtns, // the Out-of-Moves overlay is up
+      // Which pay tier the Continue button offers: "coins" (afford the price) or
+      // "ad" (can't afford -> watch a rewarded ad for a free continue).
+      continueMode: scene._loseBtns ? scene._loseBtns.cont._payMode : null,
+      // The dim swallows taps (modal) — nothing behind the overlay is tappable.
+      dimModal: !!scene._overlayDim && scene._overlayDim.eventMode === "static",
+    }),
+    pressLoseContinue: () => scene._loseBtns && scene._loseBtns.cont.emit("pointertap"),
+    pressLoseHome: () => scene._loseBtns && scene._loseBtns.home.emit("pointertap"),
+    pressLoseReplay: () => scene._loseBtns && scene._loseBtns.replay.emit("pointertap"),
     setMusic: (on) => audio.setMusic(on),
     setSound: (on) => audio.setSound(on),
     setMuted: (m) => audio.setMuted(m),

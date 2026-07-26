@@ -14,7 +14,8 @@ keeps **matching types grouped**: a collected tile drops in next to others of it
 kind, or onto the end (top) of the row if its type isn't there yet. Collect
 **3 of the same fruit** to clear them. Clear the whole board to win — you're
 returned to the lobby, now advanced to the next level. If the 7-slot tray fills
-up with no match, you lose (**Try Again** restarts the level in place). In-game
+up with no match, you're **out of moves** — a modal **"Out of Moves"** overlay
+gives you a second chance instead of a dead end (see below). In-game
 **helpers** (boosters), a row of three below the tray: **Reshuffle** (left),
 **Wand** (middle), **Undo** (right).
 - **Undo** — return the last-added tile (the most recent one, wherever grouping
@@ -54,6 +55,22 @@ A helper is only **disabled/greyed** when there's **no move to make** (e.g. Undo
 with an empty tray), never merely because stock ran out. The **coin prices** live
 in a JSON config (`assets/config/prices.json`) so they're tunable without touching
 code.
+
+### Out of Moves — a paid second chance
+When the 7-slot tray fills with no match left, a strictly **modal "Out of Moves"**
+overlay appears (the dim swallows all taps — there's **no way to close it** except
+its three buttons):
+- **Home** — leave to the lobby with progress kept.
+- **Replay** — restart the level from scratch.
+- **Continue** — **pay to keep playing this very board**. It follows the same
+  **waterfall** as the boosters: if you can **afford** the coin price, the button
+  shows a **gold coin + price** and a tap **spends coins**; if you **can't afford**
+  it, the button shows a **📺 "watch an ad"** tag and a tap grants a **free**
+  continue via a rewarded ad *(stubbed — grants immediately)*. On Continue, every
+  collected tile is **returned to its original board cell** (in the order it was
+  placed, mirroring **Undo**) and play resumes. The continue **price** lives in the
+  same `assets/config/prices.json` (the `continue` key), so it's tunable without
+  touching code.
 
 **Coins** are a spendable currency shown in a **coin pill** at the top-right of
 both the lobby and the level HUD. You **earn 25 coins for clearing a level** (the
@@ -143,6 +160,18 @@ python3 -m http.server 8099
   returns. On a win it calls back to the host
   (`onLevelComplete`) rather than self-looping; the top-left **Back** button
   calls `onExit` to return to the lobby mid-level (progress untouched).
+  **Out of Moves** (`_lose()` → `_showLoseOverlay()`): a full tray no longer
+  dead-ends. `_lose` shows a **modal** overlay (its dim is `eventMode:"static"`, so
+  it swallows every tap and there's no close affordance) with **Home** (`onExit`),
+  **Replay** (`restart`), and **Continue**. Continue reuses the booster
+  **waterfall**: if the player can afford `continuePrice` (from `prices.json`'s
+  `continue` key) the button shows a coin price and `_continueAfterLoss` **debits
+  coins**; otherwise it shows a 📺 tag and grants a **free** continue via a stubbed
+  rewarded ad. On continue it closes the overlay, unlocks, and `_returnTrayToBoard()`
+  sends every collected tile home — the tile-return is the same `_returnTileToBoard(t)`
+  primitive **Undo** uses (cancel any in-flight tray tween, restore
+  coverage/`boardCount`, reparent to the board, snap to the original cell), walked
+  over `history` in **placement order** (oldest first).
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
   **"Level &lt;n&gt;"** play button, level-progress dots, and title.
 - `src/shop.js` is the `ShopScene` — an overlay (modeled on `SettingsScene`)
@@ -296,7 +325,7 @@ JS/
   src/{main,game,lobby,settings,shop,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
-    config/prices.json      # coin prices for in-level consumable purchases
+    config/prices.json      # coin prices: in-level helper buys + the Out-of-Moves continue
     levels/level{1,2,3,4}.json
     bg/*.jpg
     audio/*.mp3
