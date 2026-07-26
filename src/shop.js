@@ -86,7 +86,7 @@ function buildContents(pkg) {
 // drop the model subscription when the pill goes away).
 export function makeCoinPill(user, onTap) {
   const c = new PIXI.Container();
-  const w = 178, h = 60;
+  const w = 196, h = 60;
   const g = new PIXI.Graphics();
   g.beginFill(0x0a1226, 0.55).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2).endFill();
   g.lineStyle(3, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2);
@@ -105,8 +105,17 @@ export function makeCoinPill(user, onTap) {
   c.addChild(label);
   c.label = label;
 
-  const cart = makeCartIcon(30);
-  cart.position.set(w / 2 - 28, 0);
+  // The cart sits in a circular badge at the right end — its radius is a touch more
+  // than half the pill's height, so the circle is slightly taller than the pill and
+  // protrudes, making the shop affordance stand out. Coloured like the Buy buttons.
+  const cartR = h / 2 + 4;                 // slightly taller than the pill
+  const cartCX = w / 2 - cartR + 6;        // nestled at the right end, edge just past the pill
+  const cbg = new PIXI.Graphics();
+  cbg.beginFill(0xff8a3d).drawCircle(cartCX, 0, cartR).endFill();
+  cbg.lineStyle(3, 0xffffff, 0.55).drawCircle(cartCX, 0, cartR);
+  c.addChild(cbg);
+  const cart = makeCartIcon(32);
+  cart.position.set(cartCX, 0);
   c.addChild(cart);
 
   c.update = () => { label.text = String(user ? user.balance("coins") : 0); };
@@ -118,7 +127,8 @@ export function makeCoinPill(user, onTap) {
 
   c.eventMode = "static";
   c.cursor = "pointer";
-  c.hitArea = new PIXI.Rectangle(-w / 2, -h / 2, w, h);
+  // Hit area spans the pill plus the protruding cart badge.
+  c.hitArea = new PIXI.Rectangle(-w / 2, -cartR, (cartCX + cartR) - (-w / 2), cartR * 2);
   c.on("pointertap", () => { onTap && onTap(); });
   c.on("pointerdown", () => c.scale.set(0.94));
   c.on("pointerup", () => c.scale.set(1));
