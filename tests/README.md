@@ -101,12 +101,17 @@ line per test.
   can't afford one the helper drops to the **"watch an ad"** tier — still usable,
   granting a free use for no coins. Covers both Shuffle (board-gated) and Undo
   (tray-gated).
-- **`wand_test.py`** — the Wand helper completes one triple end to end: from an
-  empty tray it banks a fresh triple off the board (space-neutral), a waiting
-  pair is finished by pulling a single tile (freeing two slots), a rapid
-  double-tap spends only one charge, and the spent stock persists across a reload.
-  At zero stock (board up, no coins) it falls back to the **ad tier** rather than
-  disabling — a tap watches a stubbed rewarded ad to complete a triple for free.
+- **`wand_test.py`** — the Wand helper completes one triple end to end: it
+  **prioritises available tiles** — on the empty-tray start (where fully-free
+  triples exist) `wandPreview` must pull an all-available triple, never dragging a
+  covered/greyed tile out from under others (regression: the old picker chose the
+  lowest face-id colour with ≥3 tiles, dipping into a covered tile even when a free
+  triple existed). From an empty tray it banks a fresh triple off the board
+  (space-neutral), a waiting pair is finished by pulling a single tile (freeing two
+  slots), a rapid double-tap spends only one charge, and the spent stock persists
+  across a reload. At zero stock (board up, no coins) it falls back to the **ad
+  tier** rather than disabling — a tap watches a stubbed rewarded ad to complete a
+  triple for free.
 - **`continue_test.py`** — filling the tray no longer dead-ends: it opens a modal
   **"Out of Moves"** overlay (Home / Replay / Continue). The overlay dim is modal
   (`eventMode:"static"`). **Continue** follows the booster waterfall — a broke player

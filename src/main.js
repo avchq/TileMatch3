@@ -218,6 +218,18 @@ async function boot() {
     exitLevel: () => scene.onExit && scene.onExit(),
     reshuffle: () => scene.reshuffle(),
     wand: () => scene.wand(),
+    // Which tiles the Wand would pull next (a pure read of _wandPick), each with
+    // its availability — free/available (aliveCovers 0, top layer) vs covered/
+    // unavailable. Lets tests assert the availability-first waterfall without
+    // relying on animation timing. null when the board is empty.
+    wandPreview: () => {
+      const pick = scene._wandPick();
+      if (!pick) return null;
+      return {
+        type: pick.type,
+        tiles: pick.tiles.map((t) => ({ id: t.id, cov: t.aliveCovers, free: t.aliveCovers === 0 })),
+      };
+    },
     autoComplete: () => scene.autoComplete(),
     autoState: () => ({
       available: scene._autoAvailable(),

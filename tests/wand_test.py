@@ -47,6 +47,30 @@ try:
         assert s["wandBadge"] == "3", s
         assert s["wandUsable"] is True and s["wandDimmed"] is False, "wand usable with stock + a non-empty board"
 
+        # 2b) Availability-first waterfall: the Wand must complete a triple out of
+        #     AVAILABLE (free, top-layer) tiles and only reach into UNAVAILABLE
+        #     (greyed-out, still-covered) tiles when a colour hasn't enough free
+        #     ones left. On the empty-tray start there are colours with three free
+        #     tiles, so the pick must be a fully-available triple — never a colour
+        #     that would drag a covered tile out from under others. (Regression:
+        #     the old picker chose the lowest face-id colour with >=3 tiles total,
+        #     dipping into a covered tile even when a free triple existed.)
+        board = page.evaluate("""() => window.__game.scene.tiles
+            .filter(t => !t.inTray && !t.matched)
+            .map(t => ({type: t.type, free: t.aliveCovers === 0}))""")
+        freeByType = {}
+        for t in board:
+            freeByType.setdefault(t["type"], 0)
+            if t["free"]:
+                freeByType[t["type"]] += 1
+        assert any(n >= 3 for n in freeByType.values()), \
+            ("sanity: a fully-available triple exists on the empty-tray board", freeByType)
+        prev = page.evaluate("window.__game.wandPreview()")
+        print("empty-tray wand preview:", prev)
+        assert len(prev["tiles"]) == 3, prev
+        assert all(t["free"] for t in prev["tiles"]), \
+            ("the Wand must pull an all-available triple, not touch covered tiles", prev)
+
         # 3) Empty-tray case: the Wand banks a fresh triple off the board. It pulls
         #    three of one colour, they clear, the tray ends empty (space-neutral),
         #    the board shrinks by three, and one charge is spent.

@@ -779,13 +779,14 @@ export class GameScene extends PIXI.Container {
     this.locked = false;
   }
 
-  // The Wand ("hint") helper: guarantee one instant match. It picks a single
-  // colour that reaches a triple most cheaply (a waiting pair first, then any
-  // tray colour, else a fresh colour off the board), flies the missing tiles
-  // from the board into the tray, and lets them resolve and clear — freeing tray
-  // space. A consumable like the other helpers: one charge per use, disabled at
-  // zero. (The upgraded "super" wand that clears several sets shares this button
-  // but is out of scope here.)
+  // The Wand ("hint") helper: guarantee one instant match. It completes a triple
+  // using AVAILABLE (free, top-layer, tappable) tiles wherever possible, only
+  // reaching into UNAVAILABLE (greyed-out, still-covered) tiles when a colour
+  // hasn't enough free tiles to finish — see _wandPick for the waterfall. It
+  // flies the missing tiles from the board into the tray and lets them resolve
+  // and clear — freeing tray space. A consumable like the other helpers: one
+  // charge per use, disabled at zero. (The upgraded "super" wand that clears
+  // several sets shares this button but is out of scope here.)
   wand() {
     if (this.locked) return;                       // won/lost, or a wand animation in flight
     if (!this.user) return;
@@ -837,65 +838,87 @@ export class GameScene extends PIXI.Container {
   }
 
   // Choose the colour the Wand completes and the board tiles it pulls in.
-  // Selection order (cheapest-to-complete first, per the spec):
-  //   1) a colour already holding a PAIR in the tray -> pull 1 more (frees 2 slots)
-  //   2) else a colour holding a SINGLE in the tray  -> pull 2 more (frees 1 slot)
-  //   3) else (empty tray) a colour off the board    -> pull a full 3 (space-neutral)
-  // Ties resolve by tray order (cases 1–2) / by preferring a completable colour
-  // then tile face id (case 3). Board tiles are drawn most-accessible first
-  // (fewest live coverers, then id) so the move reads as one the player could
-  // have made. Returns null if the board is empty. `tiles` may be short of the
-  // ideal count if the board lacks enough of the colour — the triple just won't
-  // complete this time (handled by the caller, no crash).
+  //
+  // The Wand must prioritise AVAILABLE tiles (free — aliveCovers 0 — on the top,
+  // tappable layer) and only fall back to UNAVAILABLE tiles (greyed-out, still
+  // covered on a lower layer) when a colour hasn't enough free tiles left to
+  // finish its triple. So the selection waterfall is, over every colour that can
+  // still reach a triple:
+  //   1) FEWEST covered tiles used — an all-available completion beats one that
+  //      must dip into a covered tile, which beats one needing two, etc. (This is
+  //      the core rule: available first, covered only when nothing free is left.)
+  //   2) then the CHEAPEST completion — a waiting pair (pull 1, frees 2 slots)
+  //      beats a single (pull 2, frees 1) beats a fresh board triple (pull 3,
+  //      space-neutral).
+  //   3) then a stable tiebreak: tray order (for colours waiting in the tray),
+  //      then face id.
+  // Within the chosen colour the tiles are drawn most-accessible first (free
+  // tiles ahead of covered, then by id) so a pull consumes available tiles
+  // before ever touching a covered layer, and the move reads as one the player
+  // could have made. Returns null if the board is empty.
   _wandPick() {
     const boardTiles = this.tiles.filter((t) => !t.matched && !t.inTray);
     if (boardTiles.length === 0) return null;
 
-    // tray composition, remembering first-appearance order
+    // tray composition, remembering first-appearance order (for the tiebreak)
     const trayCount = new Map();
     const trayOrder = [];
     for (const t of this.tray) {
       if (!trayCount.has(t.type)) { trayCount.set(t.type, 0); trayOrder.push(t.type); }
       trayCount.set(t.type, trayCount.get(t.type) + 1);
     }
-    // board tiles grouped by face
+    const trayRank = (ty) => {
+      const i = trayOrder.indexOf(ty);
+      return i === -1 ? trayOrder.length : i;   // tray colours before fresh ones
+    };
+
+    // board tiles grouped by face, each list MOST-ACCESSIBLE first (available
+    // tiles — aliveCovers 0 — ahead of covered ones, then by id) so a pull draws
+    // free tiles before dipping into covered layers.
     const boardByType = new Map();
     for (const t of boardTiles) {
       if (!boardByType.has(t.type)) boardByType.set(t.type, []);
       boardByType.get(t.type).push(t);
     }
+    for (const list of boardByType.values()) {
+      list.sort((a, b) => a.aliveCovers - b.aliveCovers || a.id - b.id);
+    }
 
-    let chosenType = null, need = 0;
-    // 1) a waiting pair (a match cleared at 3, so tray counts are only 1 or 2)
-    for (const ty of trayOrder) {
-      if (trayCount.get(ty) === 2) { chosenType = ty; need = 1; break; }
+    // Build a completion candidate per colour: how many tiles it still needs to
+    // reach a triple (given what's waiting in the tray) and, of those, how many
+    // would have to come from COVERED tiles because there aren't enough free ones.
+    const candidates = [];
+    for (const [ty, list] of boardByType) {
+      const trayN = trayCount.get(ty) || 0;    // 0, 1 or 2 (a third would have cleared)
+      const need = 3 - trayN;
+      if (list.length < need) continue;         // can't finish this colour into a triple
+      const freeN = list.filter((t) => t.aliveCovers === 0).length;
+      const unavailUsed = Math.max(0, need - freeN);
+      candidates.push({ ty, need, unavailUsed });
     }
-    // 2) any single already in the tray
-    if (chosenType === null) {
-      for (const ty of trayOrder) {
-        if (trayCount.get(ty) === 1) { chosenType = ty; need = 2; break; }
-      }
-    }
-    // 3) empty tray: pick a board colour — prefer one with a full triple to give
-    //    (smallest face id among those), else the most plentiful colour.
-    if (chosenType === null) {
-      const types = [...boardByType.keys()].sort((a, b) => a - b);
+
+    let chosen;
+    if (candidates.length) {
+      candidates.sort((a, b) =>
+        a.unavailUsed - b.unavailUsed ||        // 1) prioritise available tiles
+        a.need - b.need ||                      // 2) cheapest completion
+        trayRank(a.ty) - trayRank(b.ty) ||      // 3) tray order, then face id
+        a.ty - b.ty);
+      chosen = candidates[0];
+    } else {
+      // No colour can complete a triple right now (rare — near-empty board).
+      // Fall back to the colour with the most free tiles to still make progress.
       let best = null;
-      for (const ty of types) {
-        if (boardByType.get(ty).length >= 3) { best = ty; break; }
-      }
-      if (best === null) {
-        for (const ty of types) {
-          if (best === null || boardByType.get(ty).length > boardByType.get(best).length) best = ty;
+      for (const [ty, list] of boardByType) {
+        const freeN = list.filter((t) => t.aliveCovers === 0).length;
+        if (!best || freeN > best.freeN || (freeN === best.freeN && ty < best.ty)) {
+          best = { ty, freeN, list };
         }
       }
-      chosenType = best; need = 3;
+      chosen = { ty: best.ty, need: Math.min(best.list.length, 3) };
     }
 
-    const avail = (boardByType.get(chosenType) || [])
-      .slice()
-      .sort((a, b) => a.aliveCovers - b.aliveCovers || a.id - b.id);
-    return { type: chosenType, tiles: avail.slice(0, need) };
+    return { type: chosen.ty, tiles: boardByType.get(chosen.ty).slice(0, chosen.need) };
   }
 
   // Auto Complete: sweep every remaining tile into a pile, then fly them one by

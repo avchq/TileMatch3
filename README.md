@@ -26,11 +26,16 @@ gives you a second chance instead of a dead end (see below). In-game
   greyed-out when the tray is empty**, as there's nothing to undo.
 - **Wand** (magic hint) — **guarantee one instant match**: the tiles needed to
   complete a triple fly from the board into the tray and immediately clear,
-  relieving tray pressure. It picks the cheapest colour to finish — a colour
+  relieving tray pressure. It **prioritises available tiles** — the free,
+  top-layer, tappable ones — and only reaches into **unavailable** tiles (the
+  greyed-out ones still covered on a lower layer) when a colour hasn't enough
+  free tiles left to finish its triple. So it first picks the completion that
+  uses the **fewest covered tiles** (an all-available triple beats one that must
+  dip into a covered tile), and only then the cheapest completion — a colour
   already holding a **pair** in the tray (pull 1 more, frees two slots), else a
-  colour holding a **single** (pull 2), else, on an empty tray, a fresh colour
-  off the board (pull a full 3). Tiles are drawn most-accessible-first so the
-  move reads as one you could have made.
+  colour holding a **single** (pull 2), else a fresh colour off the board (pull a
+  full 3). Within a colour, tiles are drawn most-accessible-first so the move
+  reads as one you could have made.
 - **Reshuffle** — redeal the faces of the tiles still on the play board into a
   fresh arrangement that's still guaranteed solvable; the bottom tray/deck is
   left untouched, and positions and progress are kept, so the level is **not**
@@ -146,10 +151,14 @@ python3 -m http.server 8099
   tray, Wand/Reshuffle with an empty board — never merely at 0 stock (the ladder
   always yields one). The coin prices come from `assets/config/prices.json`
   (loaded in `main.js`, passed to `GameScene`).
-  **Wand** (`wand()` / `_wandPick()`) completes exactly one triple — it selects
-  the cheapest colour to finish (waiting pair → single → fresh board colour),
-  flies the missing tiles in most-accessible-first, and locks input until the
-  triple resolves so a rapid double-tap can't spend two charges. (An upgraded
+  **Wand** (`wand()` / `_wandPick()`) completes exactly one triple. Over every
+  colour that can still reach a triple, `_wandPick` ranks completions by (1) the
+  **fewest covered/unavailable tiles used** — so available (free, top-layer)
+  tiles are spent before ever touching a still-covered tile — then (2) the
+  cheapest completion (waiting pair → single → fresh board colour), then a
+  tray-order/face-id tiebreak. It flies the missing tiles in
+  most-accessible-first and locks input until the triple resolves so a rapid
+  double-tap can't spend two charges. (An upgraded
   "super" wand tied to a win-streak meta shares the button but isn't built.)
   **Auto Complete** (`autoComplete()` / `_autoAvailable()`) is a **free** endgame
   shortcut, not a booster: when `boardCount + tray.length ≤ 12` and no board tile
