@@ -33,9 +33,24 @@ up with no match, you lose (**Try Again** restarts the level in place). In-game
   restarted.
 
 Each helper is drawn from a **limited inventory** stored on the player profile —
-a count **bubble** on the button shows how many uses remain, every use spends
-one, and once you hit **0** the helper is disabled until you get more (new
-players start with a small stock; see the User object below).
+a count **bubble** on the button shows how many uses remain and every use spends
+one (new players start with a small stock; see the User object below). When a
+helper hits **0** it doesn't just disable — tapping it walks an **acquisition
+ladder** so you can keep playing:
+1. **Own one** → the bubble shows the remaining **count** (green) and a tap spends
+   one, as usual.
+2. **Out of stock, can afford one** → the bubble shows the **coin price** (a gold
+   coin + amount); a tap **buys one with coins** from your wallet and uses it in
+   the same press (net inventory unchanged, coins spent).
+3. **Out of stock and can't afford one** → the bubble shows a **"watch an ad"**
+   icon (📺); a tap grants a **free** use via a rewarded ad. *(No ad network is
+   wired up yet — the tap grants the reward immediately; the icon is the
+   placeholder.)*
+
+A helper is only **disabled/greyed** when there's **no move to make** (e.g. Undo
+with an empty tray), never merely because stock ran out. The **coin prices** live
+in a JSON config (`assets/config/prices.json`) so they're tunable without touching
+code.
 
 **Coins** are a spendable currency shown in a **coin pill** at the top-right of
 both the lobby and the level HUD. You **earn 25 coins for clearing a level** (the
@@ -90,9 +105,18 @@ python3 -m http.server 8099
   tray, matching, win/lose, animations). The tray keeps same-type tiles grouped
   as they're collected while `history` records raw add-order, so **Undo** always
   pops the most recently added tile. The **Undo**, **Wand**, and **Reshuffle**
-  helpers are gated on the player's booster inventory (`user.useBooster(...)`):
-  each press spends one, the buttons carry a live count bubble, and they disable
-  at 0 (Undo also disables while the tray is empty; Wand while the board is).
+  helpers draw from the player's booster inventory through an **acquisition ladder**
+  (`_acquireBooster(kind)`): use owned stock (`user.useBooster`), else buy one with
+  coins (`_buyBooster` → `user.debit("coins", price)` + `grantBooster`), else watch
+  a rewarded ad (`_watchAd`, a stub that grants for free — no ad SDK yet). The
+  press grants-then-uses, so the buy/ad tiers leave the net inventory unchanged.
+  Each button's badge (`_setBoosterButton` / `_makeCountBadge.setBadge`) reflects
+  the tier: the remaining **count** when stocked, the **coin price** when empty but
+  affordable, or a **📺 "watch an ad"** icon when empty and unaffordable. A helper
+  is disabled/greyed **only when there's no move to make** — Undo with an empty
+  tray, Wand/Reshuffle with an empty board — never merely at 0 stock (the ladder
+  always yields one). The coin prices come from `assets/config/prices.json`
+  (loaded in `main.js`, passed to `GameScene`).
   **Wand** (`wand()` / `_wandPick()`) completes exactly one triple — it selects
   the cheapest colour to finish (waiting pair → single → fresh board colour),
   flies the missing tiles in most-accessible-first, and locks input until the
@@ -262,6 +286,7 @@ JS/
   src/{main,game,lobby,settings,shop,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
+    config/prices.json      # coin prices for in-level consumable purchases
     levels/level{1,2,3,4}.json
     bg/*.jpg
     audio/*.mp3

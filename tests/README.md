@@ -86,13 +86,23 @@ line per test.
   levels differ, and the fixed board is still solvable to a win.
 - **`booster_test.py`** — the Undo/Shuffle helpers draw from an inventory on the
   user record: a fresh profile has the starter stock, each use decrements it and
-  updates the count bubble, a depleted helper is disabled and its action is a
-  no-op, the inventory persists across a reload, and a grant re-enables it live.
+  updates the count bubble, the inventory persists across a reload, and a grant
+  re-enables it live. A helper is disabled only when there's no move to make (Undo
+  with an empty tray); at 0 stock with no coins it enters the **ad tier** (still
+  usable — a tap grants a free use, spending no coins and netting 0 stock).
+- **`boosterbuy_test.py`** — the in-level acquisition ladder when a helper's stock
+  hits 0: prices come from the JSON config (`assets/config/prices.json`); with
+  enough coins a tap **buys** one and uses it in the same press (coins drop by the
+  config price, net stock 0); using owned stock costs no coins; and when the player
+  can't afford one the helper drops to the **"watch an ad"** tier — still usable,
+  granting a free use for no coins. Covers both Shuffle (board-gated) and Undo
+  (tray-gated).
 - **`wand_test.py`** — the Wand helper completes one triple end to end: from an
   empty tray it banks a fresh triple off the board (space-neutral), a waiting
   pair is finished by pulling a single tile (freeing two slots), a rapid
-  double-tap spends only one charge, at zero stock it's disabled/greyed and a
-  no-op, and the spent stock persists across a reload.
+  double-tap spends only one charge, and the spent stock persists across a reload.
+  At zero stock (board up, no coins) it falls back to the **ad tier** rather than
+  disabling — a tap watches a stubbed rewarded ad to complete a triple for free.
 - **`auto_test.py`** — the free Auto Complete button appears (replacing the three
   helpers) exactly when the endgame is trivial (≤12 tiles left, none covered):
   the availability flag matches the gate at every step of a level-1 descent and

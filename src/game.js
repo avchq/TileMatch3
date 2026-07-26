@@ -21,7 +21,7 @@ const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1140;
 
 export class GameScene extends PIXI.Container {
-  constructor(app, tileTextures, slotTexture, backgrounds, audio, user) {
+  constructor(app, tileTextures, slotTexture, backgrounds, audio, user, prices) {
     super();
     this.app = app;
     this.tileTextures = tileTextures;
@@ -29,6 +29,9 @@ export class GameScene extends PIXI.Container {
     this.backgrounds = backgrounds; // { 1: tex, 2: tex, 3: tex }
     this.audio = audio;
     this.user = user; // player profile — the helper (booster) inventory lives here
+    // Coin prices for buying a helper when its stock hits 0 (from the JSON config;
+    // see prices.json / main.js). A keyed map: helper code -> coin cost.
+    this.boosterPrices = (prices && prices.boosters) || {};
 
     this.bgLayer = new PIXI.Container();
     this.boardLayer = new PIXI.Container();
@@ -71,9 +74,12 @@ export class GameScene extends PIXI.Container {
 
     this._buildHud();
     this._buildTraySlots();
-    // Keep the helper buttons in sync when the inventory changes elsewhere
-    // (e.g. a reward grant), not just when we spend one during a level.
-    if (this.user) this.user.on((domain) => { if (domain === "boosters") this._updateBoosters(); });
+    // Keep the helper buttons in sync when the inventory changes elsewhere (e.g. a
+    // reward grant), not just when we spend one during a level — and when the coin
+    // wallet changes, since that flips whether an empty helper is affordable to buy.
+    if (this.user) this.user.on((domain) => {
+      if (domain === "boosters" || domain === "wallet") this._updateBoosters();
+    });
     this._updateBoosters();
   }
 
@@ -95,11 +101,56 @@ export class GameScene extends PIXI.Container {
     const undoLeft = this.user ? this.user.boosterCount("undo") : 0;
     const shuffleLeft = this.user ? this.user.boosterCount("shuffle") : 0;
     const wandLeft = this.user ? this.user.boosterCount("wand") : 0;
-    this._setBoosterButton(this.undoBtn, this.undoBadge, undoLeft, undoLeft > 0 && this.history.length > 0);
-    this._setBoosterButton(this.shuffleBtn, this.shuffleBadge, shuffleLeft, shuffleLeft > 0);
-    // Wand completes one triple from the board, so it needs both stock and at
-    // least one tile still on the board to have anything to bring in.
-    this._setBoosterButton(this.wandBtn, this.wandBadge, wandLeft, wandLeft > 0 && this.boardCount > 0);
+    // Each helper is usable when its *context* allows a move (a tile to undo, a
+    // board to shuffle/wand). At 0 stock the button doesn't just disable — while a
+    // move exists it stays live and the acquisition ladder (buy with coins, else
+    // watch an ad) supplies a use on tap (see _setBoosterButton / _acquireBooster).
+    this._setBoosterButton(this.undoBtn, this.undoBadge, "undo", undoLeft, this.history.length > 0);
+    this._setBoosterButton(this.shuffleBtn, this.shuffleBadge, "shuffle", shuffleLeft, this.boardCount > 0);
+    // Wand completes one triple from the board, so it needs at least one tile still
+    // on the board to have anything to bring in.
+    this._setBoosterButton(this.wandBtn, this.wandBadge, "wand", wandLeft, this.boardCount > 0);
+  }
+
+  // Coin price to buy one use of a helper when its stock is empty (null if the
+  // config has no price for it — then it simply can't be bought in-level).
+  _boosterPrice(kind) {
+    const p = this.boosterPrices[kind];
+    return typeof p === "number" ? p : null;
+  }
+
+  // Buy one use of a helper with coins (used only when the inventory is empty).
+  // Debits the wallet and grants one; returns false (spending nothing) if there's
+  // no configured price or the player can't afford it.
+  _buyBooster(kind) {
+    const price = this._boosterPrice(kind);
+    if (price == null || !this.user) return false;
+    if (!this.user.debit("coins", price)) return false; // can't afford -> no change
+    this.user.grantBooster(kind, 1);
+    return true;
+  }
+
+  // Rewarded-ad fallback: when a helper is empty AND the player can't afford to buy
+  // one, they can "watch an ad" for a free use. No ad network is wired up yet, so
+  // this stub grants the reward immediately.
+  // TODO(SDK): show a real rewarded ad and only grant on a completed view
+  //   (FBInstant.getRewardedVideoAsync / Telegram / Devvit ad units).
+  _watchAd(kind) {
+    if (!this.user) return false;
+    this.user.grantBooster(kind, 1);
+    return true;
+  }
+
+  // Get one use of a helper to spend, walking the acquisition ladder: draw from the
+  // inventory; else buy one with coins; else watch a (rewarded) ad. Grants-then-uses
+  // in a single tap, so the net inventory change is 0 on the buy/ad tiers. Returns
+  // false only if there's no user (callers then stay a clean no-op).
+  _acquireBooster(kind) {
+    if (!this.user) return false;
+    if (this.user.useBooster(kind)) return true;               // had stock
+    if (this._buyBooster(kind)) return this.user.useBooster(kind); // paid with coins
+    if (this._watchAd(kind)) return this.user.useBooster(kind);    // watched an ad
+    return false;
   }
 
   // Auto Complete becomes available only in a trivially-solvable endgame: a small
@@ -113,16 +164,23 @@ export class GameScene extends PIXI.Container {
       && !this.tiles.some((t) => !t.inTray && !t.matched && t.aliveCovers > 0);
   }
 
-  _setBoosterButton(btn, badge, count, usable) {
-    btn.eventMode = usable ? "static" : "none";
-    btn.cursor = usable ? "pointer" : "default";
-    // Grey the button out whenever it can't be used right now — an empty stock
-    // OR (for Undo) an empty tray with no move to undo. The count bubble still
-    // shows the owned stock so the player sees they have helpers in reserve.
-    btn.alpha = usable ? 1 : 0.4;
-    badge.text.text = String(count);
-    badge.visible = true; // always show the stock, even at 0, so the player sees it
-    badge.dim(count === 0);
+  // Reflect one helper's state on its button + badge. `contextOk` is whether a move
+  // is possible right now (a tile to undo, a board to shuffle/wand), independent of
+  // stock. The badge reflects the three-tier acquisition: OWN one → count; else
+  // AFFORD one → coin price; else → "watch an ad". A tap always resolves through
+  // that ladder (see _acquireBooster), so the button is live whenever a move is
+  // possible; when no move is possible it's greyed and shows the plain stock count.
+  _setBoosterButton(btn, badge, kind, count, contextOk) {
+    const price = this._boosterPrice(kind);
+    const affordable = price != null && !!this.user && this.user.canAfford("coins", price);
+    // With no move to make, buying/ads are pointless — show the plain stock count.
+    const mode = !contextOk ? "stock" : (count > 0 ? "stock" : (affordable ? "buy" : "ad"));
+    btn._boosterMode = mode; // read by tests / for clarity; matches the badge
+    btn.eventMode = contextOk ? "static" : "none";
+    btn.cursor = contextOk ? "pointer" : "default";
+    btn.alpha = contextOk ? 1 : 0.4; // greyed only when there's no move to make
+    badge.visible = true;
+    badge.setBadge(mode, count, price);
   }
 
   // ---- responsive layout ---------------------------------------------------
@@ -287,29 +345,66 @@ export class GameScene extends PIXI.Container {
     return c;
   }
 
-  // A small count "bubble" pinned to a button's top-right corner, showing how
-  // many uses of a helper remain. dim(true) greys it to signal an empty stock.
+  // A small badge pinned to a button's top-right corner. setBadge(mode, count,
+  // price) gives it one of three looks matching the helper's acquisition tier:
+  //  • "stock" — a round bubble with the remaining-uses count (green when stocked,
+  //     muted grey at 0). Shown whenever the player owns ≥1 (or a move isn't
+  //     possible, so buying/ads would be pointless).
+  //  • "buy"   — out of stock but the player can afford one: a gold coin + the coin
+  //     price, so a tap reads as "buy one for N coins".
+  //  • "ad"    — out of stock AND can't afford one: a "watch an ad" icon (a free
+  //     use via a rewarded ad). No ad network is wired up yet — it's just the icon.
+  //  (Named setBadge, NOT render — DisplayObject.render is PIXI's per-frame draw
+  //   hook and must not be shadowed.)
   _makeCountBadge(cx, cy) {
     const c = new PIXI.Container();
     c.position.set(cx, cy);
     c.eventMode = "none"; // decorative — never intercepts taps meant for the button
-    const r = 20;
     const g = new PIXI.Graphics();
-    const draw = (fill) => {
-      g.clear();
-      g.beginFill(fill).drawCircle(0, 0, r).endFill();
-      g.lineStyle(3, 0xffffff, 0.9).drawCircle(0, 0, r);
-    };
-    draw(0x2ecc71);
+    const coin = makeCoinIcon(11);
+    const ad = new PIXI.Text("📺", { fontFamily: "Arial", fontSize: 22 });
+    ad.anchor.set(0.5);
     const t = new PIXI.Text("0", {
       fontFamily: "Arial", fontSize: 26, fontWeight: "900", fill: 0xffffff,
       stroke: 0x14361f, strokeThickness: 4,
     });
     t.anchor.set(0.5);
-    c.addChild(g, t);
+    c.addChild(g, coin, ad, t);
     c.text = t;
-    // Green bubble when stocked, muted grey when empty.
-    c.dim = (empty) => draw(empty ? 0x8a93ab : 0x2ecc71);
+    c.setBadge = (mode, count, price) => {
+      g.clear();
+      coin.visible = false;
+      ad.visible = false;
+      if (mode === "buy") {
+        // Buy tag: gold coin on the left, price to its right, in an orange pill
+        // that hugs the button's top-right corner (right edge near the corner).
+        t.text = String(price);
+        t.style.fontSize = 22;
+        coin.visible = true;
+        const h = 34, padL = 26, padR = 14;
+        const w = padL + t.width + padR, left = 14 - w;
+        g.beginFill(0xff8a3d).drawRoundedRect(left, -h / 2, w, h, h / 2).endFill();
+        g.lineStyle(3, 0xffffff, 0.9).drawRoundedRect(left, -h / 2, w, h, h / 2);
+        coin.position.set(left + 15, 0);
+        t.position.set(coin.position.x + 11 + t.width / 2, 0);
+      } else if (mode === "ad") {
+        // "Watch an ad" bubble — a play/TV glyph in a blue bubble.
+        t.text = "";
+        ad.visible = true;
+        const r = 20;
+        g.beginFill(0x4d8dff).drawCircle(0, 0, r).endFill();
+        g.lineStyle(3, 0xffffff, 0.9).drawCircle(0, 0, r);
+      } else {
+        // Stock bubble: remaining count, grey at 0 to signal an empty stock.
+        t.text = String(count);
+        t.style.fontSize = 26;
+        t.position.set(0, 0);
+        const r = 20;
+        g.beginFill(count === 0 ? 0x8a93ab : 0x2ecc71).drawCircle(0, 0, r).endFill();
+        g.lineStyle(3, 0xffffff, 0.9).drawCircle(0, 0, r);
+      }
+    };
+    c.setBadge("stock", 0, null);
     return c;
   }
 
@@ -563,9 +658,9 @@ export class GameScene extends PIXI.Container {
   undo() {
     if (this.locked) return;
     if (this.history.length === 0) return;      // nothing to undo
-    // Undo is a helper: consume one from the inventory. If the player has none,
-    // the button is already disabled — this also guards the debug/test entry.
-    if (!this.user || !this.user.useBooster("undo")) return;
+    // Undo is a helper: get one to spend via the acquisition ladder (own → buy with
+    // coins → watch an ad), then use it. See _acquireBooster.
+    if (!this._acquireBooster("undo")) return;
     const t = this.history.pop();
     if (!t) return;
     const idx = this.tray.indexOf(t);
@@ -599,10 +694,13 @@ export class GameScene extends PIXI.Container {
   // but is out of scope here.)
   wand() {
     if (this.locked) return;                       // won/lost, or a wand animation in flight
-    if (!this.user || !this.user.hasBooster("wand")) return; // no stock -> disabled, no-op
+    if (!this.user) return;
+    // Check there's a move to make BEFORE spending/buying, so we never charge for a
+    // no-op (an empty board, etc.). _wandPick() is a pure read.
     const pick = this._wandPick();
     if (!pick || pick.tiles.length === 0) return;  // nothing to bring in -> don't spend a charge
-    if (!this.user.useBooster("wand")) return;      // spend one charge
+    // Get a charge to spend via the acquisition ladder (own → buy → ad), then use it.
+    if (!this._acquireBooster("wand")) return;
 
     // Lock out further input (incl. a second wand tap) until the tiles land and
     // the triple resolves, so a rapid double-tap can't spend two charges.
@@ -807,9 +905,9 @@ export class GameScene extends PIXI.Container {
     if (this.locked) return;
     const boardTiles = this.tiles.filter((t) => !t.matched && !t.inTray);
     if (boardTiles.length === 0) return;
-    // Reshuffle is a helper: consume one from the inventory (button is disabled
-    // when empty; this also guards the debug/test entry point).
-    if (!this.user || !this.user.useBooster("shuffle")) return;
+    // Reshuffle is a helper: get one to spend via the acquisition ladder (own → buy
+    // with coins → watch an ad), then use it. See _acquireBooster.
+    if (!this._acquireBooster("shuffle")) return;
 
     const order = this._boardRemovalOrder(boardTiles); // fresh valid removal order (refs)
     const B = order.length;

@@ -9,8 +9,10 @@ srv = subprocess.Popen([sys.executable, "-m", "http.server", "8099"],
 time.sleep(1.5)
 
 # Boosters (helpers) — Undo and Shuffle — are an inventory on the USER record.
-# Each use consumes one; at zero the button is disabled and the action is a
-# no-op. Counts show in a bubble and persist through the storage adapter.
+# Each use consumes one; counts show in a bubble and persist through the storage
+# adapter. At zero stock the helper doesn't disable — it falls back to the
+# acquisition ladder (buy with coins, else watch an ad); it's only disabled/greyed
+# when there's no move to make (e.g. Undo with an empty tray). See boosterbuy_test.
 try:
     with sync_playwright() as p:
         b = p.chromium.launch(args=["--use-gl=angle", "--use-angle=swiftshader",
@@ -83,33 +85,34 @@ try:
             assert got == expect_after, f"undo stock should be {expect_after}, got {got}"
             assert bstate()["undoBadge"] == str(expect_after), "badge tracks the stock"
 
-        # 5) At zero, Undo is disabled/greyed and a call is a no-op (even with a
-        #    full tray — now it's the empty INVENTORY, not an empty tray, gating it).
+        # 5) At zero stock WITH a move available (a filled tray) but no coins, Undo
+        #    doesn't disable — it enters the "watch an ad" tier: still usable, and a
+        #    tap grants a free use via the (stubbed) rewarded ad and spends it, so the
+        #    undo actually runs while net stock stays 0 (and no coins are spent).
         tap()  # make history non-empty
+        assert page.evaluate("window.__game.balance('coins')") == 0, "fresh profile has no coins"
         s = bstate()
-        assert s["undoUsable"] is False and s["undoDimmed"] is True, "undo disabled/greyed at 0 stock"
-        before = st()
+        assert s["undoUsable"] is True and s["undoDimmed"] is False, "undo usable via the ad tier at 0 stock"
+        assert s["undoMode"] == "ad", ("no stock + no coins -> ad tier", s)
         undo()
-        after = st()
-        assert after["boardCount"] == before["boardCount"] and after["tray"] == before["tray"], \
-            "undo at 0 stock must do nothing"
-        assert page.evaluate("window.__game.boosterCount('undo')") == 0, "stock stays at 0"
+        assert st()["tray"] == [], "the ad-funded undo actually ran (tile returned to board)"
+        assert page.evaluate("window.__game.boosterCount('undo')") == 0, "ad grant+use nets 0 stock"
+        assert page.evaluate("window.__game.balance('coins')") == 0, "watching an ad costs no coins"
 
-        # 6) Deplete Shuffle the same way; the board must be unchanged by the 4th.
+        # 6) Deplete Shuffle the same way (free while stock lasts).
         for expect_after in (2, 1, 0):
             shuffle()
             got = page.evaluate("window.__game.boosterCount('shuffle')")
             print("  after shuffle -> shuffle stock:", got, "badge:", bstate()["shuffleBadge"])
             assert got == expect_after, f"shuffle stock should be {expect_after}, got {got}"
-        assert bstate()["shuffleUsable"] is False, "shuffle disabled at 0 stock"
-
-        def board_faces():
-            return page.evaluate(
-                "window.__game.scene.tiles.filter(t=>!t.matched&&!t.inTray).map(t=>t.type)")
-        faces_before = board_faces()
-        shuffle()  # no stock -> must be a no-op
-        assert board_faces() == faces_before, "shuffle at 0 stock must not touch the board"
-        assert page.evaluate("window.__game.boosterCount('shuffle')") == 0, "stock stays at 0"
+        # At 0 stock (board up, no coins) Shuffle also falls back to the ad tier:
+        # still usable, and a tap watches an ad for a free reshuffle (net stock 0).
+        s = bstate()
+        assert s["shuffleUsable"] is True and s["shuffleMode"] == "ad", ("shuffle ad tier at 0 stock", s)
+        c_before = page.evaluate("window.__game.balance('coins')")
+        shuffle()  # watches an ad -> reshuffles
+        assert page.evaluate("window.__game.boosterCount('shuffle')") == 0, "ad grant+use nets 0 stock"
+        assert page.evaluate("window.__game.balance('coins')") == c_before, "watching an ad costs no coins"
 
         # 7) The depleted inventory persists across a reload (it's on the record).
         page.evaluate("window.__game.flushSave()")

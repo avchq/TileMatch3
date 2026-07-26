@@ -1,0 +1,8 @@
+{
+  "_comment": "Coin prices for in-level consumable purchases. When a helper's inventory hits 0, tapping it buys ONE for the coin price below (spent from the player's wallet) and uses it immediately. Tunable without touching code.",
+  "boosters": {
+    "undo": 60,
+    "shuffle": 80,
+    "wand": 120
+  }
+}

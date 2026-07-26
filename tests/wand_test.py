@@ -11,7 +11,9 @@ time.sleep(1.5)
 # The Wand ("hint") helper guarantees one instant match: it flies the tiles
 # needed to complete a triple from the board into the tray, where they clear —
 # relieving tray pressure. It's a consumable like Undo/Shuffle: one charge per
-# use, disabled/greyed at zero, and it can't be double-spent while animating.
+# use, it can't be double-spent while animating, and at zero stock it falls back
+# to the acquisition ladder (buy with coins, else watch an ad) rather than
+# disabling — while a move exists it stays usable. See boosterbuy_test.
 try:
     with sync_playwright() as p:
         b = p.chromium.launch(args=["--use-gl=angle", "--use-angle=swiftshader",
@@ -82,17 +84,20 @@ try:
         assert c0 - c1 == 1, "a double-tap during the animation must spend one charge only"
         assert st()["tray"] == [], "the (single) completion still resolved"
 
-        # 6) At zero charges the Wand is disabled/greyed and a tap is a no-op —
-        #    even with a completable pair sitting in the tray.
+        # 6) At zero charges, with the board still up but no coins, the Wand falls
+        #    back to the "watch an ad" tier — still usable (not greyed). A tap watches
+        #    a (stubbed) rewarded ad for a free charge and spends it, completing a
+        #    triple; net stock stays 0 and no coins are spent.
         assert wcount() == 0, wcount()
+        assert page.evaluate("window.__game.balance('coins')") == 0
         s = bstate()
-        assert s["wandUsable"] is False and s["wandDimmed"] is True and s["wandBadge"] == "0", \
-            ("wand disabled/greyed at 0 stock", s)
-        tap(); tap()                       # a pair the Wand *could* finish if it had a charge
-        before = st()
-        wand()
-        assert st() == before, "wand at 0 charges must do nothing"
-        assert wcount() == 0, "a no-op wand must not go negative"
+        assert s["wandUsable"] is True and s["wandDimmed"] is False, ("wand usable via ad tier at 0 stock", s)
+        assert s["wandMode"] == "ad", ("no stock + no coins -> ad tier", s)
+        tap(); tap()                       # a pair the Wand can finish
+        wand()                             # watches an ad -> completes the pair
+        assert st()["tray"] == [], "the ad-funded wand completed the pair (tray cleared)"
+        assert wcount() == 0, "ad grant+use nets 0 charges"
+        assert page.evaluate("window.__game.balance('coins')") == 0, "watching an ad costs no coins"
 
         # 7) The spent inventory persists across a reload (it's on the record).
         page.evaluate("window.__game.flushSave()")

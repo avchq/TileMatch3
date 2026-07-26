@@ -70,7 +70,14 @@ async function boot() {
   // Telegram / Reddit providers swap in later — see user/payments.js).
   const payments = makePayments(store.platform);
 
-  const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user);
+  // Coin prices for in-level consumable purchases (buying a helper when its stock
+  // hits 0). Kept in a JSON config so they're tunable without touching code; on a
+  // fetch failure we fall back to no prices (purchases simply stay unavailable).
+  let prices = { boosters: {} };
+  try { prices = await fetch("assets/config/prices.json").then((r) => r.json()); }
+  catch (_) { /* keep the empty default */ }
+
+  const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices);
   const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL, user);
   const settings = new SettingsScene(app, audio);
   const shop = new ShopScene(app, audio, user, payments);
@@ -251,6 +258,8 @@ async function boot() {
     // ---- helper (booster) inventory ----
     boosterCount: (kind) => user.boosterCount(kind),
     grantBooster: (kind, n) => user.grantBooster(kind, n),
+    // Coin price to buy one of a helper when its stock is empty (from prices.json).
+    boosterPrice: (kind) => scene._boosterPrice(kind),
     boosterState: () => ({
       undoUsable: scene.undoBtn.eventMode === "static",
       shuffleUsable: scene.shuffleBtn.eventMode === "static",
@@ -263,6 +272,11 @@ async function boot() {
       undoBadge: scene.undoBadge.text.text,
       shuffleBadge: scene.shuffleBadge.text.text,
       wandBadge: scene.wandBadge.text.text,
+      // Acquisition tier shown on each helper: "stock" (own ≥1) / "buy" (afford with
+      // coins) / "ad" (out of stock & coins -> watch an ad).
+      undoMode: scene.undoBtn._boosterMode,
+      shuffleMode: scene.shuffleBtn._boosterMode,
+      wandMode: scene.wandBtn._boosterMode,
     }),
     setMusic: (on) => audio.setMusic(on),
     setSound: (on) => audio.setSound(on),
