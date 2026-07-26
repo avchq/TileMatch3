@@ -1106,26 +1106,27 @@ export class GameScene extends PIXI.Container {
     stt.anchor.set(0.5); stt.position.set(0, -104);
     group.addChild(tt, stt);
 
-    // Continue — the primary action. Its face reflects the pay waterfall: a coin
-    // price when affordable, else a 📺 rewarded-ad tag.
-    const canPay = this.continuePrice != null && !!this.user
-      && this.user.canAfford("coins", this.continuePrice);
-    const cont = this._makeContinueButton(canPay, () => this._continueAfterLoss());
-    cont.position.set(0, -22);
-    group.addChild(cont);
-
-    // Secondary row: Home (lobby) | Replay (restart).
-    const home = this._makeButton("Home", 250, 88, -136, 116, 0x556080, () => {
+    // Secondary row: Home (lobby) | Replay (restart), above the Continue button.
+    const home = this._makeButton("Home", 250, 88, -136, -6, 0x556080, () => {
       this._loseBtns = null;
       this.overlayLayer.removeChildren();
       if (this.onExit) this.onExit();
     });
-    const replay = this._makeButton("Replay", 250, 88, 136, 116, 0x4d8dff, () => {
+    const replay = this._makeButton("Replay", 250, 88, 136, -6, 0x4d8dff, () => {
       this._loseBtns = null;
       this.overlayLayer.removeChildren();
       this.restart();
     });
     group.addChild(home, replay);
+
+    // Continue — the primary action, anchored at the BOTTOM of the overlay. Its
+    // face reflects the pay waterfall: a coin price when affordable, else a 📺
+    // rewarded-ad tag.
+    const canPay = this.continuePrice != null && !!this.user
+      && this.user.canAfford("coins", this.continuePrice);
+    const cont = this._makeContinueButton(canPay, () => this._continueAfterLoss());
+    cont.position.set(0, 130);
+    group.addChild(cont);
     this._loseBtns = { cont, home, replay };
 
     tt.scale.set(0.2);
