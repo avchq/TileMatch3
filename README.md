@@ -18,8 +18,11 @@ up with no match, you lose (**Try Again** restarts the level in place). In-game
 **helpers** (boosters), a row of three below the tray: **Reshuffle** (left),
 **Wand** (middle), **Undo** (right).
 - **Undo** — return the last-added tile (the most recent one, wherever grouping
-  placed it in the tray); **disabled/greyed-out when the tray is empty**, as
-  there's nothing to undo.
+  placed it in the tray) back to **its original cell on the board**; repeated
+  undos walk the stack back in **reverse placement order**. It lands on the exact
+  cell even if you tap Undo mid-slide (the in-flight tray-slide animation is
+  cancelled first, so the tile can't be dragged to a wrong spot). **Disabled/
+  greyed-out when the tray is empty**, as there's nothing to undo.
 - **Wand** (magic hint) — **guarantee one instant match**: the tiles needed to
   complete a triple fly from the board into the tray and immediately clear,
   relieving tray pressure. It picks the cheapest colour to finish — a colour
@@ -104,7 +107,14 @@ python3 -m http.server 8099
 - `src/game.js` holds the `GameScene` (board layout, coverage/free-state logic,
   tray, matching, win/lose, animations). The tray keeps same-type tiles grouped
   as they're collected while `history` records raw add-order, so **Undo** always
-  pops the most recently added tile. The **Undo**, **Wand**, and **Reshuffle**
+  pops the most recently added tile and snaps it back to its **original board
+  cell** (`_layoutBoard` recomputes each tile's home from its immutable grid
+  coords). `undo()` first **cancels the tile's in-flight tray-slide tween**
+  (`container.__mv`) before reparenting — otherwise a quick undo (mid-slide) would
+  let that tween keep pulling the tile toward its old tray slot and strand it at a
+  wrong position. (The micro-animators also bail if their container is destroyed
+  mid-tween — e.g. a level reload — so a leftover tween can't crash on a null
+  transform.) The **Undo**, **Wand**, and **Reshuffle**
   helpers draw from the player's booster inventory through an **acquisition ladder**
   (`_acquireBooster(kind)`): use owned stock (`user.useBooster`), else buy one with
   coins (`_buyBooster` → `user.debit("coins", price)` + `grantBooster`), else watch

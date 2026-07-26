@@ -78,7 +78,11 @@ line per test.
   one at a time back to the board, is a no-op on empty history, and cannot undo a
   completed triple (matched tiles leave the history). Also checks tray grouping:
   a collected tile lands next to its matching group, and undo still pops the
-  last-added tile even from a middle slot.
+  last-added tile even from a middle slot. Plus position regressions: a **fast
+  undo** (fired mid tray-slide, before the animation settles) still lands the tile
+  on its **original board cell** (not a stray tray-slot position), and undoing
+  several collected tiles returns each to its own home cell in **reverse placement
+  order**.
 - **`reshuffle_test.py`** — reshuffle reassigns the board tile faces while keeping
   the level, board count, and the tray/deck unchanged, and stays in the level.
 - **`layout_test.py`** — a level's type layout is deterministic: the same fruit

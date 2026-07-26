@@ -673,12 +673,22 @@ export class GameScene extends PIXI.Container {
       const b = this.tiles[belowId];
       if (!b.inTray && !b.matched) b.aliveCovers++;
     }
-    // back to board
-    this.trayGroup.removeChild(t.container);
-    this.boardLayer.addChild(t.container);
-    t.container.eventMode = "static";
+
+    // Back to the board. Cancel any in-flight tray-slide tween on this tile FIRST:
+    // if it was collected moments ago, its _layoutTray slide (container.__mv) is
+    // still running and would keep lerping the tile toward its old tray slot after
+    // we reparent — dropping it at a wrong spot instead of its home cell. This was
+    // the "undo returns a tile to a random position" bug.
+    const cont = t.container;
+    if (cont.__mv) { this.app.ticker.remove(cont.__mv); cont.__mv = null; }
+
+    this.trayGroup.removeChild(cont);
+    this.boardLayer.addChild(cont);
+    cont.eventMode = "static";
+    // _layoutBoard snaps the tile to its ORIGINAL cell — homeX/homeY are recomputed
+    // from its immutable grid coords (gx/gy) — and lays out the other board tiles.
     this._layoutBoard();
-    this._animateScale(t.container, t.homeScale, 1);
+    this._animateScale(cont, t.homeScale, 1);
     this._refreshFreeStates();
     this._layoutTray();
     this._updateProgress();
@@ -1082,6 +1092,9 @@ export class GameScene extends PIXI.Container {
     const sx = cont.x, sy = cont.y;
     let el = 0;
     const fn = () => {
+      // The container can be destroyed mid-tween (e.g. a level reload or a matched
+      // triple popping); PIXI nulls its transform, so bail before touching x/y.
+      if (cont.destroyed) { this.app.ticker.remove(fn); cont.__mv = null; return; }
       el += this.app.ticker.deltaMS;
       const t = Math.min(1, el / dur);
       const e = ease(t);
@@ -1098,6 +1111,8 @@ export class GameScene extends PIXI.Container {
     const s0 = cont.scale.x;
     let el = 0;
     const fn = () => {
+      // Guard against a destroy mid-tween (transform goes null) — see _animateTo.
+      if (cont.destroyed) { this.app.ticker.remove(fn); cont.__sc = null; return; }
       el += this.app.ticker.deltaMS;
       const t = Math.min(1, el / dur);
       const e = easeOutCubic(t);

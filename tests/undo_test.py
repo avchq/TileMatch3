@@ -118,6 +118,63 @@ try:
         assert [t["id"] for t in order] == [x1, y1], \
             f"undo must remove the last-added tile (x2), not the visual last: {order}"
 
+        # helpers to read a tile's live container position + home cell
+        def tpos(fid):
+            return page.evaluate(
+                f"(t => ({{x: t.container.x, y: t.container.y, inTray: t.inTray}}))"
+                f"(window.__game.scene.tiles[{fid}])")
+
+        # 6) FAST undo (position-race regression): undoing IMMEDIATELY after a
+        #    collect — while the 200ms tray-slide tween is still running — must still
+        #    land the tile back on its ORIGINAL board cell, not drag it to a random
+        #    spot. (The old code left the slide tween running after the reparent.)
+        fresh()
+        fid = page.evaluate("window.__game.freeTiles()")[0]["id"]
+        home = tpos(fid)                      # its board cell before collecting
+        # collect + undo back-to-back with NO delay, so the slide tween is mid-flight
+        page.evaluate(f"""() => {{
+            const g = window.__game;
+            g.scene._onTapTile(g.scene.tiles[{fid}]);
+            g.scene.undo();
+        }}""")
+        time.sleep(0.6)                       # let the fly-back settle
+        after = tpos(fid)
+        print("fast-undo home:", home, "after:", after)
+        assert after["inTray"] is False, "the tile is back on the board"
+        assert abs(after["x"] - home["x"]) < 1.5 and abs(after["y"] - home["y"]) < 1.5, \
+            f"fast undo must return the tile to its original cell: {after} vs {home}"
+
+        # 7) Reverse-order restore with correct positions: collecting distinct-type
+        #    tiles A,B,C then undoing pops C, then B, then A (reverse of placement),
+        #    each landing back on its own home cell.
+        fresh()
+        picks, seen = [], set()
+        for t in page.evaluate("window.__game.freeTiles()"):
+            if t["type"] in seen:
+                continue
+            seen.add(t["type"]); picks.append(t["id"])
+            if len(picks) == 3:
+                break
+        assert len(picks) >= 2, "need at least two free tiles of distinct types"
+        homes = {fid: tpos(fid) for fid in picks}
+        for fid in picks:
+            page.evaluate(f"window.__game.scene._onTapTile(window.__game.scene.tiles[{fid}])")
+            time.sleep(0.3)
+        # distinct types -> no grouping reorder, so tray order == placement order
+        assert page.evaluate("window.__game.scene.tray.map(t=>t.id)") == picks, \
+            "distinct-type tiles land in placement order"
+        remaining = picks[:]
+        for fid in reversed(picks):
+            page.evaluate("window.__game.scene.undo()")
+            time.sleep(0.4)
+            remaining = remaining[:-1]
+            assert page.evaluate("window.__game.scene.tray.map(t=>t.id)") == remaining, \
+                f"undo must pop the last-added tile (reverse order); expected {remaining}"
+            pos = tpos(fid)
+            assert pos["inTray"] is False, f"tile {fid} returned to the board"
+            assert abs(pos["x"] - homes[fid]["x"]) < 1.5 and abs(pos["y"] - homes[fid]["y"]) < 1.5, \
+                f"tile {fid} must return to its original cell: {pos} vs {homes[fid]}"
+
         page.screenshot(path=f"{SC}/undo_state.png")
         print("PAGE ERRORS:", len(errs), errs[:5])
         assert not errs
