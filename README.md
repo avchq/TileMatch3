@@ -187,7 +187,7 @@ python3 -m http.server 8099
   from its tray slot to its home cell (`_layoutBoard` supplies the target). Input
   stays **locked** for the whole fly-back and unlocks when the last tile lands.
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
-  **"Level &lt;n&gt;"** play button, level-progress dots, and title.
+  **"Level &lt;n&gt;"** play button and title.
 - `src/shop.js` is the `ShopScene` — an overlay (modeled on `SettingsScene`)
   opened by tapping the **coin pill** in either scene. It lists the **packages** for
   sale (from `payments.js`), each row showing the package name, a one-line contents

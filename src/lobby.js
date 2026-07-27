@@ -66,10 +66,6 @@ export class LobbyScene extends PIXI.Container {
     fruits.position.set(DESIGN_W / 2, 520);
     this.uiLayer.addChild(fruits);
 
-    // Level-progress dots (1..maxLevel)
-    this.dotLayer = new PIXI.Container();
-    this.uiLayer.addChild(this.dotLayer);
-
     // Big centred play button
     this.playBtn = this._makePlayButton();
     this.playBtn.position.set(DESIGN_W / 2, 820);
@@ -137,30 +133,12 @@ export class LobbyScene extends PIXI.Container {
     this.bgLayer.addChild(dark);
   }
 
-  _buildDots(level) {
-    this.dotLayer.removeChildren();
-    const n = this.maxLevel;
-    const gap = 54;
-    const startX = DESIGN_W / 2 - ((n - 1) * gap) / 2;
-    for (let i = 1; i <= n; i++) {
-      const done = i < level;          // levels already cleared
-      const current = i === level;     // the one you're about to play
-      const dot = new PIXI.Graphics();
-      const color = done ? 0x39c06a : current ? 0xffe27a : 0x54648c;
-      dot.beginFill(color, 1).drawCircle(0, 0, current ? 15 : 11).endFill();
-      dot.lineStyle(3, 0xffffff, 0.5).drawCircle(0, 0, current ? 15 : 11);
-      dot.position.set(startX + (i - 1) * gap, 640);
-      this.dotLayer.addChild(dot);
-    }
-  }
-
   /** Show the lobby for the given level (the next level to play). */
   show(level, { celebrate = false } = {}) {
     this._level = level;
     this._locked = false;
     this.visible = true;
     this._buildBackground(level);
-    this._buildDots(level);
     this.playBtn.label.text = `Level ${level}`;
 
     const allDone = celebrate && level >= this.maxLevel;
