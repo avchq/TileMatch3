@@ -130,6 +130,25 @@ line per test.
   wins the level (board/rack empty, overlay shown), Continue advances a level,
   and the next level's helper row recovers (the `_autoRunning` reset).
 
+### Lucky Wheel
+
+- **`luckywheel_test.py`** — the daily prize wheel (`src/luckywheel.js`). The lobby
+  button is **gated on progression** (hidden below the config `unlockLevel`, shown
+  once reached) and carries a **NEW** badge (until first open) and a **free-spin**
+  badge (until the free spin is used). Opening the wheel advances to the first
+  daily group and builds the slice count **from the group** (8 prizes). The **free
+  spin** grants its prize into the wallet/inventory, marks the slice won, consumes a
+  pip, and drops the free badge — and a **rapid double-tap spends only one spin**.
+  Over a cycle **a prize is only won once** (no repeats), the cycle allows exactly
+  **6 spins**, and the wheel **closes itself after the last spin**. **Ad spins**
+  (every spin after the free one) only resolve on a successful rewarded video —
+  **cancel/fail spend nothing and win nothing**. Per-cycle state (group / spins /
+  won list) **persists across a reload**, and forcing the **day rollover** advances
+  to the next group (wrapping after the last), clears the won list + spin count, and
+  restores a fresh free spin. Drives it via the `window.__game` wheel hooks
+  (`wheelState`, `wheelBadges`, `openWheel`, `spinWheel`/`pressWheelSpin`,
+  `forceWheelPrize`, `setWheelAdResult`, `setWheelToday`).
+
 ### User profile & persistence
 
 - **`user_test.py`** — a fresh profile has the expected defaults (platform, a

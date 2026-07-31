@@ -94,6 +94,45 @@ flies one-by-one along a curved path into the tray's first slot, popping on
 arrival — when the last one lands, the level is won. The **cog** (top-left) opens Settings and the
 **‹ Back** button beside it leaves the level for the lobby with progress kept.
 
+### Lucky Wheel — a daily prize wheel
+A **prize wheel** reached from the lobby (not part of a level): a daily-return
+hook that hands out coins and boosters used elsewhere. A persistent **wheel
+button** sits in the lower-right of the lobby — it **self-animates** every few
+seconds (the little wheel spins up, the pointer flicks, it winds down), carries a
+**NEW** badge until the wheel is opened for the first time ever, and a **free-spin**
+badge whenever the current cycle's free spin is unclaimed (the badge drops the
+moment that spin is used, live, with no reload). The button only appears once the
+player has **progressed to the unlock level** and hides again once the day's spins
+are used up, reappearing at the next daily rollover.
+
+Prizes are organised into **groups** — one wheel's worth each — and the wheel is
+built from the **active group** (its slice count comes from the group, not a fixed
+number). The active group **advances once per calendar day** (wrapping after the
+last), and that rollover also clears the per-cycle state (spins taken + the list of
+prizes already won). The rollover is checked continuously while running, so leaving
+the game open across midnight still yields a fresh cycle.
+
+Each **cycle allows a fixed number of spins**; the **first is free** and every spin
+after costs a **rewarded video** (stubbed — grants on a successful view; cancel or
+failure spends nothing, and a failure shows a brief "ad not available" message).
+The result is **decided before the wheel turns**, then it animates to the winning
+slice (accelerate → hold → decelerate, with a deflecting pointer and a marquee lamp
+ring that blinks idle / chases while spinning / flashes on a win). A prize can only
+be **won once per cycle** — the pool shrinks each spin and won slices are marked.
+On landing, the prize **flies to its top-bar counter**, which ticks up; the
+headline prize gets an extra highlight before it collects. After the last spin the
+wheel closes itself back to the lobby.
+
+The prize table and constants live in `assets/config/turntable.json` (groups of
+prizes, each with an `amount` and independent `freeWeight`/`adWeight`, plus
+`unlockLevel`, `spinsPerCycle`, and which prize `type` is the `headlinePrize`), so
+odds and pacing are tunable without touching code. Prize types map to this port's
+economy: `coins` → wallet, `undo`/`wand`/`shuffle` → boosters (the original's
+"Hint" is this game's **wand**), and `lightning` → a coins bonus (kept as the
+headline prize). **Note:** the shipped `unlockLevel` is **5**, but this port
+currently ships only **4** levels, so with the default the button won't appear in
+normal play until more levels exist — lower `unlockLevel` in the config to demo it.
+
 ## Run it
 Because it uses ES modules and `fetch`, it must be served over HTTP (not
 opened via `file://`):
@@ -203,6 +242,27 @@ python3 -m http.server 8099
   any `wallet` change (parallel to `makeCogButton` in `settings.js`). The coin reward for
   a win is `COIN_WIN_REWARD` in `game.js` (`_win()`). (Spending coins on helpers is
   done on-demand inside a level, not in the shop.)
+- `src/luckywheel.js` is the `LuckyWheelScene` — the daily prize-wheel overlay
+  (modeled on `ShopScene`: full-screen dim + centred panel + `easeOutBack` pop +
+  `layout` reflow), opened from the lobby's wheel button. It folds together the
+  per-cycle **logic** and the **presentation** the Cocos original split across a
+  manager and a view. Persisted state lives on the User model (`user.luckyWheel`:
+  `group` / `day` / `spinsUsed` / `won` / `seen`); `checkRollover()` compares the
+  stored day-key to today and calls `user.advanceWheelCycle()` (advance group + wrap
+  + clear) on a change — driven both on open and from a low-frequency `main.js`
+  ticker so a mid-session midnight still rolls over. A spin **records the spin +
+  won slice up front** (so a rapid double-tap can't spend two spins and a prize
+  can't repeat — `_spinning` gates re-entry), picks the winner by weighted random
+  over the not-yet-won pool (`freeWeight` on the free spin, `adWeight` after —
+  never collapsed), animates to it (`_spinWheelTo`), then **grants on the fly's
+  landing** (`user.credit`/`user.grantBooster`, so the top-bar counter ticks in
+  sync). The prize table + constants come from `assets/config/turntable.json`
+  (loaded in `main.js`, passed to the scene); a missing/failed config degrades to
+  no groups (button stays hidden). The lobby button, its self-animation, the NEW /
+  free-spin badges, and its progression gate live in `src/lobby.js`
+  (`_makeWheelButton` / `_startWheelSpin` / `_refreshWheelBtn`), reading the wheel's
+  `unlockLevel` / `canSpin()` and refreshing live on `user` `luckyWheel`/`progress`
+  changes.
 - `src/settings.js` is the `SettingsScene` — an overlay opened by the **cog
   button** in the top-left of both the lobby and the level. It has **Music** and
   **Sound** toggles (driving `audio.setMusic` / `setSound`, which persist to the
@@ -281,9 +341,13 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   **helper/booster inventory** (`boosters` — a keyed map of
   `undo`/`shuffle`/`wand`… → remaining uses, mirroring the wallet:
   `boosterCount`/`hasBooster`/`grantBooster`/`useBooster`; new players get a
-  small starter stock), and `settings` (`music`,
-  `sound`). It emits a domain-tagged change event on every mutation and
-  (de)serializes via `toJSON`/`fromJSON` with a `version` for forward migrations.
+  small starter stock), `settings` (`music`, `sound`), and the **Lucky Wheel**
+  per-cycle state (`luckyWheel` — `group`/`day`/`spinsUsed`/`won`/`seen`, mutated
+  via `advanceWheelCycle`/`recordWheelSpin`/`markWheelSeen`, emitting a
+  `luckyWheel` domain). It emits a domain-tagged change event on every mutation and
+  (de)serializes via `toJSON`/`fromJSON` with a `version` for forward migrations
+  (currently **v2** — v1→v2 added the `luckyWheel` sub-object, filled from defaults
+  for older blobs).
 - **`adapters.js`** — a small **async** storage/identity contract
   (`identify` / `load` / `save` / `clear`). `LocalStorageAdapter` is the working
   default on the open web. `FacebookInstantAdapter` / `TelegramAdapter` /
@@ -336,10 +400,11 @@ object and writes changes back to it.
 JS/
   index.html
   vendor/pixi.min.js
-  src/{main,game,lobby,settings,shop,level,levelConfig,icons,audio,assets,tween}.js
+  src/{main,game,lobby,settings,shop,luckywheel,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
     config/prices.json      # coin prices: in-level helper buys + the Out-of-Moves continue
+    config/turntable.json   # Lucky Wheel: prize groups + odds, unlock level, spins/cycle
     levels/level{1,2,3,4}.json
     bg/*.jpg
     audio/*.mp3

@@ -18,9 +18,11 @@ export class LobbyScene extends PIXI.Container {
     this.audio = audio;
     this.maxLevel = maxLevel;
     this.user = user;       // player profile — for the coin balance pill
+    this.luckyWheel = null; // the LuckyWheelScene (set by the host) — for gating/badges
     this.onPlay = null;     // (levelNum) => void
     this.onSettings = null; // () => void — open the settings screen
     this.onShop = null;     // () => void — open the shop screen
+    this.onLuckyWheel = null; // () => void — open the lucky wheel
 
     // Responsive layout state (updated by layout()); defaults to the base design.
     this.viewW = DESIGN_W; this.viewH = DESIGN_H;
@@ -88,6 +90,131 @@ export class LobbyScene extends PIXI.Container {
     this.coinPill = makeCoinPill(this.user, () => this.onShop && this.onShop());
     this.coinPill.position.set(DESIGN_W - 108, 84);
     this.topHud.addChild(this.coinPill);
+
+    // Lucky Wheel entry button — a self-animating little wheel in the lower-right,
+    // gated on progression + daily spins remaining, with "new" and "free spin"
+    // badges (see _refreshWheelBtn / _startWheelSpin).
+    this.wheelBtn = this._makeWheelButton();
+    this.wheelBtn.position.set(DESIGN_W - 130, 1150);
+    this.wheelBtn.visible = false;
+    this.uiLayer.addChild(this.wheelBtn);
+    this._startWheelSpin();
+
+    // Keep the button's visibility + badges live: progression unlocks it, and any
+    // wheel spin / daily rollover changes the free-spin badge without a reload.
+    this.user.on((domain) => {
+      if (domain === "luckyWheel" || domain === "progress") this._refreshWheelBtn();
+    });
+  }
+
+  _makeWheelButton() {
+    const c = new PIXI.Container();
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x22335e).drawCircle(0, 0, 64).endFill();
+    bg.lineStyle(5, 0xffe27a, 0.9).drawCircle(0, 0, 64);
+    c.addChild(bg);
+
+    // The spinning wheel graphic (six alternating sectors).
+    const wheelG = new PIXI.Graphics();
+    const seg = 6;
+    for (let i = 0; i < seg; i++) {
+      const a0 = (i / seg) * Math.PI * 2, a1 = ((i + 1) / seg) * Math.PI * 2;
+      wheelG.beginFill(i % 2 ? 0x39c06a : 0xffcb2e).moveTo(0, 0).arc(0, 0, 48, a0, a1).lineTo(0, 0).endFill();
+    }
+    c.addChild(wheelG);
+    c.wheelG = wheelG;
+    const hub = new PIXI.Graphics();
+    hub.beginFill(0xffffff).drawCircle(0, 0, 11).endFill();
+    c.addChild(hub);
+
+    // Pointer at the top — flicks against the wheel during the self-animation.
+    const ptr = new PIXI.Graphics();
+    ptr.beginFill(0xff5252).moveTo(0, 0).lineTo(-11, -20).lineTo(11, -20).lineTo(0, 0).endFill();
+    ptr.position.set(0, -46);
+    c.addChild(ptr);
+    c.ptr = ptr;
+
+    const cap = new PIXI.Text("Free Spin", {
+      fontFamily: "Arial", fontSize: 26, fontWeight: "900", fill: 0xffe27a,
+      stroke: 0x5a3a00, strokeThickness: 4,
+    });
+    cap.anchor.set(0.5);
+    cap.position.set(0, 88);
+    c.addChild(cap);
+
+    // "new" badge (until first-ever open) — top-right.
+    const newBadge = new PIXI.Container();
+    const nbg = new PIXI.Graphics();
+    nbg.beginFill(0xff3b3b).drawRoundedRect(-30, -18, 60, 34, 16).endFill();
+    nbg.lineStyle(3, 0xffffff, 0.8).drawRoundedRect(-30, -18, 60, 34, 16);
+    const ntx = new PIXI.Text("NEW", { fontFamily: "Arial", fontSize: 20, fontWeight: "900", fill: 0xffffff });
+    ntx.anchor.set(0.5);
+    newBadge.addChild(nbg, ntx);
+    newBadge.position.set(50, -50);
+    c.addChild(newBadge);
+    c.newBadge = newBadge;
+
+    // "free spin available" badge — top-left.
+    const freeBadge = new PIXI.Container();
+    const fbg = new PIXI.Graphics();
+    fbg.beginFill(0x2f9e6a).drawCircle(0, 0, 19).endFill();
+    fbg.lineStyle(3, 0xffffff, 0.85).drawCircle(0, 0, 19);
+    const ftx = new PIXI.Text("★", { fontFamily: "Arial", fontSize: 24, fontWeight: "900", fill: 0xffe27a });
+    ftx.anchor.set(0.5);
+    freeBadge.addChild(fbg, ftx);
+    freeBadge.position.set(-50, -50);
+    c.addChild(freeBadge);
+    c.freeBadge = freeBadge;
+
+    c.eventMode = "static";
+    c.cursor = "pointer";
+    c.hitArea = new PIXI.Circle(0, 0, 66);
+    c.on("pointertap", () => { this.audio.play("btn_01"); this.onLuckyWheel && this.onLuckyWheel(); });
+    c.on("pointerdown", () => c.scale.set(0.94));
+    c.on("pointerup", () => c.scale.set(1));
+    c.on("pointerupoutside", () => c.scale.set(1));
+    return c;
+  }
+
+  // The button's own attention-hook animation: idle for a few seconds, then the
+  // little wheel spins up, the pointer flicks against it, and it winds back down.
+  _startWheelSpin() {
+    if (this._wheelAnim) this.app.ticker.remove(this._wheelAnim);
+    let idle = 0, running = false, rt = 0;
+    const fn = () => {
+      const btn = this.wheelBtn;
+      if (!btn || !btn.visible) return;
+      const dt = this.app.ticker.deltaMS / 1000;
+      if (!running) {
+        idle += dt;
+        if (idle >= 5) { running = true; rt = 0; }
+        return;
+      }
+      rt += dt;
+      let vel; // deg/s
+      if (rt <= 0.25) { vel = 900 * (rt / 0.25); btn.ptr.rotation = Math.min(btn.ptr.rotation + 3 * dt, 0.5); }
+      else if (rt <= 1.25) { vel = 900; btn.ptr.rotation = 0.5 + Math.sin(rt * 40) * 0.05; }
+      else if (rt <= 1.9) { vel = 900 * (1 - (rt - 1.25) / 0.65); btn.ptr.rotation = Math.max(0, btn.ptr.rotation - 2 * dt); }
+      else { running = false; idle = 0; btn.ptr.rotation = 0; vel = 0; }
+      btn.wheelG.rotation += (vel * Math.PI / 180) * dt;
+    };
+    this._wheelAnim = fn;
+    this.app.ticker.add(fn);
+  }
+
+  // Gate + badges: visible only when the wheel is unlocked (progression) and the
+  // day's spins aren't used up; "new" until first open; "free" while the free spin
+  // is unclaimed.
+  _refreshWheelBtn() {
+    if (!this.wheelBtn) return;
+    const w = this.luckyWheel;
+    const unlocked = !!w && this.user.progress.level >= w.unlockLevel;
+    const show = unlocked && w.canSpin();
+    this.wheelBtn.visible = show;
+    if (show) {
+      this.wheelBtn.newBadge.visible = !this.user.wheelSeen();
+      this.wheelBtn.freeBadge.visible = this.user.wheelSpinsUsed() === 0;
+    }
   }
 
   _makePlayButton() {
@@ -140,6 +267,7 @@ export class LobbyScene extends PIXI.Container {
     this.visible = true;
     this._buildBackground(level);
     this.playBtn.label.text = `Level ${level}`;
+    this._refreshWheelBtn();
 
     const allDone = celebrate && level >= this.maxLevel;
     this.subtitle.text = allDone

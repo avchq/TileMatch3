@@ -2,6 +2,7 @@ import { GameScene } from "./game.js";
 import { LobbyScene } from "./lobby.js";
 import { SettingsScene } from "./settings.js";
 import { ShopScene } from "./shop.js";
+import { LuckyWheelScene } from "./luckywheel.js";
 import { makePayments } from "./user/payments.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
@@ -77,11 +78,19 @@ async function boot() {
   try { prices = await fetch("assets/config/prices.json").then((r) => r.json()); }
   catch (_) { /* keep the empty default */ }
 
+  // Lucky Wheel prize table + constants (groups, both odds sets, unlock level,
+  // spins per cycle). Same defensive load as prices.json — a failure leaves the
+  // wheel with no groups, so its lobby button simply stays hidden.
+  let turntable = null;
+  try { turntable = await fetch("assets/config/turntable.json").then((r) => r.json()); }
+  catch (_) { /* keep null — LuckyWheelScene falls back to safe defaults */ }
+
   const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices);
   const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL, user);
   const settings = new SettingsScene(app, audio);
   const shop = new ShopScene(app, audio, user, payments);
-  root.addChild(scene, lobby, settings, shop); // settings/shop overlay whichever scene is active
+  const wheel = new LuckyWheelScene(app, audio, user, turntable);
+  root.addChild(scene, lobby, settings, shop, wheel); // overlays draw on top of whichever scene is active
 
   // Fit the viewport: size the renderer to the window, scale the stage so the
   // constraining dimension fills exactly, then hand each scene the resulting
@@ -96,6 +105,7 @@ async function boot() {
     lobby.layout(DW, DH);
     settings.layout(DW, DH);
     shop.layout(DW, DH);
+    wheel.layout(DW, DH);
   };
   resize();
 
@@ -107,6 +117,22 @@ async function boot() {
   // Tapping the coin pill in either scene opens the shop overlay.
   lobby.onShop = () => shop.open();
   scene.onShop = () => shop.open();
+
+  // The lucky-wheel lobby button opens the wheel overlay; the lobby reads the
+  // wheel's unlock level + daily spins-left to gate its button.
+  lobby.luckyWheel = wheel;
+  lobby.onLuckyWheel = () => wheel.open();
+  wheel.onBack = () => {}; // just hides — the lobby is underneath
+
+  // Check the daily rollover continuously while running, so a player left open
+  // across midnight gets their new cycle (fresh group + free spin) without a
+  // restart. checkRollover emits "luckyWheel", refreshing the lobby button and an
+  // open wheel. Cheap, so a few-second cadence is plenty.
+  let _rollAcc = 0;
+  app.ticker.add(() => {
+    _rollAcc += app.ticker.deltaMS;
+    if (_rollAcc >= 4000) { _rollAcc = 0; wheel.checkRollover(); }
+  });
 
   // Real-money package purchase: run the platform payment provider, and only grant
   // the contents here (the trusted host) on success — a coins credit plus any
@@ -267,6 +293,37 @@ async function boot() {
       await purchasePackage(productId);
       return { coins: user.balance("coins"), boosters: user.toJSON().boosters };
     },
+    // ---- lucky wheel ----
+    openWheel: () => wheel.open(),
+    wheelVisible: () => wheel.visible,
+    // Take a spin (returns the promise that resolves once it settles + collects).
+    spinWheel: () => wheel.spin(),
+    // Press the on-screen spin button (exercises the button hit path).
+    pressWheelSpin: () => wheel._spinBtn.emit("pointertap"),
+    wheelState: () => ({
+      unlocked: user.progress.level >= wheel.unlockLevel,
+      buttonVisible: lobby.wheelBtn.visible,
+      group: user.wheelGroup(),
+      spinsUsed: user.wheelSpinsUsed(),
+      spinsLeft: wheel.spinsPerCycle - user.wheelSpinsUsed(),
+      won: user.wheelWon(),
+      seen: user.wheelSeen(),
+      spinning: wheel._spinning,
+      overlayOpen: wheel.visible,
+      canSpin: wheel.canSpin(),
+      slices: wheel.currentPrizes().length,
+      day: user.wheelDay(),
+    }),
+    wheelBadges: () => ({
+      new: lobby.wheelBtn.newBadge.visible && lobby.wheelBtn.visible,
+      free: lobby.wheelBtn.freeBadge.visible && lobby.wheelBtn.visible,
+    }),
+    // Force the day-key and re-check the rollover (day-rollover tests).
+    setWheelToday: (key) => { wheel._todayOverride = key; wheel.checkRollover(); },
+    // Pin the next winning slice index (deterministic prize tests).
+    forceWheelPrize: (index) => { wheel._forceIndex = index; },
+    // Force the ad-spin outcome: "succeed" | "cancel" | "fail".
+    setWheelAdResult: (mode) => { wheel._adResult = mode; },
     // ---- helper (booster) inventory ----
     boosterCount: (kind) => user.boosterCount(kind),
     grantBooster: (kind, n) => user.grantBooster(kind, n),

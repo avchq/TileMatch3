@@ -1,0 +1,58 @@
+{
+  "_comment": "Lucky Wheel prize wheel. groups[] = one wheel each; the active group advances once per day and wraps. Each prize: type (coins|undo|wand|shuffle|lightning), amount, and independent freeWeight/adWeight (free spin vs ad spins). headlinePrize = the type that gets the highlight-fly treatment. unlockLevel = lobby-button campaign level; spinsPerCycle = daily spins (1st free, rest ad).",
+  "unlockLevel": 5,
+  "spinsPerCycle": 6,
+  "headlinePrize": "lightning",
+  "groups": [
+    [
+      { "type": "coins",   "amount": 30,  "freeWeight": 30, "adWeight": 20 },
+      { "type": "undo",    "amount": 2,   "freeWeight": 14, "adWeight": 14 },
+      { "type": "coins",   "amount": 50,  "freeWeight": 10, "adWeight": 15 },
+      { "type": "coins",   "amount": 150, "freeWeight": 10, "adWeight": 10 },
+      { "type": "coins",   "amount": 40,  "freeWeight": 25, "adWeight": 25 },
+      { "type": "wand",    "amount": 2,   "freeWeight": 5,  "adWeight": 5 },
+      { "type": "coins",   "amount": 80,  "freeWeight": 20, "adWeight": 20 },
+      { "type": "coins",   "amount": 100, "freeWeight": 15, "adWeight": 15 }
+    ],
+    [
+      { "type": "coins",   "amount": 30,  "freeWeight": 30, "adWeight": 25 },
+      { "type": "shuffle", "amount": 2,   "freeWeight": 5,  "adWeight": 5 },
+      { "type": "coins",   "amount": 50,  "freeWeight": 14, "adWeight": 30 },
+      { "type": "undo",    "amount": 2,   "freeWeight": 10, "adWeight": 10 },
+      { "type": "coins",   "amount": 75,  "freeWeight": 25, "adWeight": 15 },
+      { "type": "coins",   "amount": 150, "freeWeight": 15, "adWeight": 12 },
+      { "type": "coins",   "amount": 80,  "freeWeight": 20, "adWeight": 20 },
+      { "type": "coins",   "amount": 100, "freeWeight": 15, "adWeight": 15 }
+    ],
+    [
+      { "type": "coins",     "amount": 50,  "freeWeight": 20, "adWeight": 35 },
+      { "type": "wand",      "amount": 2,   "freeWeight": 5,  "adWeight": 5 },
+      { "type": "coins",     "amount": 30,  "freeWeight": 25, "adWeight": 25 },
+      { "type": "lightning", "amount": 6,   "freeWeight": 10, "adWeight": 10 },
+      { "type": "coins",     "amount": 60,  "freeWeight": 20, "adWeight": 22 },
+      { "type": "coins",     "amount": 150, "freeWeight": 12, "adWeight": 15 },
+      { "type": "coins",     "amount": 80,  "freeWeight": 15, "adWeight": 20 },
+      { "type": "coins",     "amount": 100, "freeWeight": 14, "adWeight": 18 }
+    ],
+    [
+      { "type": "coins",   "amount": 80,  "freeWeight": 10, "adWeight": 15 },
+      { "type": "undo",    "amount": 2,   "freeWeight": 10, "adWeight": 10 },
+      { "type": "coins",   "amount": 50,  "freeWeight": 20, "adWeight": 30 },
+      { "type": "shuffle", "amount": 2,   "freeWeight": 5,  "adWeight": 5 },
+      { "type": "coins",   "amount": 75,  "freeWeight": 15, "adWeight": 20 },
+      { "type": "coins",   "amount": 150, "freeWeight": 12, "adWeight": 10 },
+      { "type": "coins",   "amount": 30,  "freeWeight": 30, "adWeight": 25 },
+      { "type": "coins",   "amount": 100, "freeWeight": 15, "adWeight": 16 }
+    ],
+    [
+      { "type": "coins",     "amount": 50,  "freeWeight": 25, "adWeight": 30 },
+      { "type": "coins",     "amount": 150, "freeWeight": 10, "adWeight": 10 },
+      { "type": "coins",     "amount": 75,  "freeWeight": 20, "adWeight": 14 },
+      { "type": "shuffle",   "amount": 2,   "freeWeight": 8,  "adWeight": 10 },
+      { "type": "coins",     "amount": 30,  "freeWeight": 30, "adWeight": 25 },
+      { "type": "lightning", "amount": 6,   "freeWeight": 5,  "adWeight": 5 },
+      { "type": "coins",     "amount": 80,  "freeWeight": 15, "adWeight": 20 },
+      { "type": "coins",     "amount": 100, "freeWeight": 12, "adWeight": 18 }
+    ]
+  ]
+}
