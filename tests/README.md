@@ -130,9 +130,9 @@ line per test.
   wins the level (board/rack empty, overlay shown), Continue advances a level,
   and the next level's helper row recovers (the `_autoRunning` reset).
 
-### Lucky Wheel
+### Fortune Wheel
 
-- **`luckywheel_test.py`** — the daily prize wheel (`src/luckywheel.js`). The lobby
+- **`fortunewheel_test.py`** — the daily prize wheel (`src/fortunewheel.js`). The lobby
   button is **gated on progression** (hidden below the config `unlockLevel`, shown
   once reached) and carries a **NEW** badge (until first open) and a **free-spin**
   badge (until the free spin is used). Opening the wheel advances to the first

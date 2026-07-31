@@ -1,4 +1,4 @@
-// Lucky Wheel — a daily prize wheel shown as an overlay on top of the lobby,
+// Fortune Wheel — a daily prize wheel shown as an overlay on top of the lobby,
 // entered from the lobby's wheel button. Modeled on ShopScene (full-screen dim +
 // centred panel + easeOutBack entrance pop + layout(DW,DH) reflow) and, like the
 // other overlays, hidden by default. It folds together what the Cocos original
@@ -6,7 +6,7 @@
 // rotation, weighted prize pick) and the presentation (the spinning wheel, the
 // pointer, the marquee lamps, the prize fly-to-counter).
 //
-// Persisted per-cycle state lives on the User model (user.luckyWheel: group /
+// Persisted per-cycle state lives on the User model (user.fortuneWheel: group /
 // day / spinsUsed / won / seen); grants go through user.credit / user.grantBooster
 // so they autosave and refresh the HUD counters live. The prize table + the two
 // global constants come from assets/config/turntable.json (passed in as cfg), so
@@ -35,7 +35,7 @@ const PRIZE_GRANT = {
 // Glyphs for the non-coin prize types (coins use the drawn gold coin icon).
 const PRIZE_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀", lightning: "⚡" };
 
-export class LuckyWheelScene extends PIXI.Container {
+export class FortuneWheelScene extends PIXI.Container {
   constructor(app, audio, user, cfg) {
     super();
     this.app = app;
@@ -64,10 +64,10 @@ export class LuckyWheelScene extends PIXI.Container {
 
     this._build();
 
-    // A mid-open day rollover (or any luckyWheel change while idle) rebuilds the
+    // A mid-open day rollover (or any fortuneWheel change while idle) rebuilds the
     // wheel for the now-active group and refreshes the pips / button / won marks.
     this.user.on((domain) => {
-      if (domain === "luckyWheel" && this.visible && !this._spinning) {
+      if (domain === "fortuneWheel" && this.visible && !this._spinning) {
         this._rebuild();
         this._refreshPips();
         this._refreshSpinBtn();
@@ -135,7 +135,7 @@ export class LuckyWheelScene extends PIXI.Container {
     this.panel.position.set(DESIGN_W / 2, DESIGN_H / 2);
     this.addChild(this.panel);
 
-    const title = new PIXI.Text("Lucky Wheel", {
+    const title = new PIXI.Text("Fortune Wheel", {
       fontFamily: "Arial", fontSize: 64, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 7,
     });
@@ -468,9 +468,9 @@ export class LuckyWheelScene extends PIXI.Container {
 
   async _runSpin(isFree) {
     const prizes = this.currentPrizes();
-    if (!prizes.length) { console.error("[luckywheel] active group has no prizes"); return; }
+    if (!prizes.length) { console.error("[fortunewheel] active group has no prizes"); return; }
     const idx = this._pickPrize(isFree, prizes);
-    if (idx == null) { console.error("[luckywheel] empty prize pool — nothing to win"); return; }
+    if (idx == null) { console.error("[fortunewheel] empty prize pool — nothing to win"); return; }
     const prize = prizes[idx];
 
     // Record BEFORE the wheel turns: spend the spin + mark the slice won, so a
@@ -496,7 +496,7 @@ export class LuckyWheelScene extends PIXI.Container {
   /** Report a spin to analytics. Stub — TODO(SDK): Cocos reports 'CK_Spin_Get'
    *  with the 1-based spin number and the reward. */
   _reportSpin(spinNumber, prize) {
-    try { console.debug(`[luckywheel] spin #${spinNumber}: ${prize.type} x${prize.amount}`); } catch (_) {}
+    try { console.debug(`[fortunewheel] spin #${spinNumber}: ${prize.type} x${prize.amount}`); } catch (_) {}
   }
 
   /** Spin the wheel through accelerate -> hold -> decelerate, landing the chosen

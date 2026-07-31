@@ -2,7 +2,7 @@ import { GameScene } from "./game.js";
 import { LobbyScene } from "./lobby.js";
 import { SettingsScene } from "./settings.js";
 import { ShopScene } from "./shop.js";
-import { LuckyWheelScene } from "./luckywheel.js";
+import { FortuneWheelScene } from "./fortunewheel.js";
 import { makePayments } from "./user/payments.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
@@ -78,18 +78,18 @@ async function boot() {
   try { prices = await fetch("assets/config/prices.json").then((r) => r.json()); }
   catch (_) { /* keep the empty default */ }
 
-  // Lucky Wheel prize table + constants (groups, both odds sets, unlock level,
+  // Fortune Wheel prize table + constants (groups, both odds sets, unlock level,
   // spins per cycle). Same defensive load as prices.json — a failure leaves the
   // wheel with no groups, so its lobby button simply stays hidden.
   let turntable = null;
   try { turntable = await fetch("assets/config/turntable.json").then((r) => r.json()); }
-  catch (_) { /* keep null — LuckyWheelScene falls back to safe defaults */ }
+  catch (_) { /* keep null — FortuneWheelScene falls back to safe defaults */ }
 
   const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices);
   const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL, user);
   const settings = new SettingsScene(app, audio);
   const shop = new ShopScene(app, audio, user, payments);
-  const wheel = new LuckyWheelScene(app, audio, user, turntable);
+  const wheel = new FortuneWheelScene(app, audio, user, turntable);
   root.addChild(scene, lobby, settings, shop, wheel); // overlays draw on top of whichever scene is active
 
   // Fit the viewport: size the renderer to the window, scale the stage so the
@@ -118,15 +118,15 @@ async function boot() {
   lobby.onShop = () => shop.open();
   scene.onShop = () => shop.open();
 
-  // The lucky-wheel lobby button opens the wheel overlay; the lobby reads the
+  // The fortune-wheel lobby button opens the wheel overlay; the lobby reads the
   // wheel's unlock level + daily spins-left to gate its button.
-  lobby.luckyWheel = wheel;
-  lobby.onLuckyWheel = () => wheel.open();
+  lobby.fortuneWheel = wheel;
+  lobby.onFortuneWheel = () => wheel.open();
   wheel.onBack = () => {}; // just hides — the lobby is underneath
 
   // Check the daily rollover continuously while running, so a player left open
   // across midnight gets their new cycle (fresh group + free spin) without a
-  // restart. checkRollover emits "luckyWheel", refreshing the lobby button and an
+  // restart. checkRollover emits "fortuneWheel", refreshing the lobby button and an
   // open wheel. Cheap, so a few-second cadence is plenty.
   let _rollAcc = 0;
   app.ticker.add(() => {
@@ -293,7 +293,7 @@ async function boot() {
       await purchasePackage(productId);
       return { coins: user.balance("coins"), boosters: user.toJSON().boosters };
     },
-    // ---- lucky wheel ----
+    // ---- fortune wheel ----
     openWheel: () => wheel.open(),
     wheelVisible: () => wheel.visible,
     // Take a spin (returns the promise that resolves once it settles + collects).

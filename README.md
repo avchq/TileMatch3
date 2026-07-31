@@ -94,7 +94,7 @@ flies one-by-one along a curved path into the tray's first slot, popping on
 arrival — when the last one lands, the level is won. The **cog** (top-left) opens Settings and the
 **‹ Back** button beside it leaves the level for the lobby with progress kept.
 
-### Lucky Wheel — a daily prize wheel
+### Fortune Wheel — a daily prize wheel
 A **prize wheel** reached from the lobby (not part of a level): a daily-return
 hook that hands out coins and boosters used elsewhere. A persistent **wheel
 button** sits in the lobby's **top-left corner, right under the settings cog** —
@@ -242,11 +242,11 @@ python3 -m http.server 8099
   any `wallet` change (parallel to `makeCogButton` in `settings.js`). The coin reward for
   a win is `COIN_WIN_REWARD` in `game.js` (`_win()`). (Spending coins on helpers is
   done on-demand inside a level, not in the shop.)
-- `src/luckywheel.js` is the `LuckyWheelScene` — the daily prize-wheel overlay
+- `src/fortunewheel.js` is the `FortuneWheelScene` — the daily prize-wheel overlay
   (modeled on `ShopScene`: full-screen dim + centred panel + `easeOutBack` pop +
   `layout` reflow), opened from the lobby's wheel button. It folds together the
   per-cycle **logic** and the **presentation** the Cocos original split across a
-  manager and a view. Persisted state lives on the User model (`user.luckyWheel`:
+  manager and a view. Persisted state lives on the User model (`user.fortuneWheel`:
   `group` / `day` / `spinsUsed` / `won` / `seen`); `checkRollover()` compares the
   stored day-key to today and calls `user.advanceWheelCycle()` (advance group + wrap
   + clear) on a change — driven both on open and from a low-frequency `main.js`
@@ -261,7 +261,7 @@ python3 -m http.server 8099
   no groups (button stays hidden). The lobby button, its self-animation, the NEW /
   free-spin badges, and its progression gate live in `src/lobby.js`
   (`_makeWheelButton` / `_startWheelSpin` / `_refreshWheelBtn`), reading the wheel's
-  `unlockLevel` / `canSpin()` and refreshing live on `user` `luckyWheel`/`progress`
+  `unlockLevel` / `canSpin()` and refreshing live on `user` `fortuneWheel`/`progress`
   changes.
 - `src/settings.js` is the `SettingsScene` — an overlay opened by the **cog
   button** in the top-left of both the lobby and the level. It has **Music** and
@@ -341,12 +341,12 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   **helper/booster inventory** (`boosters` — a keyed map of
   `undo`/`shuffle`/`wand`… → remaining uses, mirroring the wallet:
   `boosterCount`/`hasBooster`/`grantBooster`/`useBooster`; new players get a
-  small starter stock), `settings` (`music`, `sound`), and the **Lucky Wheel**
-  per-cycle state (`luckyWheel` — `group`/`day`/`spinsUsed`/`won`/`seen`, mutated
+  small starter stock), `settings` (`music`, `sound`), and the **Fortune Wheel**
+  per-cycle state (`fortuneWheel` — `group`/`day`/`spinsUsed`/`won`/`seen`, mutated
   via `advanceWheelCycle`/`recordWheelSpin`/`markWheelSeen`, emitting a
-  `luckyWheel` domain). It emits a domain-tagged change event on every mutation and
+  `fortuneWheel` domain). It emits a domain-tagged change event on every mutation and
   (de)serializes via `toJSON`/`fromJSON` with a `version` for forward migrations
-  (currently **v2** — v1→v2 added the `luckyWheel` sub-object, filled from defaults
+  (currently **v2** — v1→v2 added the `fortuneWheel` sub-object, filled from defaults
   for older blobs).
 - **`adapters.js`** — a small **async** storage/identity contract
   (`identify` / `load` / `save` / `clear`). `LocalStorageAdapter` is the working
@@ -400,11 +400,11 @@ object and writes changes back to it.
 JS/
   index.html
   vendor/pixi.min.js
-  src/{main,game,lobby,settings,shop,luckywheel,level,levelConfig,icons,audio,assets,tween}.js
+  src/{main,game,lobby,settings,shop,fortunewheel,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
     config/prices.json      # coin prices: in-level helper buys + the Out-of-Moves continue
-    config/turntable.json   # Lucky Wheel: prize groups + odds, unlock level, spins/cycle
+    config/turntable.json   # Fortune Wheel: prize groups + odds, unlock level, spins/cycle
     levels/level{1,2,3,4}.json
     bg/*.jpg
     audio/*.mp3

@@ -18,11 +18,11 @@ export class LobbyScene extends PIXI.Container {
     this.audio = audio;
     this.maxLevel = maxLevel;
     this.user = user;       // player profile — for the coin balance pill
-    this.luckyWheel = null; // the LuckyWheelScene (set by the host) — for gating/badges
+    this.fortuneWheel = null; // the FortuneWheelScene (set by the host) — for gating/badges
     this.onPlay = null;     // (levelNum) => void
     this.onSettings = null; // () => void — open the settings screen
     this.onShop = null;     // () => void — open the shop screen
-    this.onLuckyWheel = null; // () => void — open the lucky wheel
+    this.onFortuneWheel = null; // () => void — open the fortune wheel
 
     // Responsive layout state (updated by layout()); defaults to the base design.
     this.viewW = DESIGN_W; this.viewH = DESIGN_H;
@@ -91,7 +91,7 @@ export class LobbyScene extends PIXI.Container {
     this.coinPill.position.set(DESIGN_W - 108, 84);
     this.topHud.addChild(this.coinPill);
 
-    // Lucky Wheel entry button — a self-animating little wheel pinned to the
+    // Fortune Wheel entry button — a self-animating little wheel pinned to the
     // top-left corner, right under the settings cog (on topHud so it tracks the
     // corner on tall screens, like the cog). Gated on progression + daily spins
     // remaining, with "new" and "free spin" badges (see _refreshWheelBtn /
@@ -105,7 +105,7 @@ export class LobbyScene extends PIXI.Container {
     // Keep the button's visibility + badges live: progression unlocks it, and any
     // wheel spin / daily rollover changes the free-spin badge without a reload.
     this.user.on((domain) => {
-      if (domain === "luckyWheel" || domain === "progress") this._refreshWheelBtn();
+      if (domain === "fortuneWheel" || domain === "progress") this._refreshWheelBtn();
     });
   }
 
@@ -171,7 +171,7 @@ export class LobbyScene extends PIXI.Container {
     c.eventMode = "static";
     c.cursor = "pointer";
     c.hitArea = new PIXI.Circle(0, 0, 56);
-    c.on("pointertap", () => { this.audio.play("btn_01"); this.onLuckyWheel && this.onLuckyWheel(); });
+    c.on("pointertap", () => { this.audio.play("btn_01"); this.onFortuneWheel && this.onFortuneWheel(); });
     c.on("pointerdown", () => c.scale.set(0.94));
     c.on("pointerup", () => c.scale.set(1));
     c.on("pointerupoutside", () => c.scale.set(1));
@@ -209,7 +209,7 @@ export class LobbyScene extends PIXI.Container {
   // is unclaimed.
   _refreshWheelBtn() {
     if (!this.wheelBtn) return;
-    const w = this.luckyWheel;
+    const w = this.fortuneWheel;
     const unlocked = !!w && this.user.progress.level >= w.unlockLevel;
     const show = unlocked && w.canSpin();
     this.wheelBtn.visible = show;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# End-to-end test for the Lucky Wheel (src/luckywheel.js).
+# End-to-end test for the Fortune Wheel (src/fortunewheel.js).
 #
 # Drives the real game headlessly through the window.__game debug API. Covers:
 # progression gating + badges, the free spin (grant + won-mark + pip + rapid-tap
@@ -31,6 +31,11 @@ try:
         page.reload()
         page.wait_for_function("window.__game && window.__game.scene && !!window.__game.wheelState", timeout=20000)
         time.sleep(0.5)
+
+        # A fixed test day, injected via setWheelToday so the wheel's clock is
+        # deterministic — otherwise a real midnight crossing (or the main-loop
+        # rollover ticker) could advance the cycle mid-test and make it flaky.
+        T0 = "2050-06-15"
 
         def st():        return page.evaluate("window.__game.wheelState()")
         def badges():    return page.evaluate("window.__game.wheelBadges()")
@@ -67,6 +72,7 @@ try:
         assert s["buttonVisible"] is False, ("no lobby button before unlock", s)
 
         unlock5()
+        setday(T0)                    # pin the wheel's clock for the rest of the run
         s = st()
         assert s["unlocked"] is True, ("unlocked at level 5", s)
         assert s["buttonVisible"] is True, ("lobby button appears once unlocked", s)
@@ -98,6 +104,7 @@ try:
         page.evaluate("window.__game.flushSave()")
         page.reload()
         page.wait_for_function("window.__game && window.__game.scene && !!window.__game.wheelState", timeout=20000)
+        setday(T0)                    # re-pin the clock — the override doesn't persist across a reload
         time.sleep(0.4)
         s = st()
         assert s["group"] == 1 and s["spinsUsed"] == 1 and s["won"] == [0], ("cycle state survives a reload", s)
@@ -136,7 +143,7 @@ try:
         assert s["buttonVisible"] is False, ("lobby button hides once the day's spins are used", s)
 
         # ---- 6. Daily rollover: advance group, reset the cycle -------------
-        setday("2099-01-02")
+        setday("2050-06-16")
         s = st()
         assert s["group"] == 2, ("the rollover advances to the next group", s)
         assert s["spinsUsed"] == 0 and s["won"] == [], ("rollover clears the cycle state", s)
@@ -145,14 +152,14 @@ try:
 
         # wrap: keep advancing the day; after the last group (5) it wraps to 1.
         seq = []
-        for i, day in enumerate(["2099-02-01", "2099-03-01", "2099-04-01", "2099-05-01"]):
+        for day in ["2050-06-17", "2050-06-18", "2050-06-19", "2050-06-20"]:
             setday(day)
             seq.append(st()["group"])
         assert seq == [3, 4, 5, 1], ("group order wraps after the last group", seq)
 
-        page.screenshot(path=f"{SC}/luckywheel.png")
+        page.screenshot(path=f"{SC}/fortunewheel.png")
         assert not errs, ("no console/page errors", errs)
-        print("LUCKY WHEEL TEST PASSED")
+        print("FORTUNE WHEEL TEST PASSED")
         b.close()
 finally:
     srv.terminate()

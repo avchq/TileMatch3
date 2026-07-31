@@ -28,13 +28,13 @@ const defaults = () => ({
   wallet: { coins: 0, gems: 0 }, // currency code -> balance
   boosters: { ...STARTER_BOOSTERS }, // helper code -> remaining uses
   settings: { music: true, sound: true },
-  // Lucky Wheel per-cycle state (see src/luckywheel.js). group: active prize
+  // Fortune Wheel per-cycle state (see src/fortunewheel.js). group: active prize
   // group (1-based; 0 = never cycled). day: the day-key (YYYY-MM-DD) of the
   // current cycle — a change of calendar day rolls the cycle over. spinsUsed:
   // spins taken this cycle (the 1st is free, the rest cost an ad). won: slice
   // indices already won this cycle (a prize can only be won once). seen: the
   // wheel has been opened at least once (clears the "new" badge, forever).
-  luckyWheel: { group: 0, day: "", spinsUsed: 0, won: [], seen: false },
+  fortuneWheel: { group: 0, day: "", spinsUsed: 0, won: [], seen: false },
 });
 
 export class User {
@@ -49,12 +49,12 @@ export class User {
     this.wallet = { ...d.wallet, ...(data.wallet || {}) };
     this.boosters = { ...d.boosters, ...(data.boosters || {}) };
     this.settings = { ...d.settings, ...(data.settings || {}) };
-    this.luckyWheel = { ...d.luckyWheel, ...(data.luckyWheel || {}) };
+    this.fortuneWheel = { ...d.fortuneWheel, ...(data.fortuneWheel || {}) };
     this._listeners = new Set();
   }
 
   // ---- change events -------------------------------------------------------
-  /** Subscribe. Callback is fn(domain, user) where domain ∈ progress|wallet|boosters|settings|luckyWheel.
+  /** Subscribe. Callback is fn(domain, user) where domain ∈ progress|wallet|boosters|settings|fortuneWheel.
    *  Returns an unsubscribe function. */
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
   off(fn) { this._listeners.delete(fn); }
@@ -112,41 +112,41 @@ export class User {
     return true;
   }
 
-  // ---- lucky wheel (daily prize wheel per-cycle state) --------------------
-  wheelGroup() { return this.luckyWheel.group || 0; }
-  wheelDay() { return this.luckyWheel.day || ""; }
-  wheelSpinsUsed() { return this.luckyWheel.spinsUsed || 0; }
+  // ---- fortune wheel (daily prize wheel per-cycle state) --------------------
+  wheelGroup() { return this.fortuneWheel.group || 0; }
+  wheelDay() { return this.fortuneWheel.day || ""; }
+  wheelSpinsUsed() { return this.fortuneWheel.spinsUsed || 0; }
   /** Slice indices already won this cycle (a copy — callers must not mutate). */
-  wheelWon() { return (this.luckyWheel.won || []).slice(); }
-  wheelSeen() { return !!this.luckyWheel.seen; }
+  wheelWon() { return (this.fortuneWheel.won || []).slice(); }
+  wheelSeen() { return !!this.fortuneWheel.seen; }
   /** Roll the wheel to a new daily cycle: advance to the next prize group
    *  (wrapping after the last), stamp the new day-key, and clear the per-cycle
    *  spin count + won list. Called on the first check after the calendar day
    *  changes (and on the very first open, from group 0 → 1). */
   advanceWheelCycle(dayKey, groupCount) {
     const n = Math.max(1, Math.floor(groupCount) || 1);
-    let g = (this.luckyWheel.group || 0) + 1;
+    let g = (this.fortuneWheel.group || 0) + 1;
     if (g > n) g = 1;
-    this.luckyWheel.group = g;
-    this.luckyWheel.day = String(dayKey || "");
-    this.luckyWheel.spinsUsed = 0;
-    this.luckyWheel.won = [];
-    this._emit("luckyWheel");
+    this.fortuneWheel.group = g;
+    this.fortuneWheel.day = String(dayKey || "");
+    this.fortuneWheel.spinsUsed = 0;
+    this.fortuneWheel.won = [];
+    this._emit("fortuneWheel");
   }
   /** Record one spin: bump the spin count and mark the slice index as won.
    *  Recorded before the wheel animates, so a rapid double-tap can't spend two
    *  spins and a won prize can't be won again. */
   recordWheelSpin(index) {
-    this.luckyWheel.spinsUsed = (this.luckyWheel.spinsUsed || 0) + 1;
-    if (!this.luckyWheel.won) this.luckyWheel.won = [];
-    this.luckyWheel.won.push(Math.floor(index));
-    this._emit("luckyWheel");
+    this.fortuneWheel.spinsUsed = (this.fortuneWheel.spinsUsed || 0) + 1;
+    if (!this.fortuneWheel.won) this.fortuneWheel.won = [];
+    this.fortuneWheel.won.push(Math.floor(index));
+    this._emit("fortuneWheel");
   }
   /** Mark the wheel as opened at least once (drops the lobby "new" badge). */
   markWheelSeen() {
-    if (this.luckyWheel.seen) return;
-    this.luckyWheel.seen = true;
-    this._emit("luckyWheel");
+    if (this.fortuneWheel.seen) return;
+    this.fortuneWheel.seen = true;
+    this._emit("fortuneWheel");
   }
 
   // ---- settings ------------------------------------------------------------
@@ -176,12 +176,12 @@ export class User {
     this.wallet = { ...d.wallet };
     this.boosters = { ...d.boosters };
     this.settings = { ...d.settings };
-    this.luckyWheel = { ...d.luckyWheel };
+    this.fortuneWheel = { ...d.fortuneWheel };
     this._emit("progress");
     this._emit("wallet");
     this._emit("boosters");
     this._emit("settings");
-    this._emit("luckyWheel");
+    this._emit("fortuneWheel");
   }
 
   // ---- serialization -------------------------------------------------------
@@ -195,7 +195,7 @@ export class User {
       wallet: { ...this.wallet },
       boosters: { ...this.boosters },
       settings: { ...this.settings },
-      luckyWheel: { ...this.luckyWheel, won: (this.luckyWheel.won || []).slice() },
+      fortuneWheel: { ...this.fortuneWheel, won: (this.fortuneWheel.won || []).slice() },
     };
   }
 
@@ -205,7 +205,7 @@ export class User {
   static migrate(obj) {
     const o = { ...obj };
     if (!o.version) o.version = 1; // v0/undefined -> v1 (no structural change)
-    // v1 -> v2: adds the luckyWheel sub-object. The constructor shallow-merges
+    // v1 -> v2: adds the fortuneWheel sub-object. The constructor shallow-merges
     // it from defaults(), so no field transform is needed here — just stamp it.
     if (o.version === 1) o.version = 2;
     return o;
