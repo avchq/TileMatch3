@@ -4,7 +4,7 @@
 // domain-tagged change event whenever it is mutated, so the store can autosave
 // and UI can react live (mirrors audio.js's onMusicChange/onSoundChange callbacks).
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 // Known virtual currencies. The wallet is a keyed map, so adding a currency is
 // just a new code here (or even an arbitrary code passed to credit/debit) — no
@@ -35,6 +35,11 @@ const defaults = () => ({
   // indices already won this cycle (a prize can only be won once). seen: the
   // wheel has been opened at least once (clears the "new" badge, forever).
   fortuneWheel: { group: 0, day: "", spinsUsed: 0, won: [], seen: false },
+  // Daily Bonus state (see src/dailybonus.js). The feature is a free once-a-day
+  // gift, NOT a streak — so the ONLY thing stored is lastClaimDay: the day-key
+  // (YYYY-MM-DD) of the most recent claim. "Has the calendar date changed since
+  // then?" is the whole eligibility check; "" means never claimed.
+  dailyBonus: { lastClaimDay: "" },
 });
 
 export class User {
@@ -50,11 +55,12 @@ export class User {
     this.boosters = { ...d.boosters, ...(data.boosters || {}) };
     this.settings = { ...d.settings, ...(data.settings || {}) };
     this.fortuneWheel = { ...d.fortuneWheel, ...(data.fortuneWheel || {}) };
+    this.dailyBonus = { ...d.dailyBonus, ...(data.dailyBonus || {}) };
     this._listeners = new Set();
   }
 
   // ---- change events -------------------------------------------------------
-  /** Subscribe. Callback is fn(domain, user) where domain ∈ progress|wallet|boosters|settings|fortuneWheel.
+  /** Subscribe. Callback is fn(domain, user) where domain ∈ progress|wallet|boosters|settings|fortuneWheel|dailyBonus.
    *  Returns an unsubscribe function. */
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
   off(fn) { this._listeners.delete(fn); }
@@ -149,6 +155,19 @@ export class User {
     this._emit("fortuneWheel");
   }
 
+  // ---- daily bonus (free once-a-day gift) ----------------------------------
+  /** Day-key (YYYY-MM-DD) of the most recent claim, "" if never claimed. */
+  dailyBonusLastDay() { return this.dailyBonus.lastClaimDay || ""; }
+  /** Record a claim by stamping today's day-key — the single value that drives
+   *  eligibility ("has the date changed since this?"). Called the moment the
+   *  player opens a box, so today's gift can't be re-rolled or claimed twice. */
+  recordDailyClaim(dayKey) {
+    const v = String(dayKey || "");
+    if (v === this.dailyBonus.lastClaimDay) return;
+    this.dailyBonus.lastClaimDay = v;
+    this._emit("dailyBonus");
+  }
+
   // ---- settings ------------------------------------------------------------
   get music() { return this.settings.music; }
   get sound() { return this.settings.sound; }
@@ -177,11 +196,13 @@ export class User {
     this.boosters = { ...d.boosters };
     this.settings = { ...d.settings };
     this.fortuneWheel = { ...d.fortuneWheel };
+    this.dailyBonus = { ...d.dailyBonus };
     this._emit("progress");
     this._emit("wallet");
     this._emit("boosters");
     this._emit("settings");
     this._emit("fortuneWheel");
+    this._emit("dailyBonus");
   }
 
   // ---- serialization -------------------------------------------------------
@@ -196,6 +217,7 @@ export class User {
       boosters: { ...this.boosters },
       settings: { ...this.settings },
       fortuneWheel: { ...this.fortuneWheel, won: (this.fortuneWheel.won || []).slice() },
+      dailyBonus: { ...this.dailyBonus },
     };
   }
 
@@ -208,6 +230,9 @@ export class User {
     // v1 -> v2: adds the fortuneWheel sub-object. The constructor shallow-merges
     // it from defaults(), so no field transform is needed here — just stamp it.
     if (o.version === 1) o.version = 2;
+    // v2 -> v3: adds the dailyBonus sub-object. Like v1->v2, the constructor
+    // shallow-merges it from defaults(), so just stamp the version.
+    if (o.version === 2) o.version = 3;
     return o;
   }
 }

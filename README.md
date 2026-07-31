@@ -133,6 +133,37 @@ headline prize). **Note:** the shipped `unlockLevel` is **5**, but this port
 currently ships only **4** levels, so with the default the button won't appear in
 normal play until more levels exist — lower `unlockLevel` in the config to demo it.
 
+### Daily Bonus — a free once-a-day gift
+A second daily-return hook, separate from the wheel and **not** a login-streak
+calendar: there is no Day 1→7 chain, no streak, and no penalty for missing a day.
+A **gift button** sits in the lobby's **top-left corner, under the wheel button**;
+it **gently pulses** (a looping grow/shrink) and — unlike the wheel — carries **no
+badge**, because the pulse itself is the "unclaimed" indicator. The button **only
+appears while today's gift is unclaimed** and hides the moment it's claimed,
+returning at the next calendar-day rollover. Eligibility is a plain **"has the
+calendar date changed since the last claim?"** check — a **midnight reset, one
+claim per day**; the **only** thing persisted is the day-key of the most recent
+claim (`user.dailyBonus.lastClaimDay`).
+
+Opening the popup shows **three closed mystery boxes** (green / red / blue) bobbing,
+with a "Pick a box!" tip. Three prizes are **pre-rolled** — one behind each box, each
+an independent weighted draw. Tapping a box **commits today's claim then and there**
+(so the boxes can't be re-rolled), slides it to centre, lifts its lid, and reveals
+the prize (icon + name + amount + a rotating shine + a "Congratulations" line); the
+other two boxes never open. After the reveal a **"📺 Double it!"** button appears
+first and a plain **Claim** button fades in about **two seconds later** — the
+interface nudges toward the ad. Watching the (stubbed) rewarded video **doubles** the
+revealed amount; if the ad isn't ready the player is told so and can still take the
+base prize. Either way the reward is credited (coins → wallet, boosters →
+inventory, flying to its top-bar counter) and the popup closes.
+
+The prize pool lives in `assets/config/dailybonus.json` — a list of
+`{ type, amount, weight }` rows (`type`: `coins`/`undo`/`wand`/`shuffle`; the
+original's "Hint" is this port's **wand**) plus an `unlockLevel` (shipped as **1**,
+so it's available from the start). The draw is **weighted**, strongly favouring
+small coin amounts and rarely giving boosters — tune the odds by editing the
+weights, no code change.
+
 ## Run it
 Because it uses ES modules and `fetch`, it must be served over HTTP (not
 opened via `file://`):
@@ -264,6 +295,24 @@ python3 -m http.server 8099
   (`_makeWheelButton` / `_startWheelSpin` / `_refreshWheelBtn`), reading the wheel's
   `unlockLevel` / `canSpin()` and refreshing live on `user` `fortuneWheel`/`progress`
   changes.
+- `src/dailybonus.js` is the `DailyBonusScene` — the free once-a-day gift overlay
+  (modeled on `FortuneWheelScene`: full-screen dim + centred panel + `easeOutBack`
+  pop + `layout` reflow), opened from the lobby's pulsing gift button. It has no
+  stored cycle: `canClaim()` derives eligibility straight from the persisted
+  day-key (`user.dailyBonus.lastClaimDay`) vs `_today()` — no streak, no
+  advance-cycle. `open()` pre-rolls three independent weighted draws
+  (`_rollBoxes` / `_pickIndex`, honouring a `_forceIndex` test seam); `_openBox(i)`
+  **commits the claim up front** (`user.recordDailyClaim` — hides the lobby button,
+  no re-roll), animates the box open, and reveals the prize. `_double()` watches a
+  stubbed rewarded ad (`_adResult` seam: `succeed`/`cancel`/`fail`) to double the
+  amount; `_take(multiplier)` flies the icon to its HUD counter and grants on
+  landing (`user.credit`/`user.grantBooster`), then closes. The prize pool +
+  `unlockLevel` come from `assets/config/dailybonus.json`; a missing/failed config
+  degrades to an empty pool (button stays hidden). The lobby button, its pulse, and
+  its gate live in `src/lobby.js` (`_makeDailyButton` / `_startDailyPulse` /
+  `_refreshDailyBtn`), refreshing live on `user` `dailyBonus`/`progress` changes and
+  from the same low-frequency `main.js` ticker as the wheel (so a lobby left open
+  across midnight re-shows the gift).
 - `src/settings.js` is the `SettingsScene` — an overlay opened by the **cog
   button** in the top-left of both the lobby and the level. It has **Music** and
   **Sound** toggles (driving `audio.setMusic` / `setSound`, which persist to the
@@ -352,10 +401,13 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   small starter stock), `settings` (`music`, `sound`), and the **Fortune Wheel**
   per-cycle state (`fortuneWheel` — `group`/`day`/`spinsUsed`/`won`/`seen`, mutated
   via `advanceWheelCycle`/`recordWheelSpin`/`markWheelSeen`, emitting a
-  `fortuneWheel` domain). It emits a domain-tagged change event on every mutation and
-  (de)serializes via `toJSON`/`fromJSON` with a `version` for forward migrations
-  (currently **v2** — v1→v2 added the `fortuneWheel` sub-object, filled from defaults
-  for older blobs).
+  `fortuneWheel` domain), and the **Daily Bonus** claim state (`dailyBonus` —
+  just `lastClaimDay`, the day-key of the most recent claim, mutated via
+  `recordDailyClaim`, emitting a `dailyBonus` domain). It emits a domain-tagged
+  change event on every mutation and (de)serializes via `toJSON`/`fromJSON` with a
+  `version` for forward migrations (currently **v3** — v1→v2 added `fortuneWheel`,
+  v2→v3 added `dailyBonus`; both fill from defaults for older blobs, so each step
+  just stamps the version).
 - **`adapters.js`** — a small **async** storage/identity contract
   (`identify` / `load` / `save` / `clear`). `LocalStorageAdapter` is the working
   default on the open web. `FacebookInstantAdapter` / `TelegramAdapter` /
@@ -408,12 +460,13 @@ object and writes changes back to it.
 JS/
   index.html
   vendor/pixi.min.js
-  src/{main,game,lobby,settings,shop,fortunewheel,level,levelConfig,icons,audio,assets,tween}.js
+  src/{main,game,lobby,settings,shop,fortunewheel,dailybonus,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
     config/levels.json      # the level table: {background,data,types,preload?} per level
     config/prices.json      # coin prices: in-level helper buys + the Out-of-Moves continue
     config/turntable.json   # Fortune Wheel: prize groups + odds, unlock level, spins/cycle
+    config/dailybonus.json  # Daily Bonus: weighted prize pool + unlock level
     levels/level{1..13}.json
     bg/*.jpg
     audio/*.mp3

@@ -1,0 +1,19 @@
+{
+  "_comment": "Daily Bonus prize pool. The claim popup shows three boxes; each box rolls one independent weighted draw from prizes[] before it's shown. type: coins|undo|wand|shuffle (this port's Hint helper is 'wand'). amount: coins amount or booster count. weight: relative chance (not a percentage) — a row's chance is its weight over the total. unlockLevel: lobby-button level gate (1 = available from the start).",
+  "unlockLevel": 1,
+  "prizes": [
+    { "type": "shuffle", "amount": 2, "weight": 5 },
+    { "type": "wand",    "amount": 2, "weight": 5 },
+    { "type": "undo",    "amount": 2, "weight": 5 },
+    { "type": "shuffle", "amount": 1, "weight": 10 },
+    { "type": "wand",    "amount": 1, "weight": 10 },
+    { "type": "undo",    "amount": 1, "weight": 10 },
+    { "type": "coins",   "amount": 100, "weight": 10 },
+    { "type": "coins",   "amount": 90,  "weight": 12 },
+    { "type": "coins",   "amount": 70,  "weight": 15 },
+    { "type": "coins",   "amount": 50,  "weight": 20 },
+    { "type": "coins",   "amount": 30,  "weight": 40 },
+    { "type": "coins",   "amount": 25,  "weight": 50 },
+    { "type": "coins",   "amount": 15,  "weight": 30 }
+  ]
+}

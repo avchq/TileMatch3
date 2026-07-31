@@ -149,6 +149,22 @@ line per test.
   (`wheelState`, `wheelBadges`, `openWheel`, `spinWheel`/`pressWheelSpin`,
   `forceWheelPrize`, `setWheelAdResult`, `setWheelToday`).
 
+### Daily Bonus
+
+- **`dailybonus_test.py`** — the free once-a-day gift (`src/dailybonus.js`). The
+  lobby gift button is **available from level 1** and shows while today's gift is
+  unclaimed. Opening the popup pre-rolls **three boxes**; a **forced prize** behind
+  every box makes the pick deterministic. Tapping a box **commits the claim on the
+  spot** (`canClaim` flips to false, the day-key is stamped, the button hides — no
+  re-roll), reveals the prize, and **Claim** credits it (coins → wallet, a
+  `shuffle×2` prize → +2 boosters). The **double-with-ad** path is covered for all
+  three outcomes: `succeed` doubles the amount, `fail`/`cancel` grant nothing extra
+  and leave the base Claim available. A claim **persists across a reload** (still
+  hidden, same day), and forcing the **daily rollover** re-shows the gift and makes
+  it claimable again. Drives it via the `window.__game` daily-bonus hooks
+  (`dailyBonusState`, `openDailyBonus`, `pickDailyBox`, `takeDailyBonus`,
+  `doubleDailyBonus`, `forceDailyPrize`, `setDailyAdResult`, `setDailyToday`).
+
 ### User profile & persistence
 
 - **`user_test.py`** — a fresh profile has the expected defaults (platform, a

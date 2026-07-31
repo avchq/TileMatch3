@@ -3,6 +3,7 @@ import { LobbyScene } from "./lobby.js";
 import { SettingsScene } from "./settings.js";
 import { ShopScene } from "./shop.js";
 import { FortuneWheelScene } from "./fortunewheel.js";
+import { DailyBonusScene } from "./dailybonus.js";
 import { makePayments } from "./user/payments.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
@@ -93,12 +94,20 @@ async function boot() {
   try { turntable = await fetch("assets/config/turntable.json").then((r) => r.json()); }
   catch (_) { /* keep null — FortuneWheelScene falls back to safe defaults */ }
 
+  // Daily Bonus prize pool + unlock level. Same defensive load — a failure leaves
+  // the scene with no prizes, so its lobby button (which gates on canClaim, and
+  // canClaim requires a non-empty pool) simply stays hidden.
+  let dailybonus = null;
+  try { dailybonus = await fetch("assets/config/dailybonus.json").then((r) => r.json()); }
+  catch (_) { /* keep null — DailyBonusScene falls back to safe defaults */ }
+
   const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices);
   const lobby = new LobbyScene(app, backgrounds, audio, maxLevel, user);
   const settings = new SettingsScene(app, audio);
   const shop = new ShopScene(app, audio, user, payments);
   const wheel = new FortuneWheelScene(app, audio, user, turntable);
-  root.addChild(scene, lobby, settings, shop, wheel); // overlays draw on top of whichever scene is active
+  const daily = new DailyBonusScene(app, audio, user, dailybonus);
+  root.addChild(scene, lobby, settings, shop, wheel, daily); // overlays draw on top of whichever scene is active
 
   // Fit the viewport: size the renderer to the window, scale the stage so the
   // constraining dimension fills exactly, then hand each scene the resulting
@@ -114,6 +123,7 @@ async function boot() {
     settings.layout(DW, DH);
     shop.layout(DW, DH);
     wheel.layout(DW, DH);
+    daily.layout(DW, DH);
   };
   resize();
 
@@ -132,6 +142,12 @@ async function boot() {
   lobby.onFortuneWheel = () => wheel.open();
   wheel.onBack = () => {}; // just hides — the lobby is underneath
 
+  // The daily-bonus lobby button opens the gift overlay; the lobby reads the
+  // scene's unlock level + canClaim() to gate (and pulse) its button.
+  lobby.dailyBonus = daily;
+  lobby.onDailyBonus = () => daily.open();
+  daily.onBack = () => {}; // just hides — the lobby is underneath
+
   // Check the daily rollover continuously while running, so a player left open
   // across midnight gets their new cycle (fresh group + free spin) without a
   // restart. checkRollover emits "fortuneWheel", refreshing the lobby button and an
@@ -139,7 +155,14 @@ async function boot() {
   let _rollAcc = 0;
   app.ticker.add(() => {
     _rollAcc += app.ticker.deltaMS;
-    if (_rollAcc >= 4000) { _rollAcc = 0; wheel.checkRollover(); }
+    if (_rollAcc >= 4000) {
+      _rollAcc = 0;
+      wheel.checkRollover();
+      // The daily-bonus button reappears purely because the calendar day changed
+      // (no user-state mutation fires), so refresh it here too — a lobby left open
+      // across midnight re-shows the gift live, like the wheel's fresh free spin.
+      lobby._refreshDailyBtn();
+    }
   });
 
   // Real-money package purchase: run the platform payment provider, and only grant
@@ -332,6 +355,36 @@ async function boot() {
     forceWheelPrize: (index) => { wheel._forceIndex = index; },
     // Force the ad-spin outcome: "succeed" | "cancel" | "fail".
     setWheelAdResult: (mode) => { wheel._adResult = mode; },
+    // ---- daily bonus ----
+    openDailyBonus: () => daily.open(),
+    dailyBonusVisible: () => daily.visible,
+    // Tap a box open (returns the promise that resolves once it reveals).
+    pickDailyBox: (i) => daily._openBox(i),
+    // Take the revealed prize as-is (x1) / after watching the double-it ad (x2).
+    takeDailyBonus: () => daily._take(1),
+    doubleDailyBonus: () => daily._double(),
+    // Press the on-screen buttons (exercises the button hit path).
+    pressDailyDouble: () => daily._doubleBtn.emit("pointertap"),
+    pressDailyClaim: () => daily._claimBtn.emit("pointertap"),
+    dailyBonusState: () => ({
+      unlocked: user.progress.level >= daily.unlockLevel,
+      buttonVisible: lobby.dailyBtn.visible,
+      canClaim: daily.canClaim(),
+      lastDay: user.dailyBonusLastDay(),
+      overlayOpen: daily.visible,
+      opened: daily._opened,
+      chosen: daily._chosen,
+      doubled: daily._doubled,
+      taken: daily._taken,
+      day: daily._today(),
+      prizes: (daily._prizes || []).map((p) => (p ? { type: p.type, amount: p.amount } : null)),
+    }),
+    // Force the day-key (rollover tests) — also refresh the lobby gift button.
+    setDailyToday: (key) => { daily._todayOverride = key; lobby._refreshDailyBtn(); },
+    // Pin the prize behind every box (deterministic prize tests).
+    forceDailyPrize: (index) => { daily._forceIndex = index; },
+    // Force the double-it ad outcome: "succeed" | "cancel" | "fail".
+    setDailyAdResult: (mode) => { daily._adResult = mode; },
     // ---- helper (booster) inventory ----
     boosterCount: (kind) => user.boosterCount(kind),
     grantBooster: (kind, n) => user.grantBooster(kind, n),

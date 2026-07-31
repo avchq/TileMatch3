@@ -19,10 +19,12 @@ export class LobbyScene extends PIXI.Container {
     this.maxLevel = maxLevel;
     this.user = user;       // player profile — for the coin balance pill
     this.fortuneWheel = null; // the FortuneWheelScene (set by the host) — for gating/badges
+    this.dailyBonus = null; // the DailyBonusScene (set by the host) — for gating
     this.onPlay = null;     // (levelNum) => void
     this.onSettings = null; // () => void — open the settings screen
     this.onShop = null;     // () => void — open the shop screen
     this.onFortuneWheel = null; // () => void — open the fortune wheel
+    this.onDailyBonus = null; // () => void — open the daily bonus
 
     // Responsive layout state (updated by layout()); defaults to the base design.
     this.viewW = DESIGN_W; this.viewH = DESIGN_H;
@@ -102,10 +104,21 @@ export class LobbyScene extends PIXI.Container {
     this.topHud.addChild(this.wheelBtn);
     this._startWheelSpin();
 
-    // Keep the button's visibility + badges live: progression unlocks it, and any
-    // wheel spin / daily rollover changes the free-spin badge without a reload.
+    // Daily Bonus entry button — a gently pulsing gift pinned to the top-left
+    // corner, right under the wheel button. It only appears while today's gift is
+    // unclaimed (no separate red-dot — the pulse IS the indicator) and hides the
+    // moment it's claimed, returning at the next calendar-day rollover.
+    this.dailyBtn = this._makeDailyButton();
+    this.dailyBtn.position.set(86, 340);
+    this.dailyBtn.visible = false;
+    this.topHud.addChild(this.dailyBtn);
+    this._startDailyPulse();
+
+    // Keep both buttons' visibility live: progression unlocks them, a wheel spin /
+    // rollover changes the free-spin badge, and a daily claim hides the gift.
     this.user.on((domain) => {
       if (domain === "fortuneWheel" || domain === "progress") this._refreshWheelBtn();
+      if (domain === "dailyBonus" || domain === "progress") this._refreshDailyBtn();
     });
   }
 
@@ -219,6 +232,61 @@ export class LobbyScene extends PIXI.Container {
     }
   }
 
+  _makeDailyButton() {
+    const c = new PIXI.Container();
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x5a2f7e).drawCircle(0, 0, 54).endFill();
+    bg.lineStyle(5, 0xffe27a, 0.9).drawCircle(0, 0, 54);
+    c.addChild(bg);
+
+    const gift = new PIXI.Text("🎁", { fontFamily: "Arial", fontSize: 58 });
+    gift.anchor.set(0.5);
+    c.addChild(gift);
+
+    const cap = new PIXI.Text("Daily Bonus", {
+      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xffe27a,
+      stroke: 0x5a3a00, strokeThickness: 4,
+    });
+    cap.anchor.set(0.5);
+    cap.position.set(0, 74);
+    c.addChild(cap);
+
+    c.eventMode = "static";
+    c.cursor = "pointer";
+    c.hitArea = new PIXI.Circle(0, 0, 56);
+    c.on("pointertap", () => { this.audio.play("btn_01"); this.onDailyBonus && this.onDailyBonus(); });
+    c.on("pointerdown", () => c.scale.set(this._dailyBase * 0.94));
+    c.on("pointerup", () => c.scale.set(this._dailyBase));
+    c.on("pointerupoutside", () => c.scale.set(this._dailyBase));
+    return c;
+  }
+
+  // The gift button's attention hook: a gentle looping grow/shrink pulse (the spec
+  // uses the pulse itself as the "unclaimed" indicator, with no red-dot badge).
+  _startDailyPulse() {
+    if (this._dailyAnim) this.app.ticker.remove(this._dailyAnim);
+    this._dailyBase = 1;
+    let el = 0;
+    const fn = () => {
+      const btn = this.dailyBtn;
+      if (!btn || !btn.visible) return;
+      el += this.app.ticker.deltaMS;
+      this._dailyBase = 1 + 0.06 * Math.sin(el / 420);
+      btn.scale.set(this._dailyBase);
+    };
+    this._dailyAnim = fn;
+    this.app.ticker.add(fn);
+  }
+
+  // Gate: visible only while the daily bonus is unlocked (progression) and today's
+  // gift is still unclaimed.
+  _refreshDailyBtn() {
+    if (!this.dailyBtn) return;
+    const d = this.dailyBonus;
+    const show = !!d && this.user.progress.level >= d.unlockLevel && d.canClaim();
+    this.dailyBtn.visible = show;
+  }
+
   _makePlayButton() {
     const c = new PIXI.Container();
     const w = 440, h = 138;
@@ -270,6 +338,7 @@ export class LobbyScene extends PIXI.Container {
     this._buildBackground(level);
     this.playBtn.label.text = `Level ${level}`;
     this._refreshWheelBtn();
+    this._refreshDailyBtn();
 
     const allDone = celebrate && level >= this.maxLevel;
     this.subtitle.text = allDone
