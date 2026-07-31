@@ -170,6 +170,11 @@ line per test.
   once, and starting play triggers no asset re-fetch.
 - **`lazy_test.py`** — levels beyond the preload set are registered but not loaded
   until `ensureLevel` fetches their JSON on demand (and only once).
+- **`levels_config_test.py`** — the level table is a JSON config
+  (`assets/config/levels.json`) fetched at boot, not a hard-coded array: it's a
+  non-empty array of `{background,data,types,preload?}`, the asset manifest's
+  per-level groups are derived from it (one per entry, no phantoms), and the
+  preload set is exactly `core` + the `preload:true` levels.
 
 ### Audio lifecycle
 

@@ -6,8 +6,8 @@ import { FortuneWheelScene } from "./fortunewheel.js";
 import { makePayments } from "./user/payments.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
-import { AssetManager, PRELOAD_GROUPS, MANIFEST } from "./assets.js";
-import { MAX_LEVEL } from "./levelConfig.js";
+import { AssetManager, PRELOAD_GROUPS, MANIFEST, buildLevelGroups } from "./assets.js";
+import { loadLevels } from "./levelConfig.js";
 import { UserStore } from "./user/UserStore.js";
 
 const DESIGN_W = 750;
@@ -46,6 +46,14 @@ async function boot() {
   // (shared audio + levels 1–3), then LAZY-load any further level on demand.
   const audio = new AudioManager();
   const assets = new AssetManager(audio);
+
+  // The level table (which levels exist, their bg/data/types/preload) — fetched
+  // from JSON like the other configs, then used to build the asset manifest.
+  // Essential config, so a failure is fatal (unlike prices/turntable below,
+  // which degrade gracefully). The highest playable level is just its length.
+  const levels = await loadLevels();
+  buildLevelGroups(levels);   // populate MANIFEST + PRELOAD_GROUPS in place
+  const maxLevel = levels.length;
 
   // The player profile (identity, progress, wallet, settings). One object, saved
   // through a platform storage adapter (localStorage on the web; FB/Reddit/Telegram
@@ -86,7 +94,7 @@ async function boot() {
   catch (_) { /* keep null — FortuneWheelScene falls back to safe defaults */ }
 
   const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices);
-  const lobby = new LobbyScene(app, backgrounds, audio, MAX_LEVEL, user);
+  const lobby = new LobbyScene(app, backgrounds, audio, maxLevel, user);
   const settings = new SettingsScene(app, audio);
   const shop = new ShopScene(app, audio, user, payments);
   const wheel = new FortuneWheelScene(app, audio, user, turntable);
@@ -180,7 +188,7 @@ async function boot() {
 
   scene.onLevelComplete = (completed) => {
     // advance to the next level (capped) and return to the lobby
-    currentLevel = Math.min(completed + 1, MAX_LEVEL);
+    currentLevel = Math.min(completed + 1, maxLevel);
     user.setLevel(currentLevel); // emits change -> UserStore autosaves
     showLobby(currentLevel, { celebrate: true });
   };
@@ -278,7 +286,7 @@ async function boot() {
     }),
     // ---- user profile (identity / progress / wallet / settings) ----
     user: () => store.user.toJSON(),
-    setLevel: (n) => { currentLevel = Math.max(1, Math.min(n, MAX_LEVEL)); user.setLevel(currentLevel); },
+    setLevel: (n) => { currentLevel = Math.max(1, Math.min(n, maxLevel)); user.setLevel(currentLevel); },
     balance: (cur) => user.balance(cur),
     credit: (cur, n) => user.credit(cur, n),
     debit: (cur, n) => user.debit(cur, n),

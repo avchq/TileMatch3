@@ -1,44 +1,37 @@
-// The single source of truth for every level in the game.
+// Level logic for the game. The level TABLE itself (which levels exist, their
+// background/data/types/preload) lives in the JSON config
+// `assets/config/levels.json` — a tunable data file alongside the other configs
+// (prices.json, turntable.json) — and is fetched once at boot by loadLevels().
+// This module owns the LOGIC that reads that table: the deterministic per-level
+// type count. (Not to be confused with src/level.js, the level-data PARSER/solver.)
 //
-// To add a level, append ONE entry here with its background image, level-data
-// file, and how many distinct tile types it uses — nothing else needs editing.
-// Two things are derived from this list:
-//   - MAX_LEVEL           = LEVELS.length  (the highest playable level)
-//   - the asset MANIFEST  (src/assets.js builds one load group per entry)
+// The highest playable level is simply the length of the loaded table, so there
+// is no separate MAX_LEVEL constant — callers read `levels.length` directly.
 //
-// `types` controls the count of distinct tile faces the level draws from (every
-// one is guaranteed to appear on the board; more types = harder). It may be:
+// `types` (per entry) controls the count of distinct tile faces the level draws
+// from (every one is guaranteed to appear on the board; more types = harder).
+// It may be:
 //   - a plain integer  → a fixed count, or
 //   - a [min, max] range → the count is a random value within that range,
 //     drawn deterministically per level (stable across reloads/sessions).
 // `preload: true` fetches that level's assets on boot; entries without it
-// lazy-load on demand the first time the player reaches them. (Not to be
-// confused with src/level.js, which is the level-data PARSER/solver.)
+// lazy-load on demand the first time the player reaches them.
 
 import { mulberry32 } from "./level.js";
 
-export const LEVELS = [
-  { background: "assets/bg/bg1.jpg",  data: "assets/levels/level1.json", types: [10, 12], preload: true },
-  { background: "assets/bg/bg2.jpg",  data: "assets/levels/level2.json", types: [9, 12], preload: true },
-  { background: "assets/bg/bg14.jpg", data: "assets/levels/level3.json", types: [9, 13], preload: true },
-  { background: "assets/bg/bg14.jpg", data: "assets/levels/level4.json", types: [9, 13] },
-  { background: "assets/bg/bg1.jpg",  data: "assets/levels/level5.json", types: [10, 13] },
-  { background: "assets/bg/bg1.jpg",  data: "assets/levels/level6.json", types: [10, 13] },
-  { background: "assets/bg/bg1.jpg",  data: "assets/levels/level7.json", types: [10, 13] },
-  { background: "assets/bg/bg1.jpg",  data: "assets/levels/level8.json", types: [10, 13] },
-  { background: "assets/bg/bg1.jpg",  data: "assets/levels/level9.json", types: [10, 13] },
-  { background: "assets/bg/bg1.jpg",  data: "assets/levels/level10.json", types: [13, 13] },
-  { background: "assets/bg/bg1.jpg",  data: "assets/levels/level11.json", types: [13, 16] },
-  { background: "assets/bg/bg1.jpg",  data: "assets/levels/level12.json", types: [13, 16] },
-  { background: "assets/bg/bg1.jpg",  data: "assets/levels/level13.json", types: [13, 15] },
+// The loaded level table, populated once at boot by loadLevels(). Empty until
+// then; typesForLevel() reads it, so loadLevels() must resolve before any level
+// loads.
+let LEVELS = [];
 
-
-
-
-];
-
-// The highest playable level is simply how many levels are configured.
-export const MAX_LEVEL = LEVELS.length;
+// Fetch the level table (assets/config/levels.json) and cache it here. Returns
+// the loaded array. Must run once during boot before any level loads. This is
+// essential config, so a fetch failure is fatal (unlike prices/turntable, which
+// degrade gracefully) — the game has no levels without it.
+export async function loadLevels() {
+  LEVELS = await fetch("assets/config/levels.json").then((r) => r.json());
+  return LEVELS;
+}
 
 // Max distinct types the palette can render (must match TILE_EMOJIS.length in
 // src/icons.js) — resolved counts are clamped to this.

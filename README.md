@@ -2,7 +2,7 @@
 
 A JavaScript/[Pixi.js](https://pixijs.com) port of the Cocos Creator game in
 `../cocos` ("Tile Match 3"), a stacked-tile match-3 game. The playable levels are
-declared in `src/levelConfig.js` (currently **4**).
+declared in the JSON config `assets/config/levels.json` (currently **13**).
 
 ## Gameplay
 On load you land on the **lobby** screen, which shows a big centred
@@ -159,9 +159,10 @@ python3 -m http.server 8099
   derives a valid removal order (a linear extension of the covering DAG) and
   gives each consecutive triple one type, so every board can always be cleared
   with only 3 tray slots. The number of distinct types is **per-level**, set by
-  the `types` field of each entry in `src/levelConfig.js` — either a fixed
-  integer or a `[min, max]` **range** resolved to a count that is random but
-  deterministic per level (every type is guaranteed to appear on the board).
+  the `types` field of each entry in `assets/config/levels.json` (resolved by
+  `src/levelConfig.js`) — either a fixed integer or a `[min, max]` **range**
+  resolved to a count that is random but deterministic per level (every type is
+  guaranteed to appear on the board).
   Tile **positions** come straight from the
   level file, and the type assignment is seeded **only from the level number**
   (`game.js` `loadLevel`), so a level's layout is **deterministic** — the same
@@ -268,8 +269,10 @@ python3 -m http.server 8099
   **Sound** toggles (driving `audio.setMusic` / `setSound`, which persist to the
   User object) and a **Back** button that returns to the scene underneath.
 - `src/main.js` boots Pixi, owns the lobby ⇄ game flow, and reads/writes player
-  state (level, settings, wallet) through the **User object** (see below). Its
-  `MAX_LEVEL` is imported from `src/levelConfig.js` (= number of levels there). It
+  state (level, settings, wallet) through the **User object** (see below). On boot
+  it `loadLevels()` (fetches `assets/config/levels.json`) then `buildLevelGroups()`
+  to populate the asset manifest; the highest playable level is simply that list's
+  length (`levels.length` — there is no separate `MAX_LEVEL` constant). It
   also constructs the **Shop** overlay and the **payment provider**
   (`makePayments`), wires the coin-pill taps to open the shop, and owns
   `purchasePackage` (run the provider, then grant the package's coins + boosters on
@@ -295,21 +298,26 @@ python3 -m http.server 8099
   or resize just re-lays-out in place.)
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
-### Levels (`src/levelConfig.js`)
-Every level is declared in **one place** — the `LEVELS` array in
-`src/levelConfig.js`. Each entry is `{ background, data, types, preload? }`
-(paths to a background image and a level-data JSON, the count of distinct tile
-faces the level uses — an integer or a `[min, max]` range drawn deterministically
-per level — plus an optional preload flag).
-**Adding a level is a single one-line append** — nothing else needs editing:
-- `MAX_LEVEL` is exported as `LEVELS.length`, so the array's length is the
-  highest playable level (consumed by `main.js` and the lobby).
-- `src/assets.js` builds its load **manifest** from `LEVELS` (level *N* ↔ entry
-  *N-1*), so a new entry is automatically loadable.
+### Levels (`assets/config/levels.json` + `src/levelConfig.js`)
+Every level is declared in **one place** — the JSON array in
+`assets/config/levels.json` (a tunable data config alongside `prices.json` /
+`turntable.json`). Each entry is `{ background, data, types, preload? }` (paths to
+a background image and a level-data JSON, the count of distinct tile faces the
+level uses — an integer or a `[min, max]` range drawn deterministically per level
+— plus an optional preload flag). `src/levelConfig.js` fetches this file at boot
+(`loadLevels()`) and owns the type-count logic (`typesForLevel()`).
+**Adding a level is a single one-line append to the JSON** — nothing else needs
+editing:
+- The highest playable level is simply the array's **length** (`levels.length`,
+  read by `main.js` and passed to the lobby) — there is no separate `MAX_LEVEL`
+  constant.
+- `src/assets.js` builds its load **manifest** from the loaded table via
+  `buildLevelGroups()` (level *N* ↔ entry *N-1*), so a new entry is automatically
+  loadable.
 
 ### Asset management (`src/assets.js` + `src/audio.js`)
 Assets are organised into groups: a shared `core` group plus one `levelN` group
-per level, the latter generated from the `LEVELS` config above.
+per level, the latter generated from the `levels.json` config above.
 - **Preload** — on boot, `AssetManager.preload()` loads the essential minimum:
   `core` audio + every level flagged `preload: true` in the config (backgrounds
   + level data).
@@ -403,9 +411,10 @@ JS/
   src/{main,game,lobby,settings,shop,fortunewheel,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
+    config/levels.json      # the level table: {background,data,types,preload?} per level
     config/prices.json      # coin prices: in-level helper buys + the Out-of-Moves continue
     config/turntable.json   # Fortune Wheel: prize groups + odds, unlock level, spins/cycle
-    levels/level{1,2,3,4}.json
+    levels/level{1..13}.json
     bg/*.jpg
     audio/*.mp3
 ```

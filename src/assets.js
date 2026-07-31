@@ -1,24 +1,28 @@
 // Asset management: manifest-driven preloading + lazy, on-demand loading.
 //
 // Assets are grouped: a shared `core` group plus one group per level. The level
-// groups are generated from the LEVELS config (src/levelConfig.js) — the single
-// place levels are declared — so adding a level is a one-line config edit with
-// no changes here. On boot we PRELOAD `core` + every level flagged `preload`;
-// any other level's assets are LAZY-loaded on demand via ensureLevel(), fetched
-// only when the player actually reaches it.
+// groups are generated from the level table (assets/config/levels.json, loaded
+// by src/levelConfig.js) — the single place levels are declared — so adding a
+// level is a one-line config edit with no changes here. On boot we PRELOAD
+// `core` + every level flagged `preload`; any other level's assets are
+// LAZY-loaded on demand via ensureLevel(), fetched only when the player reaches it.
+//
+// Because the level table is fetched asynchronously at boot, the per-level
+// groups can't be built at import time. main.js calls buildLevelGroups(levels)
+// once the table is loaded (before any preload) to populate MANIFEST +
+// PRELOAD_GROUPS in place.
 //
 // Every network asset is fetched EXACTLY ONCE and cached in memory:
 //   - audio  -> decoded to an AudioBuffer (played from RAM, no per-play GET)
 //   - images -> PIXI.Texture (PIXI.Assets caches by URL)
 //   - levels -> parsed JSON
 
-import { LEVELS } from "./levelConfig.js";
-
 const levelGroup = (n) => `level${n}`;
 
 // The single source of truth for what exists and where it lives. `core` is
-// hand-authored; the per-level groups are built from LEVELS (level N === entry
-// N-1), each keyed by level number so ensureLevel(n) can find it.
+// hand-authored; the per-level groups are added by buildLevelGroups() from the
+// loaded level table (level N === entry N-1), each keyed by level number so
+// ensureLevel(n) can find it.
 export const MANIFEST = {
   // Shared assets used across all levels — preloaded once.
   core: {
@@ -32,20 +36,25 @@ export const MANIFEST = {
     ],
   },
 };
-LEVELS.forEach((lvl, i) => {
-  const n = i + 1;
-  MANIFEST[levelGroup(n)] = {
-    backgrounds: { [n]: lvl.background },
-    levels: { [n]: lvl.data },
-  };
-});
 
-// The essential minimum to preload on boot: shared assets + every level the
-// config marks `preload`. The rest lazy-load on demand.
-export const PRELOAD_GROUPS = [
-  "core",
-  ...LEVELS.flatMap((lvl, i) => (lvl.preload ? [levelGroup(i + 1)] : [])),
-];
+// The essential minimum to preload on boot: shared assets, plus every level the
+// config marks `preload` (appended by buildLevelGroups). The rest lazy-load on
+// demand.
+export const PRELOAD_GROUPS = ["core"];
+
+// Build the per-level asset groups from the loaded level table, mutating
+// MANIFEST + PRELOAD_GROUPS in place. Call once at boot (main.js) after the
+// levels are fetched, before any preload/lazy-load.
+export function buildLevelGroups(levels) {
+  levels.forEach((lvl, i) => {
+    const n = i + 1;
+    MANIFEST[levelGroup(n)] = {
+      backgrounds: { [n]: lvl.background },
+      levels: { [n]: lvl.data },
+    };
+    if (lvl.preload) PRELOAD_GROUPS.push(levelGroup(n));
+  });
+}
 
 export class AssetManager {
   constructor(audio) {

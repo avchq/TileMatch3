@@ -22,6 +22,10 @@ try:
         page.on("pageerror", lambda e: errors.append("PAGEERROR: " + str(e)))
 
         page.goto("http://localhost:8099/index.html")
+        # Let the first boot fully settle (all preload fetches done) BEFORE we
+        # clear the counter and reload — otherwise its in-flight fetches leak
+        # past reqs.clear() and get counted against the reload, inflating counts.
+        page.wait_for_function("window.__game && window.__game.soundNames().length >= 6", timeout=20000)
         page.evaluate("localStorage.removeItem('tilemaster.level')")
         reqs.clear()
         page.reload()

@@ -1,0 +1,15 @@
+[
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level1.json",  "types": [10, 12], "preload": true },
+  { "background": "assets/bg/bg2.jpg",  "data": "assets/levels/level2.json",  "types": [9, 12],  "preload": true },
+  { "background": "assets/bg/bg14.jpg", "data": "assets/levels/level3.json",  "types": [9, 13],  "preload": true },
+  { "background": "assets/bg/bg14.jpg", "data": "assets/levels/level4.json",  "types": [9, 13] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level5.json",  "types": [10, 13] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level6.json",  "types": [10, 13] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level7.json",  "types": [10, 13] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level8.json",  "types": [10, 13] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level9.json",  "types": [10, 13] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level10.json", "types": [13, 13] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level11.json", "types": [13, 16] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level12.json", "types": [13, 16] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level13.json", "types": [13, 15] }
+]
