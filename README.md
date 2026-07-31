@@ -97,8 +97,8 @@ arrival — when the last one lands, the level is won. The **cog** (top-left) op
 ### Lucky Wheel — a daily prize wheel
 A **prize wheel** reached from the lobby (not part of a level): a daily-return
 hook that hands out coins and boosters used elsewhere. A persistent **wheel
-button** sits in the lower-right of the lobby — it **self-animates** every few
-seconds (the little wheel spins up, the pointer flicks, it winds down), carries a
+button** sits in the lobby's **top-left corner, right under the settings cog** —
+it **self-animates** every few seconds (the little wheel spins up, the pointer flicks, it winds down), carries a
 **NEW** badge until the wheel is opened for the first time ever, and a **free-spin**
 badge whenever the current cycle's free spin is unclaimed (the badge drops the
 moment that spin is used, live, with no reload). The button only appears once the

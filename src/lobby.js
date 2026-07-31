@@ -91,13 +91,15 @@ export class LobbyScene extends PIXI.Container {
     this.coinPill.position.set(DESIGN_W - 108, 84);
     this.topHud.addChild(this.coinPill);
 
-    // Lucky Wheel entry button — a self-animating little wheel in the lower-right,
-    // gated on progression + daily spins remaining, with "new" and "free spin"
-    // badges (see _refreshWheelBtn / _startWheelSpin).
+    // Lucky Wheel entry button — a self-animating little wheel pinned to the
+    // top-left corner, right under the settings cog (on topHud so it tracks the
+    // corner on tall screens, like the cog). Gated on progression + daily spins
+    // remaining, with "new" and "free spin" badges (see _refreshWheelBtn /
+    // _startWheelSpin).
     this.wheelBtn = this._makeWheelButton();
-    this.wheelBtn.position.set(DESIGN_W - 130, 1150);
+    this.wheelBtn.position.set(86, 202);
     this.wheelBtn.visible = false;
-    this.uiLayer.addChild(this.wheelBtn);
+    this.topHud.addChild(this.wheelBtn);
     this._startWheelSpin();
 
     // Keep the button's visibility + badges live: progression unlocks it, and any
@@ -110,8 +112,8 @@ export class LobbyScene extends PIXI.Container {
   _makeWheelButton() {
     const c = new PIXI.Container();
     const bg = new PIXI.Graphics();
-    bg.beginFill(0x22335e).drawCircle(0, 0, 64).endFill();
-    bg.lineStyle(5, 0xffe27a, 0.9).drawCircle(0, 0, 64);
+    bg.beginFill(0x22335e).drawCircle(0, 0, 54).endFill();
+    bg.lineStyle(5, 0xffe27a, 0.9).drawCircle(0, 0, 54);
     c.addChild(bg);
 
     // The spinning wheel graphic (six alternating sectors).
@@ -119,56 +121,56 @@ export class LobbyScene extends PIXI.Container {
     const seg = 6;
     for (let i = 0; i < seg; i++) {
       const a0 = (i / seg) * Math.PI * 2, a1 = ((i + 1) / seg) * Math.PI * 2;
-      wheelG.beginFill(i % 2 ? 0x39c06a : 0xffcb2e).moveTo(0, 0).arc(0, 0, 48, a0, a1).lineTo(0, 0).endFill();
+      wheelG.beginFill(i % 2 ? 0x39c06a : 0xffcb2e).moveTo(0, 0).arc(0, 0, 40, a0, a1).lineTo(0, 0).endFill();
     }
     c.addChild(wheelG);
     c.wheelG = wheelG;
     const hub = new PIXI.Graphics();
-    hub.beginFill(0xffffff).drawCircle(0, 0, 11).endFill();
+    hub.beginFill(0xffffff).drawCircle(0, 0, 9).endFill();
     c.addChild(hub);
 
     // Pointer at the top — flicks against the wheel during the self-animation.
     const ptr = new PIXI.Graphics();
-    ptr.beginFill(0xff5252).moveTo(0, 0).lineTo(-11, -20).lineTo(11, -20).lineTo(0, 0).endFill();
-    ptr.position.set(0, -46);
+    ptr.beginFill(0xff5252).moveTo(0, 0).lineTo(-9, -17).lineTo(9, -17).lineTo(0, 0).endFill();
+    ptr.position.set(0, -39);
     c.addChild(ptr);
     c.ptr = ptr;
 
     const cap = new PIXI.Text("Free Spin", {
-      fontFamily: "Arial", fontSize: 26, fontWeight: "900", fill: 0xffe27a,
+      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 4,
     });
     cap.anchor.set(0.5);
-    cap.position.set(0, 88);
+    cap.position.set(0, 74);
     c.addChild(cap);
 
     // "new" badge (until first-ever open) — top-right.
     const newBadge = new PIXI.Container();
     const nbg = new PIXI.Graphics();
-    nbg.beginFill(0xff3b3b).drawRoundedRect(-30, -18, 60, 34, 16).endFill();
-    nbg.lineStyle(3, 0xffffff, 0.8).drawRoundedRect(-30, -18, 60, 34, 16);
-    const ntx = new PIXI.Text("NEW", { fontFamily: "Arial", fontSize: 20, fontWeight: "900", fill: 0xffffff });
+    nbg.beginFill(0xff3b3b).drawRoundedRect(-25, -15, 50, 30, 14).endFill();
+    nbg.lineStyle(3, 0xffffff, 0.8).drawRoundedRect(-25, -15, 50, 30, 14);
+    const ntx = new PIXI.Text("NEW", { fontFamily: "Arial", fontSize: 17, fontWeight: "900", fill: 0xffffff });
     ntx.anchor.set(0.5);
     newBadge.addChild(nbg, ntx);
-    newBadge.position.set(50, -50);
+    newBadge.position.set(43, -43);
     c.addChild(newBadge);
     c.newBadge = newBadge;
 
     // "free spin available" badge — top-left.
     const freeBadge = new PIXI.Container();
     const fbg = new PIXI.Graphics();
-    fbg.beginFill(0x2f9e6a).drawCircle(0, 0, 19).endFill();
-    fbg.lineStyle(3, 0xffffff, 0.85).drawCircle(0, 0, 19);
-    const ftx = new PIXI.Text("★", { fontFamily: "Arial", fontSize: 24, fontWeight: "900", fill: 0xffe27a });
+    fbg.beginFill(0x2f9e6a).drawCircle(0, 0, 16).endFill();
+    fbg.lineStyle(3, 0xffffff, 0.85).drawCircle(0, 0, 16);
+    const ftx = new PIXI.Text("★", { fontFamily: "Arial", fontSize: 20, fontWeight: "900", fill: 0xffe27a });
     ftx.anchor.set(0.5);
     freeBadge.addChild(fbg, ftx);
-    freeBadge.position.set(-50, -50);
+    freeBadge.position.set(-43, -43);
     c.addChild(freeBadge);
     c.freeBadge = freeBadge;
 
     c.eventMode = "static";
     c.cursor = "pointer";
-    c.hitArea = new PIXI.Circle(0, 0, 66);
+    c.hitArea = new PIXI.Circle(0, 0, 56);
     c.on("pointertap", () => { this.audio.play("btn_01"); this.onLuckyWheel && this.onLuckyWheel(); });
     c.on("pointerdown", () => c.scale.set(0.94));
     c.on("pointerup", () => c.scale.set(1));
