@@ -99,7 +99,7 @@ export class LobbyScene extends PIXI.Container {
     // remaining, with "new" and "free spin" badges (see _refreshWheelBtn /
     // _startWheelSpin).
     this.wheelBtn = this._makeWheelButton();
-    this.wheelBtn.position.set(86, 202);
+    this.wheelBtn.position.set(86, 214);
     this.wheelBtn.visible = false;
     this.topHud.addChild(this.wheelBtn);
     this._startWheelSpin();
@@ -109,7 +109,7 @@ export class LobbyScene extends PIXI.Container {
     // unclaimed (no separate red-dot — the pulse IS the indicator) and hides the
     // moment it's claimed, returning at the next calendar-day rollover.
     this.dailyBtn = this._makeDailyButton();
-    this.dailyBtn.position.set(86, 340);
+    this.dailyBtn.position.set(86, 396);
     this.dailyBtn.visible = false;
     this.topHud.addChild(this.dailyBtn);
     this._startDailyPulse();
@@ -184,26 +184,45 @@ export class LobbyScene extends PIXI.Container {
     c.eventMode = "static";
     c.cursor = "pointer";
     c.hitArea = new PIXI.Circle(0, 0, 56);
+    c._hover = false;
+    c._pressed = false;
+    this._wheelBase = 1;
     c.on("pointertap", () => { this.audio.play("btn_01"); this.onFortuneWheel && this.onFortuneWheel(); });
-    c.on("pointerdown", () => c.scale.set(0.94));
-    c.on("pointerup", () => c.scale.set(1));
-    c.on("pointerupoutside", () => c.scale.set(1));
+    c.on("pointerover", () => { c._hover = true; });
+    c.on("pointerout", () => { c._hover = false; });
+    c.on("pointerdown", () => { c._pressed = true; c.scale.set(this._wheelBase * 0.92); });
+    c.on("pointerup", () => { c._pressed = false; });
+    c.on("pointerupoutside", () => { c._pressed = false; });
     return c;
   }
 
-  // The button's own attention-hook animation: idle for a few seconds, then the
-  // little wheel spins up, the pointer flicks against it, and it winds back down.
+  // The button's animation. At rest it beats slowly (a gentle grow/shrink, like the
+  // daily gift) and swells while hovered. Layered on top, the little wheel does a
+  // discrete spin (spin up → hold → wind down, the pointer flicking against it) that
+  // fires periodically on its own AND on mouse-over — but a hover won't retrigger a
+  // spin that's already in progress.
   _startWheelSpin() {
     if (this._wheelAnim) this.app.ticker.remove(this._wheelAnim);
-    let idle = 0, running = false, rt = 0;
+    let beat = 0, idle = 0, running = false, rt = 0, prevHover = false;
     const fn = () => {
       const btn = this.wheelBtn;
-      if (!btn || !btn.visible) return;
+      if (!btn || !btn.visible) { if (btn) btn._hover = false; prevHover = false; return; }
       const dt = this.app.ticker.deltaMS / 1000;
+      beat += this.app.ticker.deltaMS;
+
+      // Slow rest-beat, swelling to a steady "active" size while hovered.
+      const rest = 1 + 0.05 * Math.sin(beat / 460);
+      const target = btn._hover ? 1.10 : rest;
+      this._wheelBase += (target - this._wheelBase) * Math.min(1, dt * 10);
+      if (!btn._pressed) btn.scale.set(this._wheelBase);
+
+      // Kick off a spin on hover-enter (if not already spinning) or after an idle wait.
+      const hoverEnter = btn._hover && !prevHover;
+      prevHover = btn._hover;
       if (!running) {
         idle += dt;
-        if (idle >= 5) { running = true; rt = 0; }
-        return;
+        if (hoverEnter || idle >= 5) { running = true; rt = 0; idle = 0; }
+        else return;
       }
       rt += dt;
       let vel; // deg/s
@@ -242,6 +261,7 @@ export class LobbyScene extends PIXI.Container {
     const gift = new PIXI.Text("🎁", { fontFamily: "Arial", fontSize: 58 });
     gift.anchor.set(0.5);
     c.addChild(gift);
+    c.gift = gift;
 
     const cap = new PIXI.Text("Daily Bonus", {
       fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xffe27a,
@@ -254,25 +274,37 @@ export class LobbyScene extends PIXI.Container {
     c.eventMode = "static";
     c.cursor = "pointer";
     c.hitArea = new PIXI.Circle(0, 0, 56);
+    c._hover = false;
+    c._pressed = false;
+    this._dailyBase = 1;
     c.on("pointertap", () => { this.audio.play("btn_01"); this.onDailyBonus && this.onDailyBonus(); });
-    c.on("pointerdown", () => c.scale.set(this._dailyBase * 0.94));
-    c.on("pointerup", () => c.scale.set(this._dailyBase));
-    c.on("pointerupoutside", () => c.scale.set(this._dailyBase));
+    c.on("pointerover", () => { c._hover = true; });
+    c.on("pointerout", () => { c._hover = false; });
+    c.on("pointerdown", () => { c._pressed = true; c.scale.set(this._dailyBase * 0.92); });
+    c.on("pointerup", () => { c._pressed = false; });
+    c.on("pointerupoutside", () => { c._pressed = false; });
     return c;
   }
 
-  // The gift button's attention hook: a gentle looping grow/shrink pulse (the spec
-  // uses the pulse itself as the "unclaimed" indicator, with no red-dot badge).
+  // The gift button's animation: a gentle looping grow/shrink beat at rest (the
+  // "unclaimed" indicator, no red-dot badge); on mouse-over the button swells and
+  // the gift wiggles, both settling back when the pointer leaves.
   _startDailyPulse() {
     if (this._dailyAnim) this.app.ticker.remove(this._dailyAnim);
     this._dailyBase = 1;
-    let el = 0;
+    let beat = 0;
     const fn = () => {
       const btn = this.dailyBtn;
-      if (!btn || !btn.visible) return;
-      el += this.app.ticker.deltaMS;
-      this._dailyBase = 1 + 0.06 * Math.sin(el / 420);
-      btn.scale.set(this._dailyBase);
+      if (!btn || !btn.visible) { if (btn) btn._hover = false; return; }
+      const dt = this.app.ticker.deltaMS / 1000;
+      beat += this.app.ticker.deltaMS;
+      const rest = 1 + 0.05 * Math.sin(beat / 460);
+      const target = btn._hover ? 1.12 : rest;
+      this._dailyBase += (target - this._dailyBase) * Math.min(1, dt * 10);
+      if (!btn._pressed) btn.scale.set(this._dailyBase);
+      // Wiggle the gift while hovered; ease it back upright otherwise.
+      if (btn._hover) btn.gift.rotation = 0.16 * Math.sin(beat * 0.018);
+      else btn.gift.rotation += (0 - btn.gift.rotation) * Math.min(1, dt * 12);
     };
     this._dailyAnim = fn;
     this.app.ticker.add(fn);

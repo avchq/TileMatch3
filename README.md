@@ -98,7 +98,10 @@ arrival — when the last one lands, the level is won. The **cog** (top-left) op
 A **prize wheel** reached from the lobby (not part of a level): a daily-return
 hook that hands out coins and boosters used elsewhere. A persistent **wheel
 button** sits in the lobby's **top-left corner, right under the settings cog** —
-it **self-animates** every few seconds (the little wheel spins up, the pointer flicks, it winds down), carries a
+it **beats slowly** at rest (a gentle grow/shrink) and its little wheel **spins**
+both **periodically on its own** (every few seconds — spins up, the pointer flicks,
+winds down) and **on mouse-over** (a hover kicks off a spin unless one's already
+running); it swells while hovered. It carries a
 **NEW** badge until the wheel is opened for the first time ever, and a **free-spin**
 badge whenever the current cycle's free spin is unclaimed (the badge drops the
 moment that spin is used, live, with no reload). The button only appears once the
@@ -137,8 +140,9 @@ normal play until more levels exist — lower `unlockLevel` in the config to dem
 A second daily-return hook, separate from the wheel and **not** a login-streak
 calendar: there is no Day 1→7 chain, no streak, and no penalty for missing a day.
 A **gift button** sits in the lobby's **top-left corner, under the wheel button**;
-it **gently pulses** (a looping grow/shrink) and — unlike the wheel — carries **no
-badge**, because the pulse itself is the "unclaimed" indicator. The button **only
+it **beats slowly** (a looping grow/shrink) and — unlike the wheel — carries **no
+badge**, because the beat itself is the "unclaimed" indicator; on **mouse-over** the
+button swells and the gift **wiggles**. The button **only
 appears while today's gift is unclaimed** and hides the moment it's claimed,
 returning at the next calendar-day rollover. Eligibility is a plain **"has the
 calendar date changed since the last claim?"** check — a **midnight reset, one
@@ -290,7 +294,9 @@ python3 -m http.server 8099
   landing** (`user.credit`/`user.grantBooster`, so the top-bar counter ticks in
   sync). The prize table + constants come from `assets/config/turntable.json`
   (loaded in `main.js`, passed to the scene); a missing/failed config degrades to
-  no groups (button stays hidden). The lobby button, its self-animation, the NEW /
+  no groups (button stays hidden). The lobby button, its animation (a slow rest-beat
+  plus a wheel spin that fires both periodically and on hover — see
+  `_startWheelSpin`), the NEW /
   free-spin badges, and its progression gate live in `src/lobby.js`
   (`_makeWheelButton` / `_startWheelSpin` / `_refreshWheelBtn`), reading the wheel's
   `unlockLevel` / `canSpin()` and refreshing live on `user` `fortuneWheel`/`progress`
@@ -308,7 +314,9 @@ python3 -m http.server 8099
   amount; `_take(multiplier)` flies the icon to its HUD counter and grants on
   landing (`user.credit`/`user.grantBooster`), then closes. The prize pool +
   `unlockLevel` come from `assets/config/dailybonus.json`; a missing/failed config
-  degrades to an empty pool (button stays hidden). The lobby button, its pulse, and
+  degrades to an empty pool (button stays hidden). The lobby button, its animation
+  (a slow rest-beat, swelling with a gift wiggle on hover — see `_startDailyPulse`),
+  and
   its gate live in `src/lobby.js` (`_makeDailyButton` / `_startDailyPulse` /
   `_refreshDailyBtn`), refreshing live on `user` `dailyBonus`/`progress` changes and
   from the same low-frequency `main.js` ticker as the wheel (so a lobby left open

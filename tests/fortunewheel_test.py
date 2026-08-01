@@ -66,6 +66,16 @@ try:
                 time.sleep(0.1)
             return st()
 
+        # The prize is credited on the fly-back animation's landing, which happens
+        # a beat after the wheel stops spinning — poll rather than reading instantly.
+        def wait_coins(n, timeout=10):
+            end = time.time() + timeout
+            while time.time() < end:
+                if coins() >= n:
+                    return coins()
+                time.sleep(0.1)
+            return coins()
+
         # ---- 1. Gating -----------------------------------------------------
         s = st()
         assert s["unlocked"] is False, ("locked below the unlock level", s)
@@ -95,7 +105,7 @@ try:
         s = wait_spins(1)
         assert s["spinsUsed"] == 1, ("rapid double-tap spends exactly one spin", s)
         assert s["won"] == [0], ("slice 0 is recorded won", s)
-        assert coins() == 30, ("the 30-coin prize landed in the wallet", coins())
+        assert wait_coins(30) == 30, ("the 30-coin prize landed in the wallet", coins())
         bd = badges()
         assert bd["free"] is False, ("free badge drops the moment the free spin is used", bd)
         assert s["buttonVisible"] is True, ("button stays — ad spins remain", s)
