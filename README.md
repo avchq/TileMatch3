@@ -141,8 +141,10 @@ A second daily-return hook, separate from the wheel and **not** a login-streak
 calendar: there is no Day 1→7 chain, no streak, and no penalty for missing a day.
 A **gift button** sits in the lobby's **top-left corner, under the wheel button**;
 it **beats slowly** (a looping grow/shrink) and — unlike the wheel — carries **no
-badge**, because the beat itself is the "unclaimed" indicator; on **mouse-over** the
-button swells and the gift **wiggles**. The button **only
+badge**, because the beat itself is the "unclaimed" indicator; layered on top, the
+gift gives a little squashy **hop** every few seconds (the same ~5s cadence as the
+wheel's self-spin) to draw the eye. On **mouse-over** the button swells and the
+gift **wiggles**. The button **only
 appears while today's gift is unclaimed** and hides the moment it's claimed,
 returning at the next calendar-day rollover. Eligibility is a plain **"has the
 calendar date changed since the last claim?"** check — a **midnight reset, one
@@ -315,7 +317,8 @@ python3 -m http.server 8099
   landing (`user.credit`/`user.grantBooster`), then closes. The prize pool +
   `unlockLevel` come from `assets/config/dailybonus.json`; a missing/failed config
   degrades to an empty pool (button stays hidden). The lobby button, its animation
-  (a slow rest-beat, swelling with a gift wiggle on hover — see `_startDailyPulse`),
+  (a slow rest-beat, a periodic squashy hop, and a swell-plus-gift-wiggle on hover —
+  see `_startDailyPulse`),
   and
   its gate live in `src/lobby.js` (`_makeDailyButton` / `_startDailyPulse` /
   `_refreshDailyBtn`), refreshing live on `user` `dailyBonus`/`progress` changes and

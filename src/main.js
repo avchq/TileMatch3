@@ -383,6 +383,9 @@ async function boot() {
     setDailyToday: (key) => { daily._todayOverride = key; lobby._refreshDailyBtn(); },
     // Pin the prize behind every box (deterministic prize tests).
     forceDailyPrize: (index) => { daily._forceIndex = index; },
+    // Trigger the lobby gift's periodic hop immediately (its idle timer is
+    // frame-rate bound, so a wall-clock wait is unreliable under CPU load).
+    forceDailyHop: () => { if (lobby.dailyBtn) lobby.dailyBtn._hopNow = true; },
     // Force the double-it ad outcome: "succeed" | "cancel" | "fail".
     setDailyAdResult: (mode) => { daily._adResult = mode; },
     // ---- helper (booster) inventory ----

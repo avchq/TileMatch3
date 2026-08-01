@@ -61,6 +61,24 @@ try:
         assert s["lastDay"] == "", ("never claimed yet", s)
         assert coins() == 0, ("no coins yet", coins())
 
+        # ---- 1b. The gift hops to draw the eye -----------------------------
+        # At rest the gift arcs up and back down (on a ~5s cadence in real play).
+        # We trigger a hop directly rather than waiting out the idle timer — that
+        # timer is frame-rate bound, so a wall-clock wait flakes under suite CPU
+        # load. Sample the offset in-page via rAF (no round-trip gaps) and confirm
+        # the gift lifts off; hops move it UP => negative y.
+        page.evaluate("window.__game.forceDailyHop()")
+        peak = page.evaluate("""() => new Promise(resolve => {
+            const gift = window.__game.lobby.dailyBtn.gift;
+            let peak = 0, until = performance.now() + 8000;
+            (function tick() {
+                peak = Math.min(peak, gift.position.y);
+                if (peak < -12 || performance.now() >= until) resolve(peak);
+                else requestAnimationFrame(tick);
+            })();
+        })""")
+        assert peak < -5, ("the gift hops up when triggered", peak)
+
         # ---- 2. Open: three boxes pre-rolled -------------------------------
         force(COINS50)                 # pin the prize behind every box
         open_d()

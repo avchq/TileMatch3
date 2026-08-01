@@ -288,14 +288,21 @@ export class LobbyScene extends PIXI.Container {
 
   // The gift button's animation: a gentle looping grow/shrink beat at rest (the
   // "unclaimed" indicator, no red-dot badge); on mouse-over the button swells and
-  // the gift wiggles, both settling back when the pointer leaves.
+  // the gift wiggles, both settling back when the pointer leaves. Layered on top,
+  // the gift gives a little squashy hop periodically — on the same ~5s cadence as
+  // the wheel's self-spin — to draw the eye.
   _startDailyPulse() {
     if (this._dailyAnim) this.app.ticker.remove(this._dailyAnim);
     this._dailyBase = 1;
-    let beat = 0;
+    let beat = 0, idle = 0, hopping = false, ht = 0;
+    const HOP_DUR = 0.5; // seconds
     const fn = () => {
       const btn = this.dailyBtn;
-      if (!btn || !btn.visible) { if (btn) btn._hover = false; return; }
+      if (!btn || !btn.visible) {
+        if (btn) { btn._hover = false; btn.gift.position.y = 0; btn.gift.scale.set(1); }
+        idle = 0; hopping = false;
+        return;
+      }
       const dt = this.app.ticker.deltaMS / 1000;
       beat += this.app.ticker.deltaMS;
       const rest = 1 + 0.05 * Math.sin(beat / 460);
@@ -305,6 +312,24 @@ export class LobbyScene extends PIXI.Container {
       // Wiggle the gift while hovered; ease it back upright otherwise.
       if (btn._hover) btn.gift.rotation = 0.16 * Math.sin(beat * 0.018);
       else btn.gift.rotation += (0 - btn.gift.rotation) * Math.min(1, dt * 12);
+
+      // Periodic hop: idle for ~5s, then arc up and back down over HOP_DUR with a
+      // tiny anticipatory squash, then rest again. `_hopNow` lets a test trigger one
+      // immediately (the idle timer is frame-rate bound, so it's unreliable under load).
+      if (!hopping) {
+        idle += dt;
+        if (idle >= 5 || btn._hopNow) { hopping = true; ht = 0; idle = 0; btn._hopNow = false; }
+      }
+      if (hopping) {
+        ht += dt;
+        if (ht >= HOP_DUR) { hopping = false; btn.gift.position.y = 0; btn.gift.scale.set(1); }
+        else {
+          const e = ht / HOP_DUR;                 // 0..1
+          btn.gift.position.y = -18 * Math.sin(Math.PI * e);   // up then down
+          const squash = 0.08 * Math.sin(Math.PI * 2 * e);     // stretch up, squash on landing
+          btn.gift.scale.set(1 - squash, 1 + squash);
+        }
+      }
     };
     this._dailyAnim = fn;
     this.app.ticker.add(fn);
