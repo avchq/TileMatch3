@@ -270,6 +270,16 @@ async function boot() {
       ox: scene.ox, oy: scene.oy,
       boardCX: scene.boardCX, boardCY: scene.boardCY,
     }),
+    // Tray sizing: the per-level slot size, the on-screen board tile size it
+    // tracks (TILE_DRAW * boardScale), and the clamp bounds (used by tray_size test).
+    traySize: () => ({
+      slot: scene.slot,
+      tileOnScreen: 96 * scene.boardScale, // TILE_DRAW * boardScale
+      boardScale: scene.boardScale,
+      slotMin: 56, slotMax: (750 - 2 * 24 - 2 * 18 - 6 * 6) / 7,
+      panelW: scene.trayPanel.width,
+      slotXs: scene.slotPositions.map((p) => p.x),
+    }),
     lobbyButtonText: () => lobby.playBtn.label.text,
     startLevel,
     exitLevel: () => scene.onExit && scene.onExit(),

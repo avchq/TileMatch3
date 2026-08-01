@@ -65,6 +65,12 @@ line per test.
   (nothing cropped) with exactly one dimension filling it edge-to-edge, and the
   board (centred), tray, and helper row all sit inside the view without
   overlapping — resizing the viewport live between each check.
+- **`tray_size_test.py`** — the bottom tray is sized to the **current level's tile
+  size**, not a fixed 84px slot: the slot equals `clamp(TILE_DRAW*boardScale,
+  SLOT_MIN, SLOT_MAX)` across levels, the 7 slots stay evenly spaced and the panel
+  fits the 750-wide safe band, and a collected tile renders at the slot size. Since
+  the board fills the screen (large tiles) the slot clamps at `SLOT_MAX` on normal
+  screens. Drives it via the `window.__game.traySize()` hook.
 - **`scaling_test.py`** — the board **scales to fill the screen** rather than
   sitting at a fixed size. On a roomy portrait screen `boardScale` grows past
   **1** (the old code capped it at 1.0, leaving big margins); the board footprint

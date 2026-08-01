@@ -15,7 +15,15 @@ const CELL = 88;          // tile footprint in board units (px at scale 1)
 const TILE_DRAW = 96;     // drawn tile size (slightly larger than cell for overlap)
 const LIFT = 7;           // per-layer vertical lift for the 3D-stack look
 const TRAY_SLOTS = 7;
-const SLOT = 84;
+const SLOT = 84;          // default tray slot size, before a level sizes it to fit
+const SLOT_GAP = 6;       // horizontal gap between tray slots
+const SLOT_PAD = 18;      // padding between the slot row and the tray panel edge
+const SLOT_MARGIN = 24;   // min gap from the tray panel to the 750-wide safe band edge
+const SLOT_MIN = 56;      // floor so a very dense level's tray tiles stay tappable
+// Largest slot that keeps the 7-slot tray (with its gaps + panel padding + margin)
+// inside the 750-wide safe band. Used to clamp the per-level slot size below.
+const SLOT_MAX =
+  (DESIGN_W - 2 * SLOT_MARGIN - 2 * SLOT_PAD - (TRAY_SLOTS - 1) * SLOT_GAP) / TRAY_SLOTS;
 
 const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1140;
@@ -78,6 +86,7 @@ export class GameScene extends PIXI.Container {
     this.onShop = null;          // () => void — open the shop screen
     this.onExit = null;          // () => void — leave the level, back to the lobby
 
+    this.slot = SLOT; // current tray slot size; sized per-level by _layoutBoard
     this._buildHud();
     this._buildTraySlots();
     // Keep the helper buttons in sync when the inventory changes elsewhere (e.g. a
@@ -266,7 +275,8 @@ export class GameScene extends PIXI.Container {
     this.hudTop.addChild(this.coinPill);
 
     // buttons row — round, icon-only. Placed BELOW the tray panel (whose bottom
-    // edge sits at TRAY_Y + SLOT/2 + 18) so the two never overlap.
+    // edge sits at TRAY_Y + slot/2 + SLOT_PAD, at most TRAY_Y + SLOT_MAX/2 + SLOT_PAD)
+    // so the two never overlap even at the widest per-level slot size.
     // Helper (booster) buttons. Each carries a count bubble showing how many
     // uses remain in the player's inventory; both are disabled when empty
     // (see _updateBoosters).
@@ -415,26 +425,38 @@ export class GameScene extends PIXI.Container {
   }
 
   _buildTraySlots() {
+    // The panel + slot sprites are (re)drawn by _layoutTraySlots() whenever the
+    // per-level slot size changes; create the containers once, in back-to-front
+    // order (panel behind slots), then let the reflow fill them in.
+    this.trayPanel = new PIXI.Graphics();
     this.slotContainer = new PIXI.Container();
-    const totalW = TRAY_SLOTS * SLOT + (TRAY_SLOTS - 1) * 6;
-    const startX = DESIGN_W / 2 - totalW / 2 + SLOT / 2;
+    this.trayGroup.addChild(this.trayPanel, this.slotContainer);
+    this._layoutTraySlots();
+  }
+
+  // (Re)build the tray panel + slot sprites at the current slot size (this.slot).
+  // Keeps the row centred in the 750-wide safe band; collected tiles (added to
+  // trayGroup on top of these) are untouched and re-placed by _layoutTray().
+  _layoutTraySlots() {
+    const SZ = this.slot;
+    const totalW = TRAY_SLOTS * SZ + (TRAY_SLOTS - 1) * SLOT_GAP;
+    const startX = DESIGN_W / 2 - totalW / 2 + SZ / 2;
     this.slotPositions = [];
-    // backing panel
-    const panel = new PIXI.Graphics();
-    panel.beginFill(0x0a1226, 0.4)
-      .drawRoundedRect(DESIGN_W / 2 - totalW / 2 - 18, TRAY_Y - SLOT / 2 - 18, totalW + 36, SLOT + 36, 26)
+    this.trayPanel.clear();
+    this.trayPanel.beginFill(0x0a1226, 0.4)
+      .drawRoundedRect(DESIGN_W / 2 - totalW / 2 - SLOT_PAD, TRAY_Y - SZ / 2 - SLOT_PAD,
+        totalW + 2 * SLOT_PAD, SZ + 2 * SLOT_PAD, 26)
       .endFill();
-    this.trayGroup.addChild(panel);
+    this.slotContainer.removeChildren();
     for (let i = 0; i < TRAY_SLOTS; i++) {
-      const x = startX + i * (SLOT + 6);
+      const x = startX + i * (SZ + SLOT_GAP);
       this.slotPositions.push({ x, y: TRAY_Y });
       const s = new PIXI.Sprite(this.slotTexture);
       s.anchor.set(0.5);
-      s.width = s.height = SLOT;
+      s.width = s.height = SZ;
       s.position.set(x, TRAY_Y);
       this.slotContainer.addChild(s);
     }
-    this.trayGroup.addChild(this.slotContainer);
   }
 
   // ---- level setup ---------------------------------------------------------
@@ -511,6 +533,18 @@ export class GameScene extends PIXI.Container {
     const areaH = this.boardBottom - this.boardTop;
     this.boardScale = Math.min(areaW / spanX, areaH / spanY); // no cap: grow to fill
     const s = this.boardScale;
+
+    // Size the bottom tray to the current level's on-screen tile size: a board
+    // tile is drawn at TILE_DRAW * boardScale, so match that so a collected tile
+    // keeps its size as it flies into the tray. Clamp to [SLOT_MIN, SLOT_MAX] so
+    // the 7-slot tray always fits the safe band (dense boards, whose tiles are
+    // small, shrink the tray to match; roomy boards cap it at the widest that fits).
+    const slot = Math.max(SLOT_MIN, Math.min(SLOT_MAX, TILE_DRAW * s));
+    if (slot !== this.slot) {
+      this.slot = slot;
+      this._layoutTraySlots();
+      if (this.tray.length) this._layoutTray();
+    }
 
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
@@ -607,7 +641,7 @@ export class GameScene extends PIXI.Container {
       // beat — clamp to the last slot so we never index past slotPositions.
       const pos = this.slotPositions[Math.min(i, TRAY_SLOTS - 1)];
       this._animateTo(t.container, pos.x, pos.y, 200, easeOutCubic);
-      this._animateScale(t.container, SLOT / TILE_DRAW, 200);
+      this._animateScale(t.container, this.slot / TILE_DRAW, 200);
     });
   }
 
@@ -979,7 +1013,7 @@ export class GameScene extends PIXI.Container {
     // slot 0 lives in the (offset) tray group; project it into fxLayer space.
     const slot0 = this.fxLayer.toLocal(this.trayGroup.toGlobal(this.slotPositions[0]));
     const C = { x: pile.x - 135, y: (pile.y + slot0.y) / 2 - 200 }; // rise then dive
-    const endScale = SLOT / TILE_DRAW;
+    const endScale = this.slot / TILE_DRAW;
     await Promise.all(remaining.map(async (t, i) => {
       const cont = t.container;
       await delay(ticker, i * 90);         // stagger the launches

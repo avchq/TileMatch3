@@ -355,7 +355,14 @@ python3 -m http.server 8099
   may extend over the side background. So a taller screen spreads the chrome to
   the edges with a bigger board, and a wider one enlarges the play area too.
   (`GameScene.layout` reflows the board/tray/overlay live, so a mid-level rotate
-  or resize just re-lays-out in place.)
+  or resize just re-lays-out in place.) The **bottom tray is sized to the current
+  level's tile size**, not a fixed slot: a board tile is drawn at `TILE_DRAW(96) *
+  boardScale`, so `_layoutBoard` sizes each tray slot to match (a collected tile
+  keeps its size flying into the tray), **clamped** to `[SLOT_MIN, SLOT_MAX]` so the
+  7-slot row always fits the 750-wide safe band (`_layoutTraySlots` redraws the
+  panel + slots on any change). Because the board scales to fill the screen its
+  tiles are large, so on typical screens the slot clamps at `SLOT_MAX` (the widest
+  that fits); a denser board — smaller tiles — shrinks the tray to match.
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
 ### Levels (`assets/config/levels.json` + `src/levelConfig.js`)
