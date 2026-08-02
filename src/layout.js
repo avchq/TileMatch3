@@ -16,16 +16,35 @@
 export const DESIGN_W = 750;
 export const DESIGN_H = 1334;
 
-// Cover-fit a full-bleed background sprite over a viewW×viewH area: scale it up
-// uniformly until it covers the view (cropping the overflow) and centre it, so
-// the art reaches every screen edge without stretching. Shared by the lobby and
-// the level background builders.
-export function coverBackground(sprite, viewW, viewH) {
-  const scale = Math.max(viewW / sprite.texture.width, viewH / sprite.texture.height);
+// Cover-fit a background sprite over a w×h area centred at (cx, cy): scale it up
+// uniformly until it covers that area (cropping the overflow), so the art fills
+// it without stretching. Defaults centre it in a w×h view (cx=w/2, cy=h/2).
+// Used both for the full-view blurred backdrop and the crisp 750-wide game column.
+export function coverBackground(sprite, w, h, cx = w / 2, cy = h / 2) {
+  const scale = Math.max(w / sprite.texture.width, h / sprite.texture.height);
   sprite.scale.set(scale);
   sprite.anchor.set(0.5);
-  sprite.position.set(viewW / 2, viewH / 2);
+  sprite.position.set(cx, cy);
   return sprite;
+}
+
+// Build the two-layer background the game uses so it stays a fixed-width vertical
+// column on any screen: a BLURRED copy of the art covering the whole view (fills
+// the side margins on a screen wider than the 750-wide design), with a CRISP copy
+// covering just the centred 750-wide column on top. On a portrait screen the crisp
+// column already fills the width, so the blur is simply hidden behind it. Returns
+// the two sprites (already positioned); the caller adds them to its bg layer.
+export function buildColumnBackground(texture, viewW, viewH) {
+  const blurred = coverBackground(new PIXI.Sprite(texture), viewW, viewH);
+  // Overscan so the blur's soft edge stays off-screen (no seam at the view edges).
+  blurred.scale.set(blurred.scale.x * 1.15);
+  blurred.filters = [new PIXI.BlurFilter(28)];
+  // Bake the (static) blur to a texture once instead of re-running the filter every
+  // frame — the background only changes when it's rebuilt (resize / level change),
+  // so per-frame blur cost is pure waste and slows animation-heavy screens.
+  blurred.cacheAsBitmap = true;
+  const crisp = coverBackground(new PIXI.Sprite(texture), DESIGN_W, viewH, viewW / 2, viewH / 2);
+  return [blurred, crisp];
 }
 
 // Constrain a centred text label to a maximum on-screen width by scaling it down

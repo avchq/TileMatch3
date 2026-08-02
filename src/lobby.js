@@ -6,7 +6,7 @@
 import { tween, easeOutBack } from "./tween.js";
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill } from "./shop.js";
-import { coverBackground, fitTextWidth } from "./layout.js";
+import { buildColumnBackground, fitTextWidth } from "./layout.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -404,8 +404,9 @@ export class LobbyScene extends PIXI.Container {
     this.bgLayer.removeChildren();
     const tex = this.backgrounds[levelNum] || this.backgrounds[1];
     if (tex) {
-      const sp = coverBackground(new PIXI.Sprite(tex), this.viewW, this.viewH);
-      this.bgLayer.addChild(sp);
+      // Keep the game a fixed-width vertical column: crisp art in the centred
+      // 750-wide band, a blurred copy filling the sides on a wide screen.
+      for (const sp of buildColumnBackground(tex, this.viewW, this.viewH)) this.bgLayer.addChild(sp);
     }
     const dark = new PIXI.Graphics();
     dark.beginFill(0x0a1226, 0.5).drawRect(0, 0, this.viewW, this.viewH).endFill();

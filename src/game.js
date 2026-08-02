@@ -3,7 +3,7 @@ import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill, makeCoinIcon } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
-import { coverBackground } from "./layout.js";
+import { buildColumnBackground } from "./layout.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -259,9 +259,9 @@ export class GameScene extends PIXI.Container {
     this.bgLayer.removeChildren();
     const tex = this.backgrounds[this.levelNum] || this.backgrounds[1];
     if (tex) {
-      // cover-fit the whole view so the background reaches every screen edge
-      const sp = coverBackground(new PIXI.Sprite(tex), this.viewW, this.viewH);
-      this.bgLayer.addChild(sp);
+      // Keep the game a fixed-width vertical column: crisp art in the centred
+      // 750-wide band, a blurred copy filling the sides on a wide screen.
+      for (const sp of buildColumnBackground(tex, this.viewW, this.viewH)) this.bgLayer.addChild(sp);
     }
     const dark = new PIXI.Graphics();
     dark.beginFill(0x0a1226, 0.34).drawRect(0, 0, this.viewW, this.viewH).endFill();
@@ -548,7 +548,11 @@ export class GameScene extends PIXI.Container {
     }
     const spanX = (maxX - minX + 1) * CELL;
     const spanY = (maxY - minY + 1) * CELL + maxLayer * LIFT;
-    const areaW = this.viewW - 60; // fill the full available width, not a fixed band
+    // Fill the width of the 750-wide game column (never the full viewport): the
+    // game stays a fixed-width vertical strip, so on a wide screen the board is
+    // sized for the column, not blown up edge-to-edge (the sides show the blurred
+    // backdrop). viewW is >= DESIGN_W, so this is just DESIGN_W - 60 = 690.
+    const areaW = Math.min(this.viewW, DESIGN_W) - 60;
     const areaH = this.boardBottom - this.boardTop;
     this.boardScale = Math.min(areaW / spanX, areaH / spanY); // no cap: grow to fill
     const s = this.boardScale;

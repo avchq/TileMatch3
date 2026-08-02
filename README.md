@@ -337,45 +337,46 @@ python3 -m http.server 8099
   (`makePayments`), wires the coin-pill taps to open the shop, and owns
   `purchasePackage` (run the provider, then grant the package's coins + boosters on
   success).
-- **Responsive layout** — the game fits **any** screen (any aspect ratio,
-  portrait or landscape) with **no letterbox bars** and no distortion.
-  `main.js`'s `resize()` sizes the renderer to the whole viewport and uniformly
-  scales the stage by `min(vw/750, vh/1334)`, so the *constraining* viewport
-  dimension maps exactly onto the 750×1334 design; the other dimension gains
-  extra design units. It then hands each scene the resulting design area
-  (`DW×DH`, one dimension ≥ its nominal) via `scene.layout(DW, DH)`. Each scene
-  reflows: the top HUD stays anchored to the **top** edge, the tray + helper row
-  anchor to the **bottom** edge, the board fills (and recentres in) the space
-  between, and the background/overlays cover the whole view. The 750-wide safe
-  band centres the **HUD and tray** (background fills the sides on a wide screen);
-  the **board itself scales to fill** the actual available width and the vertical
-  band between the HUD and tray, with **no upper cap** — so tiles grow to use the
-  space and are genuinely sized to the screen (`GameScene._layoutBoard` fits the
-  board by `min((viewW-60)/spanX, areaH/spanY)`). On a very wide screen the board
-  may extend over the side background. So a taller screen spreads the chrome to
-  the edges with a bigger board, and a wider one enlarges the play area too.
-  (`GameScene.layout` reflows the board/tray/overlay live, so a mid-level rotate
-  or resize just re-lays-out in place.) The **bottom tray is sized to the current
-  level's tile size**, not a fixed slot: a board tile is drawn at `TILE_DRAW(96) *
-  boardScale`, so `_layoutBoard` sizes each tray slot to match (a collected tile
-  keeps its size flying into the tray), **clamped** to `[SLOT_MIN, SLOT_MAX]` so the
-  7-slot row always fits the 750-wide safe band (`_layoutTraySlots` redraws the
-  panel + slots on any change). Because the board scales to fill the screen its
-  tiles are large, so on typical screens the slot clamps at `SLOT_MAX` (the widest
-  that fits); a denser board — smaller tiles — shrinks the tray to match.
-  Because `resize()` uses the **min** scale, the design area is always **≥ 750×1334
-  in both axes** — content is never compressed, only given extra margin — which is
-  the property that keeps controls from overlapping across resizes/rotations. The
-  shared reflow helpers live in **`src/layout.js`** (`DESIGN_W/H`,
-  `coverBackground` for full-bleed backgrounds, `fitTextWidth` to keep centred text
-  inside the safe centre band, and `fitPanel` — a defensive clamp that scales a
-  centred overlay panel down if its content would ever outgrow the view). Every
-  scene exposes a `controls()` list of its independent controls, aggregated by
-  `window.__game.controls()` (design-space rects) and asserted overlap-free by
-  `tests/resize_overlap_test.py`. On a wide screen the **corner chrome** (settings
-  cog, coin pill, Fortune Wheel / Daily Bonus buttons) stays centred within the
-  750-wide band (matching the original's SHOW_ALL behaviour), not pinned to the
-  physical corners.
+- **Responsive layout** — the game is a **fixed-width 750-unit vertical column**
+  that is centred on any screen and never stretched sideways (matching the Cocos
+  original). `main.js`'s `resize()` sizes the renderer to the whole viewport and
+  uniformly scales the stage by `min(vw/750, vh/1334)` — so the game column always
+  maps its 750-wide design onto the screen without distortion — then hands each
+  scene the resulting design area (`DW×DH`) via `scene.layout(DW, DH)`.
+  - **Portrait / narrow screens** (up to 9:16) are *width-constrained*: the 750
+    column fills the full width and the extra height becomes vertical margin — the
+    top HUD anchors to the **top** edge, the tray + helper row anchor to the
+    **bottom** edge, and the board fills (and recentres in) the band between.
+  - **Wide screens** (wider than 9:16) are *height-constrained*: the 750 column is
+    **centred** and its extra horizontal space is filled with a **blurred copy of
+    the background** — the game is never blown up to the full width. The crisp
+    background covers only the centred column; a blurred, cover-fit copy fills the
+    sides (`layout.js` `buildColumnBackground`). Corner chrome (settings cog, coin
+    pill, Fortune Wheel / Daily Bonus buttons) therefore rides the **corners of the
+    column**, not the physical screen corners.
+  - The **board is sized to the 750 column**, not the viewport
+    (`GameScene._layoutBoard` fits it by `min((min(viewW,750)-60)/spanX,
+    areaH/spanY)`), so on a wide screen the tiles stay column-sized and the play
+    area is a vertical strip — they do not grow edge-to-edge. On a taller screen
+    the column simply gains vertical room (bigger board band).
+  - `GameScene.layout` reflows the board/tray/overlay live, so a mid-level rotate
+    or resize just re-lays-out in place. The **bottom tray is sized to the current
+    level's tile size**, not a fixed slot: a board tile is drawn at `TILE_DRAW(96) *
+    boardScale`, so `_layoutBoard` sizes each tray slot to match (a collected tile
+    keeps its size flying into the tray), **clamped** to `[SLOT_MIN, SLOT_MAX]` so
+    the 7-slot row always fits the 750-wide column (`_layoutTraySlots` redraws the
+    panel + slots on any change).
+  - Because `resize()` uses the **min** scale, the design area is always **≥
+    750×1334 in both axes** — content is never compressed, only given extra margin —
+    which is the property that keeps controls from overlapping across
+    resizes/rotations. The shared reflow helpers live in **`src/layout.js`**
+    (`DESIGN_W/H`, `coverBackground` / `buildColumnBackground` for the
+    column-plus-blur background, `fitTextWidth` to keep centred text inside the safe
+    centre band, and `fitPanel` — a defensive clamp that scales a centred overlay
+    panel down if its content would ever outgrow the view). Every scene exposes a
+    `controls()` list of its independent controls, aggregated by
+    `window.__game.controls()` (design-space rects) and asserted overlap-free by
+    `tests/resize_overlap_test.py`.
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
 ### Levels (`assets/config/levels.json` + `src/levelConfig.js`)

@@ -10,6 +10,15 @@ behaviour through the `window.__game` debug API exposed in `src/main.js`.
 - Python 3 with `playwright` installed (`pip install playwright` then
   `playwright install chromium`).
 
+On distros without a system `pip` (e.g. Fedora), set up a virtualenv in the
+repo root once — `.venv/` self-ignores, so it stays out of git:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install playwright
+.venv/bin/playwright install chromium
+```
+
 ## Running
 
 ```bash
@@ -25,6 +34,8 @@ Or run one directly:
 ```bash
 python3 tests/settings_test.py
 ```
+
+With the virtualenv above, substitute `.venv/bin/python` for `python3`.
 
 Each test starts and stops its own server, so they run **one at a time** (they
 share port 8099). A test exits non-zero and prints an assertion on failure;
@@ -82,12 +93,15 @@ line per test.
   fits the 750-wide safe band, and a collected tile renders at the slot size. Since
   the board fills the screen (large tiles) the slot clamps at `SLOT_MAX` on normal
   screens. Drives it via the `window.__game.traySize()` hook.
-- **`scaling_test.py`** — the board **scales to fill the screen** rather than
-  sitting at a fixed size. On a roomy portrait screen `boardScale` grows past
-  **1** (the old code capped it at 1.0, leaving big margins); the board footprint
-  fills most of the available width; and on a landscape screen it fills the
-  vertical band between the HUD and tray (~full `areaH`, not ~40 %). Also checks
-  the board never overflows its available width/height.
+- **`scaling_test.py`** — the board **scales to fill the fixed 750-wide game
+  column**, not a fixed size and not the whole viewport. On a roomy portrait screen
+  `boardScale` grows past **1** (the old code capped it at 1.0, leaving big
+  margins) and the board fills most of the 690-wide column; on a **wide/landscape**
+  screen the board stays **column-sized** — the same footprint as portrait, well
+  under the raw viewport width (the regression guard against blowing the board up
+  edge-to-edge; the game stays a vertical strip with the blurred background on the
+  sides). Also checks the board never overflows the column width or the vertical
+  band.
 
 ### Gameplay
 

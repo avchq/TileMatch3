@@ -8,12 +8,12 @@ srv = subprocess.Popen([sys.executable, "-m", "http.server", "8099"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(1.5)
 
-# The board must SCALE TO FILL the screen — not sit at a fixed design size. It
-# fits the actual available width (viewW) and the vertical band between the HUD
-# and the tray, with NO upper cap, so tiles grow on big screens and the play area
-# responds to both axes. (Previously boardScale = min(1, areaW/spanX, areaH/spanY)
-# with a fixed areaW=690 pinned the board at scale 1.0 with big empty margins and
-# made tile size independent of the screen — the bug this test guards against.)
+# The board scales to fill the fixed 750-wide GAME COLUMN — it is NOT pinned at a
+# fixed design size (the old bug: boardScale capped at 1.0 with big empty margins),
+# and it is NOT blown up edge-to-edge on a wide screen either (the game stays a
+# vertical column; a wide screen just shows the blurred background on the sides).
+# So on any screen the board is sized to the column — min(viewW, 750) - 60 wide,
+# fitting the vertical band between the HUD and tray — never to the raw viewport.
 #
 # board metrics, mirroring src/game.js _layoutBoard's bounds math (CELL=88, LIFT=7)
 BOARD_METRICS = """() => {
@@ -29,7 +29,9 @@ BOARD_METRICS = """() => {
     return {
         boardScale: s.boardScale,
         spanX, spanY,
-        areaW: s.viewW - 60,          // matches _layoutBoard's available width
+        viewW: s.viewW,
+        colAreaW: Math.min(s.viewW, 750) - 60, // the 750-wide column, matches _layoutBoard
+        viewportAreaW: s.viewW - 60,           // what the board WOULD fill if blown up
         areaH: s.boardBottom - s.boardTop,
         boardW: s.boardScale*spanX,   // board footprint in design units
         boardH: s.boardScale*spanY,
@@ -54,7 +56,7 @@ try:
             return page.evaluate(BOARD_METRICS)
 
         # 1) Roomy portrait screen: the board grows PAST its raw design size to fill
-        #    space — boardScale must exceed 1 (old capped value was pinned at 1.0).
+        #    the column — boardScale must exceed 1 (old capped value was pinned at 1.0).
         page.set_viewport_size({"width": 1000, "height": 2000})
         time.sleep(0.2)
         page.evaluate("window.__game.startLevel(1)")
@@ -63,24 +65,29 @@ try:
         print("[1000x2000] level 1:", m)
         assert m["boardScale"] > 1.05, ("board did not grow past scale 1 — still capped", m)
 
-        # 2) Board fills the width in portrait: its footprint uses most of the
-        #    690-wide safe band, not the ~440 units of the raw layout.
-        assert m["boardW"] >= 600, ("board does not fill the available width", m)
+        # 2) Board fills the width of the 750-wide column (uses most of the 690-wide
+        #    band), and never overflows it or the vertical band.
+        assert m["boardW"] >= 600, ("board does not fill the column width", m)
+        assert m["boardW"] <= m["colAreaW"] + 1, ("board overflows the column width", m)
+        assert m["boardH"] <= m["areaH"] + 1, ("board overflows the vertical band", m)
 
-        # 3) Landscape: the board fills the vertical band between HUD and tray
-        #    instead of leaving big margins (old: ~0.40 of areaH; new: ~1.0).
+        # 3) Wide (landscape) screen: the game stays a vertical column, so the board
+        #    is sized to the 750 column — NOT blown up to the full viewport width.
         page.set_viewport_size({"width": 1024, "height": 600})
         time.sleep(0.2)
         page.evaluate("window.__game.startLevel(1)")
         time.sleep(0.6)
         m2 = metrics()
         print("[1024x600] level 1:", m2)
-        assert m2["boardH"] >= 0.85 * m2["areaH"], ("board underfills the vertical band", m2)
-        page.screenshot(path=f"{SC}/scaling_landscape.png")
-
-        # 4) Sanity: the board still fits inside its area (never oversized / cropped).
+        # The board footprint is bounded by the column, well under the raw viewport
+        # width — this is the regression guard against the "blow up edge-to-edge" bug.
+        assert m2["boardW"] <= m2["colAreaW"] + 1, ("board wider than the 750 column", m2)
+        assert m2["boardW"] < 0.6 * m2["viewportAreaW"], ("board blown up to the viewport, not column-sized", m2)
+        # It is column-sized, i.e. the SAME footprint as on the portrait screen
+        # above (its size tracks the column, not the wide viewport).
+        assert abs(m2["boardW"] - m["boardW"]) <= 2, ("board size changed with viewport width", m, m2)
         assert m2["boardH"] <= m2["areaH"] + 1, ("board overflows the vertical band", m2)
-        assert m["boardW"] <= m["areaW"] + 1, ("board overflows the available width", m)
+        page.screenshot(path=f"{SC}/scaling_landscape.png")
 
         print("PAGE ERRORS:", len(errs), errs[:5])
         assert not errs
