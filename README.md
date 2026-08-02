@@ -363,6 +363,19 @@ python3 -m http.server 8099
   panel + slots on any change). Because the board scales to fill the screen its
   tiles are large, so on typical screens the slot clamps at `SLOT_MAX` (the widest
   that fits); a denser board — smaller tiles — shrinks the tray to match.
+  Because `resize()` uses the **min** scale, the design area is always **≥ 750×1334
+  in both axes** — content is never compressed, only given extra margin — which is
+  the property that keeps controls from overlapping across resizes/rotations. The
+  shared reflow helpers live in **`src/layout.js`** (`DESIGN_W/H`,
+  `coverBackground` for full-bleed backgrounds, `fitTextWidth` to keep centred text
+  inside the safe centre band, and `fitPanel` — a defensive clamp that scales a
+  centred overlay panel down if its content would ever outgrow the view). Every
+  scene exposes a `controls()` list of its independent controls, aggregated by
+  `window.__game.controls()` (design-space rects) and asserted overlap-free by
+  `tests/resize_overlap_test.py`. On a wide screen the **corner chrome** (settings
+  cog, coin pill, Fortune Wheel / Daily Bonus buttons) stays centred within the
+  750-wide band (matching the original's SHOW_ALL behaviour), not pinned to the
+  physical corners.
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
 ### Levels (`assets/config/levels.json` + `src/levelConfig.js`)

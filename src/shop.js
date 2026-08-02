@@ -14,6 +14,7 @@
 
 import { tween, easeOutBack } from "./tween.js";
 import { PACKAGES } from "./user/payments.js";
+import { fitPanel } from "./layout.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -162,6 +163,12 @@ export class ShopScene extends PIXI.Container {
     this.dim.clear();
     this.dim.beginFill(0x040814, 0.72).drawRect(0, 0, DW, DH).endFill();
     this.panel.position.set(DW / 2, DH / 2);
+    fitPanel(this.panel, DW, DH);
+  }
+
+  // The independent controls this overlay owns (for the resize/overlap test).
+  controls() {
+    return [{ name: "panel", obj: this.panel }];
   }
 
   _build() {

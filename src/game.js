@@ -3,6 +3,7 @@ import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill, makeCoinIcon } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
+import { coverBackground } from "./layout.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -229,18 +230,37 @@ export class GameScene extends PIXI.Container {
     }
   }
 
+  // The independent interface controls this scene owns, for the resize/overlap
+  // regression test (see window.__game.controls). The helper row reports whichever
+  // buttons are currently shown (the three round helpers, or the wide Auto Complete
+  // pill that replaces them). `boardLayer` is the live board footprint — it holds
+  // only on-board tiles (collected/matched ones are reparented away), so its bounds
+  // are the play area. Only currently-visible controls are reported by the caller.
+  controls() {
+    const list = [
+      { name: "levelText", obj: this.levelText },
+      { name: "progressText", obj: this.progressText },
+      { name: "coinPill", obj: this.coinPill },
+      { name: "cog", obj: this.cog },
+      { name: "back", obj: this.backBtn },
+      { name: "trayPanel", obj: this.trayPanel },
+      { name: "board", obj: this.boardLayer },
+      { name: "shuffleBtn", obj: this.shuffleBtn },
+      { name: "wandBtn", obj: this.wandBtn },
+      { name: "undoBtn", obj: this.undoBtn },
+      { name: "autoBtn", obj: this.autoBtn },
+    ];
+    return list;
+  }
+
   // ---- static chrome -------------------------------------------------------
 
   _buildBackground() {
     this.bgLayer.removeChildren();
     const tex = this.backgrounds[this.levelNum] || this.backgrounds[1];
     if (tex) {
-      const sp = new PIXI.Sprite(tex);
       // cover-fit the whole view so the background reaches every screen edge
-      const scale = Math.max(this.viewW / tex.width, this.viewH / tex.height);
-      sp.scale.set(scale);
-      sp.anchor.set(0.5);
-      sp.position.set(this.viewW / 2, this.viewH / 2);
+      const sp = coverBackground(new PIXI.Sprite(tex), this.viewW, this.viewH);
       this.bgLayer.addChild(sp);
     }
     const dark = new PIXI.Graphics();
@@ -306,9 +326,8 @@ export class GameScene extends PIXI.Container {
 
     // Back — sits next to the cog. Stops the level and returns to the lobby;
     // any user-record changes made during the level are left intact (persisted).
-    this.hudTop.addChild(
-      this._makeRoundButton("‹", 38, 148, 84, 0x334063, () => this.onExit && this.onExit())
-    );
+    this.backBtn = this._makeRoundButton("‹", 38, 148, 84, 0x334063, () => this.onExit && this.onExit());
+    this.hudTop.addChild(this.backBtn);
   }
 
   _makeButton(label, w, h, cx, cy, color, onClick) {

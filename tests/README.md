@@ -65,6 +65,17 @@ line per test.
   (nothing cropped) with exactly one dimension filling it edge-to-edge, and the
   board (centred), tray, and helper row all sit inside the view without
   overlapping — resizing the viewport live between each check.
+- **`resize_overlap_test.py`** — the systematic **no-overlap** guarantee: across a
+  spread of common device shapes (portrait phones, a landscape phone, tablets both
+  ways, a 16:9 desktop, plus the exact 750×1334 nominal) and in **every** scene
+  (lobby, level, and the settings / shop / fortune-wheel / daily-bonus overlays),
+  every interface control stays **fully inside** the design area and **no two
+  independent controls overlap** (buttons, text labels, tags, badges, the play
+  board, the tray), with the HUD anchored near the top and the tray/helpers near
+  the bottom. Reads control bounds in design-space via the `window.__game.controls()`
+  hook (each scene exposes a `controls()` list). Regression guard: the lobby title
+  used to clip the top-left Daily-Bonus / wheel button column on tall screens — now
+  centred text is width-capped to the safe centre band (`layout.js` `fitTextWidth`).
 - **`tray_size_test.py`** — the bottom tray is sized to the **current level's tile
   size**, not a fixed 84px slot: the slot equals `clamp(TILE_DRAW*boardScale,
   SLOT_MIN, SLOT_MAX)` across levels, the 7 slots stay evenly spaced and the panel

@@ -14,6 +14,7 @@
 
 import { tween, delay, easeInCubic, easeOutCubic, easeInOutQuad, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
+import { fitPanel } from "./layout.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -659,6 +660,19 @@ export class FortuneWheelScene extends PIXI.Container {
     this.dim.clear();
     this.dim.beginFill(0x040814, 0.82).drawRect(0, 0, DW, DH).endFill();
     this.panel.position.set(DW / 2, DH / 2);
+    fitPanel(this.panel, DW, DH);
     this.topHud.position.set((DW - DESIGN_W) / 2, 0);
+  }
+
+  // The independent controls this overlay owns (for the resize/overlap test): the
+  // centred wheel panel plus the top-HUD prize counters (fly targets).
+  controls() {
+    return [
+      { name: "panel", obj: this.panel },
+      { name: "coinPill", obj: this.coinPill },
+      { name: "chipUndo", obj: this._chips.undo },
+      { name: "chipWand", obj: this._chips.wand },
+      { name: "chipShuffle", obj: this._chips.shuffle },
+    ];
   }
 }

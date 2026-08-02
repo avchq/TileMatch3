@@ -6,9 +6,17 @@
 import { tween, easeOutBack } from "./tween.js";
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill } from "./shop.js";
+import { coverBackground, fitTextWidth } from "./layout.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
+
+// The corner chrome (settings cog / fortune-wheel / daily-bonus buttons) occupies
+// a column on the left up to ~x155 (button + caption). Keep the centred title and
+// subtitle inside the clear centre band so wide text can never overlap that column,
+// no matter how far the vertically-centred UI block slides on a tall screen.
+const CHROME_COL = 175;
+const CENTER_MAX_W = DESIGN_W - 2 * CHROME_COL; // 400
 
 export class LobbyScene extends PIXI.Container {
   constructor(app, backgrounds, audio, maxLevel, user) {
@@ -46,6 +54,24 @@ export class LobbyScene extends PIXI.Container {
     if (this.visible) this._buildBackground(this._level);
   }
 
+  // The independent interface controls this scene owns, for the resize/overlap
+  // regression test (see window.__game.controls). Decorative children (badges,
+  // captions) count as part of their parent button, so only top-level controls
+  // are listed; only currently-visible ones are reported by the caller.
+  controls() {
+    return [
+      { name: "title", obj: this.title },
+      { name: "subtitle", obj: this.subtitle },
+      { name: "fruits", obj: this.fruits },
+      { name: "playBtn", obj: this.playBtn },
+      { name: "hint", obj: this.hint },
+      { name: "cog", obj: this.cog },
+      { name: "coinPill", obj: this.coinPill },
+      { name: "wheelBtn", obj: this.wheelBtn },
+      { name: "dailyBtn", obj: this.dailyBtn },
+    ];
+  }
+
   _buildStatic() {
     // Title block
     this.title = new PIXI.Text("TILE MATCH 3", {
@@ -54,6 +80,7 @@ export class LobbyScene extends PIXI.Container {
     });
     this.title.anchor.set(0.5);
     this.title.position.set(DESIGN_W / 2, 330);
+    fitTextWidth(this.title, CENTER_MAX_W); // keep clear of the left chrome column
     this.uiLayer.addChild(this.title);
 
     this.subtitle = new PIXI.Text("Match 3 fruits · clear the board", {
@@ -62,6 +89,7 @@ export class LobbyScene extends PIXI.Container {
     });
     this.subtitle.anchor.set(0.5);
     this.subtitle.position.set(DESIGN_W / 2, 420);
+    fitTextWidth(this.subtitle, CENTER_MAX_W);
     this.uiLayer.addChild(this.subtitle);
 
     // A little fruity flourish
@@ -69,6 +97,7 @@ export class LobbyScene extends PIXI.Container {
     fruits.anchor.set(0.5);
     fruits.position.set(DESIGN_W / 2, 520);
     this.uiLayer.addChild(fruits);
+    this.fruits = fruits;
 
     // Big centred play button
     this.playBtn = this._makePlayButton();
@@ -375,11 +404,7 @@ export class LobbyScene extends PIXI.Container {
     this.bgLayer.removeChildren();
     const tex = this.backgrounds[levelNum] || this.backgrounds[1];
     if (tex) {
-      const sp = new PIXI.Sprite(tex);
-      const scale = Math.max(this.viewW / tex.width, this.viewH / tex.height);
-      sp.scale.set(scale);
-      sp.anchor.set(0.5);
-      sp.position.set(this.viewW / 2, this.viewH / 2);
+      const sp = coverBackground(new PIXI.Sprite(tex), this.viewW, this.viewH);
       this.bgLayer.addChild(sp);
     }
     const dark = new PIXI.Graphics();
@@ -403,6 +428,7 @@ export class LobbyScene extends PIXI.Container {
       : celebrate
         ? "Level complete!"
         : "Match 3 fruits · clear the board";
+    fitTextWidth(this.subtitle, CENTER_MAX_W); // re-fit for the new text width
 
     // entrance pop of the play button + a gentle attention pulse
     this._pulseBase = 1;

@@ -270,6 +270,38 @@ async function boot() {
       ox: scene.ox, oy: scene.oy,
       boardCX: scene.boardCX, boardCY: scene.boardCY,
     }),
+    // Bounds of every independent, currently-visible interface control, in
+    // DESIGN-SPACE units (0..designW × 0..designH), aggregated across whichever
+    // scenes/overlays are visible. Each scene exposes a controls() listing its
+    // top-level controls; here we measure each with getBounds() (logical screen
+    // px) and divide by root.scale to get design units. Used by the
+    // resize/overlap regression test to assert no control leaves the view or
+    // overlaps another. Skips controls with empty bounds (e.g. an empty board).
+    controls: () => {
+      const s = root.scale.x || 1;
+      const out = [];
+      const add = (sceneName, sc) => {
+        if (!sc || !sc.visible || typeof sc.controls !== "function") return;
+        for (const { name, obj } of sc.controls()) {
+          if (!obj || !obj.visible) continue;
+          const b = obj.getBounds();
+          if (!b.width || !b.height) continue;
+          out.push({
+            scene: sceneName, name,
+            x: b.x / s, y: b.y / s, w: b.width / s, h: b.height / s,
+          });
+        }
+      };
+      // Base scene first (only one of lobby/level is visible at a time), then any
+      // open overlay on top.
+      add("lobby", lobby);
+      add("level", scene);
+      add("settings", settings);
+      add("shop", shop);
+      add("wheel", wheel);
+      add("daily", daily);
+      return out;
+    },
     // Tray sizing: the per-level slot size, the on-screen board tile size it
     // tracks (TILE_DRAW * boardScale), and the clamp bounds (used by tray_size test).
     traySize: () => ({
