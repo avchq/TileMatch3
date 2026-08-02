@@ -110,6 +110,36 @@ try:
         assert bd["free"] is False, ("free badge drops the moment the free spin is used", bd)
         assert s["buttonVisible"] is True, ("button stays — ad spins remain", s)
 
+        # ---- 2b. Pointer leans WITH the spin -------------------------------
+        # The pointer's tip rests on the wheel's top rim and it pivots about that
+        # tip, so a clockwise wheel (rotation increasing) must swing the pointer
+        # counter-clockwise (negative rotation) — leaning in the direction of
+        # travel, not against it. It must also come back to rest at 0.
+        open_w()
+        time.sleep(0.3)
+        force(1)
+        press()
+        samples = []
+        end = time.time() + 6
+        while time.time() < end:
+            samples.append(page.evaluate("window.__game.wheelPointer()"))
+            if not st()["spinning"] and len(samples) > 3:
+                break
+            time.sleep(0.03)
+        moving = [s for s in samples if abs(s["pointer"]) > 0.02]
+        assert len(moving) >= 5, ("the pointer visibly deflects while spinning", len(moving), len(samples))
+        # the wheel only ever turns clockwise, so every deflection is negative
+        assert all(s["pointer"] < 0 for s in moving), \
+            ("the pointer leans with the spin, never against it", [round(s["pointer"], 3) for s in moving[:12]])
+        assert min(s["pointer"] for s in moving) < -0.2, \
+            ("the deflection reaches full lean at speed", min(s["pointer"] for s in moving))
+        rots = [s["wheel"] for s in samples]
+        assert all(b >= a for a, b in zip(rots, rots[1:])), ("the wheel turns clockwise throughout", rots[:12])
+        wait_spins(2)
+        assert abs(page.evaluate("window.__game.wheelPointer()")["pointer"]) < 1e-6, \
+            ("the pointer returns to centre once the wheel settles",
+             page.evaluate("window.__game.wheelPointer()"))
+
         # ---- 3. Persistence across a reload --------------------------------
         page.evaluate("window.__game.flushSave()")
         page.reload()
@@ -117,7 +147,7 @@ try:
         setday(T0)                    # re-pin the clock — the override doesn't persist across a reload
         time.sleep(0.4)
         s = st()
-        assert s["group"] == 1 and s["spinsUsed"] == 1 and s["won"] == [0], ("cycle state survives a reload", s)
+        assert s["group"] == 1 and s["spinsUsed"] == 2 and s["won"] == [0, 1], ("cycle state survives a reload", s)
         assert s["seen"] is True and coins() == 30, ("seen flag + wallet survive a reload", s, coins())
         assert s["unlocked"] is True, ("level (progress) survived", s)
 
@@ -126,9 +156,10 @@ try:
         time.sleep(0.3)
         admode("cancel")
         before = st()["spinsUsed"]
+        won_before = st()["won"]
         spin()
         s = wait_idle()
-        assert s["spinsUsed"] == before and s["won"] == [0], ("cancel spends no spin, wins nothing", s)
+        assert s["spinsUsed"] == before and s["won"] == won_before, ("cancel spends no spin, wins nothing", s)
 
         admode("fail")
         spin()

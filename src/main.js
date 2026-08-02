@@ -391,6 +391,8 @@ async function boot() {
       new: lobby.wheelBtn.newBadge.visible && lobby.wheelBtn.visible,
       free: lobby.wheelBtn.freeBadge.visible && lobby.wheelBtn.visible,
     }),
+    // Live wheel + pointer rotations (pointer-deflection animation tests).
+    wheelPointer: () => ({ wheel: wheel.wheel.rotation, pointer: wheel.pointer.rotation }),
     // Force the day-key and re-check the rollover (day-rollover tests).
     setWheelToday: (key) => { wheel._todayOverride = key; wheel.checkRollover(); },
     // Pin the next winning slice index (deterministic prize tests).

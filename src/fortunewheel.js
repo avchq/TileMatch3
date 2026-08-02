@@ -542,7 +542,7 @@ export class FortuneWheelScene extends PIXI.Container {
       onUpdate: (e) => {
         const r = from + (to - from) * e;
         const dt = Math.max(1, this.app.ticker.deltaMS) / 1000;
-        const speed = Math.abs(r - prev) / dt; prev = r;
+        const speed = (r - prev) / dt; prev = r;   // signed: sign = spin direction
         this.wheel.rotation = r;
         this._updatePointer(speed);
       },
@@ -550,11 +550,16 @@ export class FortuneWheelScene extends PIXI.Container {
   }
 
   // Pointer deflects hard while the wheel is fast, easing back to centre as it
-  // slows — a little rattle at high speed sells the contact.
+  // slows — a little rattle at high speed sells the contact. It leans WITH the
+  // spin: the pointer is a triangle whose tip sits on the wheel's top rim and
+  // which pivots about that tip, so the rim dragging the tip sideways swings the
+  // body the other way. A clockwise wheel (rotation increasing) moves the rim to
+  // the right at the top, which is a negative (counter-clockwise) pointer
+  // rotation — hence the sign flip against `speed`.
   _updatePointer(speed) {
-    const ratio = Math.min(1, speed / (this._refSpeed || 12));
-    let d = 0.42 * ratio;
-    if (ratio > 0.8) { this._jit = (this._jit || 0) + 1; d += (this._jit % 2 ? 0.05 : -0.05); }
+    const ratio = Math.max(-1, Math.min(1, speed / (this._refSpeed || 12)));
+    let d = -0.42 * ratio;
+    if (Math.abs(ratio) > 0.8) { this._jit = (this._jit || 0) + 1; d += (this._jit % 2 ? 0.05 : -0.05); }
     this.pointer.rotation = d;
   }
 

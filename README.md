@@ -119,8 +119,11 @@ Each **cycle allows a fixed number of spins**; the **first is free** and every s
 after costs a **rewarded video** (stubbed — grants on a successful view; cancel or
 failure spends nothing, and a failure shows a brief "ad not available" message).
 The result is **decided before the wheel turns**, then it animates to the winning
-slice (accelerate → hold → decelerate, with a deflecting pointer and a marquee lamp
-ring that blinks idle / chases while spinning / flashes on a win). A prize can only
+slice (accelerate → hold → decelerate, with a marquee lamp ring that blinks idle /
+chases while spinning / flashes on a win). The red pointer at the top pivots about
+its tip where it rests on the rim and **leans in the direction of the spin** — hard
+while the wheel is fast (with a slight rattle), easing back to upright as it slows,
+so it ends pointing straight at the winning slice. A prize can only
 be **won once per cycle** — the pool shrinks each spin and won slices are marked.
 On landing, the prize **flies to its top-bar counter**, which ticks up; the
 headline prize gets an extra highlight before it collects. After the last spin the

@@ -171,14 +171,19 @@ line per test.
   spin** grants its prize into the wallet/inventory, marks the slice won, consumes a
   pip, and drops the free badge — and a **rapid double-tap spends only one spin**.
   Over a cycle **a prize is only won once** (no repeats), the cycle allows exactly
-  **6 spins**, and the wheel **closes itself after the last spin**. **Ad spins**
+  **6 spins**, and the wheel **closes itself after the last spin**. While the wheel
+  turns, the **pointer leans with the spin, never against it** (sampled through a
+  spin: the wheel rotation only ever increases, so every deflection must be
+  negative, reaching the full lean at speed) and **returns to 0 once it settles**.
+  **Ad spins**
   (every spin after the free one) only resolve on a successful rewarded video —
   **cancel/fail spend nothing and win nothing**. Per-cycle state (group / spins /
   won list) **persists across a reload**, and forcing the **day rollover** advances
   to the next group (wrapping after the last), clears the won list + spin count, and
   restores a fresh free spin. Drives it via the `window.__game` wheel hooks
-  (`wheelState`, `wheelBadges`, `openWheel`, `spinWheel`/`pressWheelSpin`,
-  `forceWheelPrize`, `setWheelAdResult`, `setWheelToday`).
+  (`wheelState`, `wheelBadges`, `wheelPointer`, `openWheel`,
+  `spinWheel`/`pressWheelSpin`, `forceWheelPrize`, `setWheelAdResult`,
+  `setWheelToday`).
 
 ### Daily Bonus
 
