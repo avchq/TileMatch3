@@ -5,7 +5,15 @@ A JavaScript/[Pixi.js](https://pixijs.com) port of the Cocos Creator game in
 declared in the JSON config `assets/config/levels.json` (currently **13**).
 
 ## Gameplay
-On load you land on the **lobby** screen, which shows a big centred
+The first thing on screen is the **splash screen** — the game title over a
+**progress bar**, a percentage and a status line ("Loading assets…") — held until
+everything the first screen needs is in memory, then faded out. It is plain
+**DOM/CSS** (`index.html` + `src/splash.js`), not a Pixi scene, so it is painted
+from the very first frame, before `vendor/pixi.min.js` and the ES modules have
+even been fetched, and covers the whole of boot rather than only the part after
+Pixi starts. See the boot section below for what fills the bar.
+
+After it fades you land on the **lobby** screen, which shows a big centred
 **"Level &lt;n&gt;"** button for the level you're on (progress is saved in
 `localStorage`, so it's remembered between visits). Tap it to start.
 
@@ -471,6 +479,25 @@ python3 -m http.server 8099
   (`makePayments`), wires the coin-pill taps to open the shop, and owns
   `purchasePackage` (run the provider, then grant the package's coins + boosters on
   success).
+- `src/splash.js` is the **loading splash** controller — a thin wrapper over the
+  `#splash` markup in `index.html` (title, bar, percentage, status line), with no
+  Pixi dependency at all. `main.js` drives it across **every** boot stage rather
+  than just the asset preload, dividing the bar by a `P` table at the top of the
+  file: level table 10%, profile 16%, asset preload 80% (the only stage moving
+  real bytes — the existing `AssetManager.preload(groups, onProgress)` per-item
+  callback is mapped onto that range), the prices/turntable/dailybonus configs
+  88%, scene construction + `resize()` 96%, first scene 100%. Progress is
+  **monotonic** (a later stage reporting a smaller fraction can never walk the bar
+  backwards) and there is **no minimum display time** — `splash.hide()` runs the
+  moment the first scene is up, just *ahead* of the `window.__game` assignment, and
+  the fade-out drops `pointer-events` immediately so it can never swallow a tap
+  meant for the canvas. `show()`/`hide()` are **hold-counted**, so the mid-session
+  lazy level load (`startLevel` → `assets.ensureLevel(n, onProgress)`, which now
+  reports its 2 items) can reuse the same splash without a nested load hiding the
+  boot one early. A fatal boot failure calls `splash.fail(msg)`, which keeps the
+  overlay up in an error state instead of fading onto a blank canvas. It is
+  deliberately **outside** the Pixi stage: not a `root` child, no `layout()` call,
+  and absent from `window.__game.controls()`.
 - **Responsive layout** — the game is a **fixed-width 750-unit vertical column**
   that is centred on any screen and never stretched sideways (matching the Cocos
   original). `main.js`'s `resize()` sizes the renderer to the whole viewport and
@@ -535,11 +562,13 @@ Assets are organised into groups: a shared `core` group plus one `levelN` group
 per level, the latter generated from the `levels.json` config above.
 - **Preload** — on boot, `AssetManager.preload()` loads the essential minimum:
   `core` audio + every level flagged `preload: true` in the config (backgrounds
-  + level data).
+  + level data). Its `onProgress(done, total)` callback drives the biggest slice
+  of the **splash screen's** progress bar (see `src/splash.js` above).
 - **Lazy load** — any level *not* flagged for preload is fetched on demand via
-  `ensureLevel(n)` (called from `startLevel`), so its assets download only when
-  the player reaches it. Loads are idempotent and de-duplicated (cached results
-  + shared in-flight promises), so nothing is fetched twice.
+  `ensureLevel(n, onProgress)` (called from `startLevel`), so its assets download
+  only when the player reaches it; the optional progress callback re-shows the
+  splash with a real bar for the wait. Loads are idempotent and de-duplicated
+  (cached results + shared in-flight promises), so nothing is fetched twice.
 - **Audio** uses the **Web Audio API**: each file is fetched and decoded into an
   in-memory `AudioBuffer` **once**, and every play spins up a throwaway
   `AudioBufferSourceNode`. Sounds overlap freely and playback makes **no network
@@ -643,7 +672,7 @@ object and writes changes back to it.
 JS/
   index.html
   vendor/pixi.min.js
-  src/{main,game,lobby,settings,shop,fortunewheel,dailybonus,level,levelConfig,icons,audio,assets,tween}.js
+  src/{main,splash,game,lobby,settings,shop,fortunewheel,dailybonus,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
     config/levels.json      # the level table: {background,data,types,preload?} per level

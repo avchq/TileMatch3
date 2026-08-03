@@ -94,13 +94,20 @@ export class AssetManager {
     await Promise.all(groups.map((g) => this.loadGroup(g, tick)));
   }
 
-  /** Lazy-load a level's assets on demand. No-op if already loaded. */
-  async ensureLevel(n) {
+  /**
+   * Lazy-load a level's assets on demand. No-op if already loaded.
+   * `onProgress(loaded, total)` is called as items complete, so the caller can
+   * show a real bar (a level group is 2 items: its background + its data).
+   */
+  async ensureLevel(n, onProgress) {
     const group = levelGroup(n);
     if (!this.hasGroup(group)) {
       throw new Error(`No manifest entry for level ${n} (group "${group}")`);
     }
-    return this.loadGroup(group);
+    const total = this._groupSize(group);
+    let done = 0;
+    const tick = onProgress ? () => { done++; onProgress(done, total); } : undefined;
+    return this.loadGroup(group, tick);
   }
 
   /**

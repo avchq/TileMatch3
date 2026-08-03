@@ -278,6 +278,19 @@ Only `howtoplay_test.py` leaves it open.
 
 ### Assets & loading
 
+- **`splash_test.py`** — the **loading splash** (`index.html` `#splash` +
+  `src/splash.js`). The overlay is painted with its title and bar before boot has
+  finished (`window.__game` still undefined) and covers the viewport; on a
+  CDP-throttled connection the bar is caught **mid-flight**, growing across the
+  track and never shrinking, with the percentage tracking it. The recorded
+  `window.__splash.history` is **monotonic**, starts near 0, ends at exactly 1,
+  and names stages **before and after** the asset preload (level table, profile,
+  assets, settings, board) — the guard against a bar driven by the preload alone.
+  Once the game is ready the splash is non-interactive **immediately**
+  (`pointer-events: none` while it fades) and then `display: none`, and a real
+  canvas click on the lobby cog reaches the game. Aborting
+  `assets/config/levels.json` leaves the splash up in its **error** state with the
+  message shown, rather than fading onto a blank canvas.
 - **`assets_test.py`** — the preload fetches and decodes all 6 audio files exactly
   once, and starting play triggers no asset re-fetch.
 - **`lazy_test.py`** — levels beyond the preload set are registered but not loaded

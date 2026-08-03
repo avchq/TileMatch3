@@ -10,11 +10,29 @@ import { AudioManager } from "./audio.js";
 import { AssetManager, PRELOAD_GROUPS, MANIFEST, buildLevelGroups } from "./assets.js";
 import { loadLevels } from "./levelConfig.js";
 import { UserStore } from "./user/UserStore.js";
+import { createSplash } from "./splash.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
+// How the loading bar is divided between the boot stages below. Each stage
+// finishes at its number, so the bar advances through the whole of boot() —
+// not just the asset preload, the one stage that used to report anything. The
+// preload gets the biggest slice because it is the only one that moves real
+// bytes (audio + backgrounds + level data).
+const P = {
+  levels: 0.10,   // fetch the level table, build the asset manifest
+  profile: 0.16,  // resolve identity + load the saved profile
+  assets: 0.80,   // preload core audio + the preload-flagged levels
+  configs: 0.88,  // prices / turntable / dailybonus
+  scenes: 0.96,   // construct the scenes and lay them out
+};
+
+// A splash instance shared by boot() and its error handler.
+const splash = createSplash();
+
 async function boot() {
+  splash.show("Starting up…");
   // The renderer fills the whole viewport; the stage is uniformly scaled so the
   // constraining viewport dimension maps exactly onto the 750×1334 design (no
   // distortion). The other dimension gains extra design units, which the scenes
@@ -52,20 +70,28 @@ async function boot() {
   // from JSON like the other configs, then used to build the asset manifest.
   // Essential config, so a failure is fatal (unlike prices/turntable below,
   // which degrade gracefully). The highest playable level is just its length.
+  splash.set(0.02, "Loading level table…");
   const levels = await loadLevels();
   buildLevelGroups(levels);   // populate MANIFEST + PRELOAD_GROUPS in place
   const maxLevel = levels.length;
+  splash.set(P.levels);
 
   // The player profile (identity, progress, wallet, settings). One object, saved
   // through a platform storage adapter (localStorage on the web; FB/Reddit/Telegram
   // adapters swap in later). Everything the game persists lives here.
+  splash.set(P.levels, "Loading profile…");
   const store = new UserStore();
   const user = await store.init();
+  splash.set(P.profile);
 
-  const loadingEl = document.getElementById("loading");
+  // The one stage that moves real bytes, so it gets the biggest slice of the
+  // bar. AssetManager.preload already reports per-item completion; map that onto
+  // the [profile, assets] range.
+  splash.set(P.profile, "Loading assets…");
   await assets.preload(PRELOAD_GROUPS, (done, total) => {
-    if (loadingEl) loadingEl.textContent = `Loading… ${Math.round((done / total) * 100)}%`;
+    splash.set(P.profile + (P.assets - P.profile) * (total ? done / total : 1));
   });
+  splash.set(P.assets);
 
   // Shared, live maps the scenes read from (mutated in place as groups load).
   const backgrounds = assets.backgrounds;
@@ -83,6 +109,7 @@ async function boot() {
   // Coin prices for in-level consumable purchases (buying a helper when its stock
   // hits 0). Kept in a JSON config so they're tunable without touching code; on a
   // fetch failure we fall back to no prices (purchases simply stay unavailable).
+  splash.set(P.assets, "Loading settings…");
   let prices = { boosters: {} };
   try { prices = await fetch("assets/config/prices.json").then((r) => r.json()); }
   catch (_) { /* keep the empty default */ }
@@ -100,6 +127,7 @@ async function boot() {
   let dailybonus = null;
   try { dailybonus = await fetch("assets/config/dailybonus.json").then((r) => r.json()); }
   catch (_) { /* keep null — DailyBonusScene falls back to safe defaults */ }
+  splash.set(P.configs, "Preparing board…");
 
   const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices);
   const lobby = new LobbyScene(app, backgrounds, audio, maxLevel, user);
@@ -126,6 +154,7 @@ async function boot() {
     daily.layout(DW, DH);
   };
   resize();
+  splash.set(P.scenes);
 
   // The cog button in either scene opens the settings overlay; Back just hides it,
   // returning to whatever scene is underneath.
@@ -196,9 +225,10 @@ async function boot() {
     // Lazy-load this level's assets if they weren't part of the preload set
     // (levels 1–3 are already in memory, so this resolves instantly for them).
     if (assets.hasLevel(level) && !assets.levelData(level)) {
-      if (loadingEl) { loadingEl.textContent = "Loading…"; loadingEl.style.display = "flex"; }
-      try { await assets.ensureLevel(level); }
-      finally { if (loadingEl) loadingEl.style.display = "none"; }
+      splash.show(`Loading level ${level}…`);
+      try {
+        await assets.ensureLevel(level, (done, total) => splash.set(total ? done / total : 1));
+      } finally { splash.hide(); }
     }
     const data = assets.levelData(level);
     if (!data) return false;
@@ -229,6 +259,7 @@ async function boot() {
   // lobby rather than leaving the player on a blank screen.)
   const enteredFirstLevel = user.isNewPlayer() && (await startLevel(currentLevel));
   if (!enteredFirstLevel) showLobby(currentLevel);
+  splash.set(1, "Ready");
 
   // Apply the persisted music/sound preferences (without re-persisting them),
   // then wire any later change back into the User profile (which autosaves).
@@ -262,7 +293,10 @@ async function boot() {
     audio.setPageVisible(document.visibilityState === "visible");
   });
 
-  if (loadingEl) loadingEl.style.display = "none";
+  // The first scene is up: release boot's hold and let the splash fade away.
+  // Kept here, ahead of the window.__game assignment below, so a test that waits
+  // on __game never finds the overlay still swallowing canvas taps.
+  splash.hide();
 
   // ---- test / debug API (used by the headless verification driver) ---------
   window.__game = {
@@ -599,6 +633,7 @@ async function boot() {
 
 boot().catch((e) => {
   console.error(e);
-  const l = document.getElementById("loading");
-  if (l) l.textContent = "Error: " + e.message;
+  // Keep the splash up and say what went wrong, rather than fading out onto a
+  // blank canvas.
+  splash.fail("Error: " + e.message);
 });
