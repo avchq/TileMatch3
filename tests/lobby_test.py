@@ -15,9 +15,14 @@ try:
         errors = []
         page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
         page.on("pageerror", lambda e: errors.append("PAGEERROR: " + str(e)))
-        # clear saved level so we start fresh at level 1
+        # Start fresh at level 1, but as a RETURNING player: a profile that never
+        # cleared level 1 is routed straight into the level by the first-run flow
+        # (covered by newuser_test.py), and this test is about the lobby.
         page.goto("http://localhost:8099/index.html")
-        page.evaluate("localStorage.removeItem('tilemaster.level')")
+        page.evaluate("() => localStorage.clear()")
+        page.reload()
+        page.wait_for_function("window.__game && window.__game.lobby", timeout=15000)
+        page.evaluate("window.__game.completeLevel(1); window.__game.flushSave();")
         page.reload()
         page.wait_for_function("window.__game && window.__game.lobby", timeout=15000)
         time.sleep(1)
@@ -36,7 +41,7 @@ try:
         assert btn == "Level 1", f"expected 'Level 1', got {btn!r}"
 
         # start level 1 via the API (equivalent to tapping the button)
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.6)
         st = page.evaluate("window.__game.state()")
         print("STARTED L1 -> inLobby:", st["inLobby"], "level:", st["level"],

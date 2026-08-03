@@ -33,7 +33,12 @@ try:
         assert u["platform"] == "web", u
         assert isinstance(u["id"], str) and len(u["id"]) > 0, u
         assert u["progress"]["level"] == 1, u
+        assert u["progress"]["completed"] == 0, u  # never cleared a level -> brand new
         assert u["wallet"] == {"coins": 0, "gems": 0}, u
+        # Helpers are not awarded at account creation — they unlock over the first
+        # levels (boosterunlock_test.py).
+        assert u["boosters"] == {"undo": 0, "shuffle": 0, "wand": 0}, u
+        assert u["boosterUnlocks"] == [], u
         assert u["settings"] == {"music": True, "sound": True}, u
         first_id = u["id"]
 

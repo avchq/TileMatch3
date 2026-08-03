@@ -34,10 +34,19 @@ try:
         def tap():     page.evaluate("window.__game.solveTap()"); time.sleep(0.3)
         def wand():    page.evaluate("window.__game.wand()"); time.sleep(0.6)
 
-        # 1) A fresh profile carries a Wand in the starter inventory.
+        # 1) The Wand is LOCKED in the first levels — a fresh profile owns none.
+        #    Play forward past its unlock (which pays out its one-time stock), then
+        #    top up to the 3 charges this test spends below. The unlock gate itself
+        #    is covered in boosterunlock_test.py.
+        assert wcount() == 0, wcount()
+        page.evaluate("window.__game.completeLevel(5)")
+        time.sleep(0.2)
+        assert wcount() == 1, ("unlocking the wand grants one", wcount())
+        page.evaluate("window.__game.grantBooster('wand', 2)")
+        time.sleep(0.1)
         assert wcount() == 3, wcount()
 
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.7)
 
         # 2) On level start the Wand is usable and NOT greyed even though the tray
@@ -131,7 +140,7 @@ try:
         assert wcount() == 0, "wand stock persisted at 0"
 
         # 8) A grant re-enables the Wand and updates its bubble live.
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.6)
         page.evaluate("window.__game.grantBooster('wand', 2)")
         time.sleep(0.1)

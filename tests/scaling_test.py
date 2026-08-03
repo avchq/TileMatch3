@@ -59,7 +59,7 @@ try:
         #    the column — boardScale must exceed 1 (old capped value was pinned at 1.0).
         page.set_viewport_size({"width": 1000, "height": 2000})
         time.sleep(0.2)
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.6)
         m = metrics()
         print("[1000x2000] level 1:", m)
@@ -75,7 +75,7 @@ try:
         #    is sized to the 750 column — NOT blown up to the full viewport width.
         page.set_viewport_size({"width": 1024, "height": 600})
         time.sleep(0.2)
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.6)
         m2 = metrics()
         print("[1024x600] level 1:", m2)

@@ -52,9 +52,56 @@ line per test.
 
 ### Navigation & UI
 
+- **`newuser_test.py`** — the **first-run flow**: a brand-new profile (fresh
+  browser, nothing saved) boots **straight into level 1**, skipping the lobby
+  (`isNewPlayer` true, `completedLevel` 0). Quitting level 1 part-way shows the
+  lobby but keeps the player new — a reload routes back into the level. Solving
+  level 1 and pressing the win overlay's **Continue** lands on the lobby at
+  `Level 2`, records `completed == 1` and ends the flow, which **persists**: every
+  later boot lands on the lobby. Resetting the profile makes the player brand-new
+  again, so the next boot replays the first-run flow. Drives it via the
+  `window.__game` hooks `isNewPlayer` / `completedLevel` / `completeLevel` /
+  `pressWinContinue`.
+- **`howtoplay_test.py`** — the **"How To Play" popup** that opens at the very
+  start of level 1: it is up with the right title and line, the level is locked
+  behind it (a `solveTap` collects nothing and the guided opening hasn't started),
+  a tap does **not** close it mid fade-in but does once `introDone`, `OK` is the
+  only button (no skip), and the looping demonstration really runs (three tiles
+  reach its mini tray and a triple leaves its mini board). Pressing **OK** closes
+  it, writes the `tilemaster.tutorialDone` marker (outside the save record) and
+  hands over to the guided opening. It re-centres on a resize, never opens outside
+  level 1, opens **again** for a returning player re-entering level 1 (nothing reads
+  the marker back), and does not survive leaving the level. Drives it via
+  `tutorialState` / `pressTutorialOk` / `tapTutorialDim` / `tutorialMarker`.
+- **`firstlevel_test.py`** — the **guided first level** a brand-new player is
+  dropped into: the top bar is stripped to the coin counter (`hudState` reports
+  `cog` / `back` hidden and `shopEnabled` false, and neither name appears in
+  `controls()`); the game plays the first **two** moves itself (two same-type tiles
+  in the tray) and puts the pointing hand on a free third (`handState`), so one tap
+  clears the triple and dismisses the hand; the three helpers are visible but
+  **locked** (`boosterState().*Locked`, dimmed) and a `pressBooster` on each is a
+  no-op that floats the right `boosterHint()`. Re-entering level 1 while still new
+  keeps the treatment; a returning player gets the full HUD, no demo moves and no
+  hand.
 - **`lobby_test.py`** — the game lands on the lobby with the correct `Level N`
   play button; starting a level leaves the lobby, and solving it reaches the win
   overlay (`boardCount == 0`) and returns to the lobby.
+
+**Note:** a fresh profile is a brand-new player, so tests have to play forward past
+the first-run flow before they can drive the ordinary game:
+- needing the **lobby** on boot (`lobby`, `back`, `settings`, `cog_corner`, `bgm`)
+  → `window.__game.completeLevel(1)` + `flushSave()`, then reload;
+- needing **unlocked helpers** or an unguided level 1 (`booster`, `boosterbuy`,
+  `undo`, `wand`, `reshuffle`, `continue`, `coins`, `auto`, `resize_overlap`) →
+  `completeLevel(5)`, past every helper's unlock level. Without it the guided
+  level 1 plays two moves of its own and every helper refuses to act.
+
+**Note:** **every** entry into level 1 — a boot into it, `startLevel(1)`, or the
+lose overlay's **Replay** — opens the modal **"How To Play"** popup, which locks the
+level behind it. Any test that then drives level 1 must dismiss it first with
+`window.__game.closeTutorial()` (a no-op when none is up); the usual shape is
+`page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")`.
+Only `howtoplay_test.py` leaves it open.
 - **`back_test.py`** — the in-level Back button returns to the lobby *without*
   advancing the level, and a user-record change made mid-level (e.g. crediting
   coins) survives both the Back press and a reload.
@@ -119,12 +166,23 @@ line per test.
 - **`layout_test.py`** — a level's type layout is deterministic: the same fruit
   lands on the same position across re-loads and full page reloads, different
   levels differ, and the fixed board is still solvable to a win.
+- **`boosterunlock_test.py`** — helper **progression**: a new account is awarded
+  nothing and every helper is locked; each then unlocks at its own level (Undo 2,
+  Reshuffle 4, Wand 5 — the `UNLOCKS` table at the top of the file mirrors
+  `BOOSTER_UNLOCKS`, and is the only place the schedule is spelled out) and is
+  granted its stock right then, and only that helper. The grant is **one-time** — spend it,
+  clear more levels, it stays spent — and both the inventory and the paid-out
+  record (`boosterUnlocks`) survive a reload. `reset()` puts everything back behind
+  its gate. Also covers the **v4→v5 migration**: an existing save keeps the stock it
+  was given up front, is not handed a second grant, and has anything still locked
+  zeroed.
 - **`booster_test.py`** — the Undo/Shuffle helpers draw from an inventory on the
-  user record: a fresh profile has the starter stock, each use decrements it and
-  updates the count bubble, the inventory persists across a reload, and a grant
-  re-enables it live. A helper is disabled only when there's no move to make (Undo
-  with an empty tray); at 0 stock with no coins it enters the **ad tier** (still
-  usable — a tap grants a free use, spending no coins and netting 0 stock).
+  user record: a fresh profile has **nothing** (helpers are locked), unlocking pays
+  out the scheduled stock, each use decrements it and updates the count bubble, the
+  inventory persists across a reload, and a grant re-enables it live. An unlocked
+  helper is disabled only when there's no move to make (Undo with an empty tray);
+  at 0 stock with no coins it enters the **ad tier** (still usable — a tap grants a
+  free use, spending no coins and netting 0 stock).
 - **`boosterbuy_test.py`** — the in-level acquisition ladder when a helper's stock
   hits 0: prices come from the JSON config (`assets/config/prices.json`); with
   enough coins a tap **buys** one and uses it in the same press (coins drop by the
@@ -155,9 +213,11 @@ line per test.
   level in place; **Home** returns to the lobby without advancing. The continue price
   comes from `assets/config/prices.json`.
 - **`auto_test.py`** — the free Auto Complete button appears (replacing the three
-  helpers) exactly when the endgame is trivial (≤12 tiles left, none covered):
-  the availability flag matches the gate at every step of a level-1 descent and
-  the HUD row mirrors it, pressing it sweeps every tile into the first slot and
+  helpers) exactly when the endgame is trivial (≤12 tiles left, none covered)
+  **and the level is 2 or later**. A full level-1 descent reaches that endgame yet
+  the button never shows (level 1 is finished by hand); a level-2 descent then
+  checks the availability flag against the gate at every step with the HUD row
+  mirroring it, pressing it sweeps every tile into the first slot and
   wins the level (board/rack empty, overlay shown), Continue advances a level,
   and the next level's helper row recovers (the `_autoRunning` reset).
 
@@ -204,8 +264,8 @@ line per test.
 ### User profile & persistence
 
 - **`user_test.py`** — a fresh profile has the expected defaults (platform, a
-  non-empty id, level 1, zeroed wallet, music/sound on) and progress persists
-  across a reload.
+  non-empty id, level 1, nothing completed, zeroed wallet, **no helpers** and no
+  unlocks paid out, music/sound on) and progress persists across a reload.
 - **`coins_test.py`** — coins are a spendable wallet currency with a top-HUD coin
   pill (lobby + level) that updates live on credit; winning a level awards coins
   (the win overlay shows the reward); the Shop lists packages for sale and buying one

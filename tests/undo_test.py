@@ -20,16 +20,19 @@ try:
         page.reload()
         page.wait_for_function("window.__game && window.__game.settings", timeout=20000)
         time.sleep(0.5)
-        # Undo is a helper consumed from the inventory; top it up so this test
-        # exercises undo MECHANICS without running out (booster gating is covered
-        # in booster_test.py).
+        # Undo is a helper consumed from the inventory, and it is LOCKED in the
+        # first levels: play forward past its unlock, then top it up so this test
+        # exercises undo MECHANICS without running out (the inventory ladder is
+        # covered in booster_test.py, the unlock gate in boosterunlock_test.py).
+        page.evaluate("window.__game.completeLevel(5)")
+        time.sleep(0.2)
         page.evaluate("window.__game.grantBooster('undo', 999)")
 
         def st():   return page.evaluate("window.__game.state()")
         def tap():  page.evaluate("window.__game.solveTap()"); time.sleep(0.35)
         def undo(): page.evaluate("window.__game.scene.undo()"); time.sleep(0.35)
         def fresh():
-            page.evaluate("window.__game.startLevel(1)"); time.sleep(0.8)
+            page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }"); time.sleep(0.8)
 
         # Undo semantics in the current code (src/game.js):
         #  - collecting a tile pushes it onto `history`; undo() pops the last one

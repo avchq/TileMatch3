@@ -48,6 +48,12 @@ try:
             page.evaluate("() => localStorage.clear()")
             page.reload()
             page.wait_for_function("window.__game && window.__game.settings", timeout=20000)
+            # Boot into the LOBBY: a profile that never cleared level 1 is routed
+            # straight into the level by the first-run flow (see newuser_test.py),
+            # and the lobby cog is half of what this test checks.
+            page.evaluate("window.__game.completeLevel(1); window.__game.flushSave();")
+            page.reload()
+            page.wait_for_function("window.__game && window.__game.settings", timeout=20000)
             time.sleep(0.5)
             print(f"[{vw}x{vh}]")
             # Lobby cog
@@ -55,7 +61,7 @@ try:
             check(page, "lobby")
             page.screenshot(path=f"{SC}/cog_corner_lobby_{vw}x{vh}.png")
             # Level cog
-            page.evaluate("window.__game.startLevel(1)")
+            page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
             time.sleep(0.6)
             assert page.evaluate("window.__game.state()")["inLobby"] is False
             check(page, "level")

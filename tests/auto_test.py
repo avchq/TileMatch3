@@ -12,6 +12,10 @@ time.sleep(1.5)
 # replacing the three helpers in the row — only when the board is trivially
 # solvable: total remaining tiles (board + rack) <= 12 AND nothing left covered.
 # Pressing it sweeps every tile into the first tray slot and wins the level.
+#
+# LEVEL 1 IS EXEMPT: the teaching level is played by hand to the win, so the
+# button must stay away there even once the endgame gate holds. It joins the
+# helper row from level 2 onward.
 try:
     with sync_playwright() as p:
         b = p.chromium.launch(args=["--use-gl=angle", "--use-angle=swiftshader",
@@ -24,43 +28,68 @@ try:
         page.evaluate("() => localStorage.clear()")
         page.reload()
         page.wait_for_function("window.__game && window.__game.scene", timeout=20000)
+        # Boot into the lobby with the ordinary interface: a profile that never
+        # cleared level 1 is routed into the guided first level and its helpers are
+        # locked (see firstlevel_test.py). Record a level-5 clear so the helper row
+        # below is the normal one, and level 1 is an ordinary replay.
+        page.evaluate("window.__game.completeLevel(5); window.__game.flushSave();")
         time.sleep(0.5)
 
         def astate(): return page.evaluate("window.__game.autoState()")
         def st():     return page.evaluate("window.__game.state()")
 
-        page.evaluate("window.__game.startLevel(1)")
+        def descend(gate_should_show):
+            """Play a level down with the solver. At EVERY step the availability flag
+            must equal the gate (level 1: never), and the HUD row must mirror it.
+            Returns True once Auto Complete appears, False if the level ran out."""
+            guard = 0
+            gate_held = False
+            while True:
+                a = astate()
+                s = st()
+                gate = (a["total"] <= 12 and a["covered"] == 0 and a["boardCount"] > 0)
+                gate_held = gate_held or gate
+                expected = gate and gate_should_show
+                assert a["available"] == expected, ("gate mismatch", a, s)
+                assert a["autoVisible"] == a["available"], ("button visibility must mirror availability", a)
+                assert a["helpersVisible"] != a["available"], ("helpers hidden exactly when auto shows", a)
+                if a["available"]:
+                    return True, gate_held
+                if s["overlay"] or s["boardCount"] == 0:
+                    return False, gate_held
+                if page.evaluate("window.__game.solveTap()") == -1:
+                    return False, gate_held
+                time.sleep(0.22)   # let setTimeout(_settle,190) clear each triple (else the rack fills -> lose)
+                guard += 1
+                assert guard < 400, "descent ran away"
+
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.7)
 
         # On a fresh board Auto Complete is NOT available (27 tiles, plenty covered)
         # and the three helpers are shown instead.
         a = astate()
-        print("on level start:", a)
+        print("on level 1 start:", a)
+        assert a["level"] == 1, a
         assert a["available"] is False and a["autoVisible"] is False and a["helpersVisible"] is True, a
 
-        # Play the level down. At EVERY step the availability flag must equal the
-        # exact gate, and the HUD row must mirror it (button replaces helpers).
-        seen_available = False
-        guard = 0
-        while True:
-            a = astate()
-            s = st()
-            expected = (a["total"] <= 12 and a["covered"] == 0 and a["boardCount"] > 0)
-            assert a["available"] == expected, ("gate mismatch", a, s)
-            assert a["autoVisible"] == a["available"], ("button visibility must mirror availability", a)
-            assert a["helpersVisible"] != a["available"], ("helpers hidden exactly when auto shows", a)
-            if a["available"]:
-                seen_available = True
-                break
-            if s["overlay"] or s["boardCount"] == 0:
-                break
-            if page.evaluate("window.__game.solveTap()") == -1:
-                break
-            time.sleep(0.22)   # let setTimeout(_settle,190) clear each triple (else the rack fills -> lose)
-            guard += 1
-            assert guard < 400, "descent ran away"
+        # ---- Level 1 is exempt -------------------------------------------------
+        # Play it all the way down: the endgame gate DOES hold near the end, but the
+        # button must never show — the first level is finished by hand.
+        shown, gate_held = descend(gate_should_show=False)
+        print("level 1 descent:", {"shown": shown, "gate_held": gate_held, **astate()})
+        assert gate_held, "level 1 should reach the ≤12-tiles/none-covered endgame"
+        assert not shown, "Auto Complete must never appear on level 1"
+        page.screenshot(path=f"{SC}/auto_level1_withheld.png")
 
-        assert seen_available, "level 1 should reach an auto-completable end state"
+        # ---- From level 2 onward it behaves as designed -------------------------
+        page.evaluate("window.__game.startLevel(2)")
+        time.sleep(0.7)
+        a = astate()
+        assert a["level"] == 2 and a["available"] is False, ("fresh level 2 board", a)
+        seen_available, _ = descend(gate_should_show=True)
+
+        assert seen_available, "level 2 should reach an auto-completable end state"
         a = astate()
         print("auto available at:", a)
         assert a["total"] <= 12 and a["covered"] == 0, a
@@ -89,7 +118,7 @@ try:
 
         # Regression guard: the next level's HUD recovers (the _autoRunning reset).
         # A fresh board is never auto-completable, so helpers must be back.
-        page.evaluate("window.__game.startLevel(2)")
+        page.evaluate("window.__game.startLevel(3)")
         time.sleep(0.7)
         a = astate()
         print("next level HUD:", a)

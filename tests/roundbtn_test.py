@@ -24,7 +24,7 @@ try:
         # buttons are enabled for the click test.
         page.evaluate("window.__game.grantBooster('undo', 999)")
         page.evaluate("window.__game.grantBooster('shuffle', 999)")
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.8)
         page.screenshot(path=f"{SC}/roundbtn_level.png")
         # exercise reshuffle + undo via the actual buttons region

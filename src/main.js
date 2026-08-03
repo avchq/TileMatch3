@@ -201,23 +201,34 @@ async function boot() {
       finally { if (loadingEl) loadingEl.style.display = "none"; }
     }
     const data = assets.levelData(level);
-    if (!data) return;
+    if (!data) return false;
     lobby.hide();
     scene.visible = true;
     scene.loadLevel(data, level);
+    return true;
   }
 
   lobby.onPlay = (level) => startLevel(level);
 
   scene.onLevelComplete = (completed) => {
-    // advance to the next level (capped) and return to the lobby
+    // record the clear (this is what ends the first-run flow: once level 1 is
+    // completed the player is no longer "brand new"), advance to the next level
+    // (capped) and return to the lobby
+    user.completeLevel(completed);
     currentLevel = Math.min(completed + 1, maxLevel);
     user.setLevel(currentLevel); // emits change -> UserStore autosaves
     showLobby(currentLevel, { celebrate: true });
   };
 
-  // land on the lobby at the player's saved level
-  showLobby(currentLevel);
+  // First-run flow: a brand-new player (never played, no progress, never cleared
+  // level 1) is dropped straight into level 1 — no lobby in the way. Everyone
+  // else lands on the lobby at their saved level. Completing that first level
+  // returns them to the lobby (onLevelComplete above), which is where they meet
+  // it for the first time.
+  // (If that first level can't be entered — assets missing — fall back to the
+  // lobby rather than leaving the player on a blank screen.)
+  const enteredFirstLevel = user.isNewPlayer() && (await startLevel(currentLevel));
+  if (!enteredFirstLevel) showLobby(currentLevel);
 
   // Apply the persisted music/sound preferences (without re-persisting them),
   // then wire any later change back into the User profile (which autosaves).
@@ -314,7 +325,10 @@ async function boot() {
     }),
     lobbyButtonText: () => lobby.playBtn.label.text,
     startLevel,
-    exitLevel: () => scene.onExit && scene.onExit(),
+    // Leave the level the way the Back button does — through the scene's single
+    // exit path, so the guidance hand / booster hint / tutorial popup are torn
+    // down rather than left behind on a hidden scene.
+    exitLevel: () => scene._exit(),
     reshuffle: () => scene.reshuffle(),
     wand: () => scene.wand(),
     // Which tiles the Wand would pull next (a pure read of _wandPick), each with
@@ -332,6 +346,7 @@ async function boot() {
     autoComplete: () => scene.autoComplete(),
     autoState: () => ({
       available: scene._autoAvailable(),
+      level: scene.levelNum,
       total: scene.boardCount + scene.tray.length,
       covered: scene.tiles.filter((t) => !t.inTray && !t.matched && t.aliveCovers > 0).length,
       boardCount: scene.boardCount,
@@ -352,6 +367,65 @@ async function boot() {
     // ---- user profile (identity / progress / wallet / settings) ----
     user: () => store.user.toJSON(),
     setLevel: (n) => { currentLevel = Math.max(1, Math.min(n, maxLevel)); user.setLevel(currentLevel); },
+    // ---- first-run flow ----
+    // Is this profile still "brand new" (never played, no progress, level 1 not
+    // cleared)? Such a player is sent straight into level 1 on boot.
+    isNewPlayer: () => user.isNewPlayer(),
+    completedLevel: () => user.completedLevel(),
+    // Mark the profile as a returning player (used by tests that need to boot
+    // into the lobby rather than the first-run level). Also pays out any helper
+    // unlocks that come due, exactly as winning the level would.
+    completeLevel: (n) => user.completeLevel(n),
+    // Is the level currently on screen the guided first one (stripped chrome +
+    // the demo opening moves)?
+    firstRun: () => !!scene._firstRun,
+    // Which pieces of the level's top bar are showing. On the guided first level
+    // it's the coin counter alone — no cog, no shop, no Back.
+    hudState: () => ({
+      cog: scene.cog.visible,
+      back: scene.backBtn.visible,
+      coinPill: scene.coinPill.visible,
+      shopEnabled: scene.coinPill.eventMode === "static",
+    }),
+    // ---- the "How To Play" popup ----
+    // Everything a test needs about the tutorial that opens on every entry into
+    // level 1: its copy, how far the staged fade-in has got (`introDone` arms
+    // tap-anywhere-to-close), its buttons (there is no skip), and the state of the
+    // looping demonstration (types in its mini tray / tiles left on its mini board).
+    tutorialState: () => {
+      const t = scene._tutorial;
+      if (!t || t.destroyed) {
+        return { visible: false, title: "", line: "", introDone: false, okVisible: false,
+          rowsShown: 0, buttons: [], demoTray: [], demoBoard: 0, cx: 0, cy: 0, dimW: 0, dimH: 0 };
+      }
+      const demo = t.demoState();
+      const dim = t.dim.getLocalBounds();
+      return {
+        visible: t.visible && !t.closing,
+        title: t.titleText.text,
+        line: t.lineText.text,
+        introDone: t.introDone,
+        okVisible: t.okBtn.alpha > 0.5,
+        rowsShown: t.rowsShown,
+        buttons: t.buttonLabels(),
+        demoTray: demo.tray,
+        demoBoard: demo.board,
+        cx: t.group.x, cy: t.group.y, dimW: dim.width, dimH: dim.height,
+      };
+    },
+    // The two real close paths (button / tap anywhere), through the pointer path.
+    pressTutorialOk: () => scene._tutorial && scene._tutorial.okBtn.emit("pointertap"),
+    tapTutorialDim: () => scene._tutorial && scene._tutorial.dim.emit("pointertap"),
+    // Dismiss it outright — a no-op when none is up. Every test that drives level 1
+    // calls this once after entering, since the popup is modal.
+    closeTutorial: () => { if (scene._tutorial) scene._tutorial.close(); },
+    // The "tutorial done" marker the popup writes on close. Nothing in the game
+    // reads it back (the popup is gated on the level number) — only this test hook.
+    tutorialMarker: () => localStorage.getItem("tilemaster.tutorialDone"),
+    // The guidance hand: which tile it points at, if it's up at all.
+    handState: () => (scene._hand
+      ? { visible: true, tileId: scene._hand.__tileId, x: scene._hand.x, y: scene._hand.y }
+      : { visible: false, tileId: -1, x: 0, y: 0 }),
     balance: (cur) => user.balance(cur),
     credit: (cur, n) => user.credit(cur, n),
     debit: (cur, n) => user.debit(cur, n),
@@ -450,11 +524,26 @@ async function boot() {
       shuffleBadge: scene.shuffleBadge.text.text,
       wandBadge: scene.wandBadge.text.text,
       // Acquisition tier shown on each helper: "stock" (own ≥1) / "buy" (afford with
-      // coins) / "ad" (out of stock & coins -> watch an ad).
+      // coins) / "ad" (out of stock & coins -> watch an ad) / "locked" (not yet
+      // unlocked by progression — no ladder tier applies).
       undoMode: scene.undoBtn._boosterMode,
       shuffleMode: scene.shuffleBtn._boosterMode,
       wandMode: scene.wandBtn._boosterMode,
+      undoLocked: scene.undoBtn._boosterMode === "locked",
+      shuffleLocked: scene.shuffleBtn._boosterMode === "locked",
+      wandLocked: scene.wandBtn._boosterMode === "locked",
     }),
+    // ---- helper progression (locked in the first levels) ----
+    boosterUnlocked: (kind) => user.isBoosterUnlocked(kind),
+    boosterUnlockLevel: (kind) => user.boosterUnlockLevel(kind),
+    // Press a helper button through the real pointer path (so a locked one gets
+    // its refusal feedback), rather than calling the action directly.
+    pressBooster: (kind) => {
+      const btn = { undo: scene.undoBtn, shuffle: scene.shuffleBtn, wand: scene.wandBtn }[kind];
+      return btn ? btn.emit("pointertap") : undefined;
+    },
+    // Text of the floating "Unlocks at Level N" label, "" when none is showing.
+    boosterHint: () => (scene._boosterHint ? scene._boosterHint.__text : ""),
     // ---- out-of-moves / continue overlay ----
     // Coin price to continue a lost round (from prices.json "continue"; null if
     // unconfigured -> Continue always falls back to the free ad tier).
@@ -472,6 +561,8 @@ async function boot() {
     // to the board on the last Continue (newest-first — reverse placement order).
     historyOrder: () => scene.history.map((t) => t.id),
     returnOrder: () => scene._lastReturnOrder || null,
+    // Press the win overlay's "Continue" button (returns to the lobby, advanced).
+    pressWinContinue: () => scene._winBtn && scene._winBtn.emit("pointertap"),
     pressLoseContinue: () => scene._loseBtns && scene._loseBtns.cont.emit("pointertap"),
     pressLoseHome: () => scene._loseBtns && scene._loseBtns.home.emit("pointertap"),
     pressLoseReplay: () => scene._loseBtns && scene._loseBtns.replay.emit("pointertap"),

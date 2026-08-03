@@ -36,9 +36,9 @@ try:
         time.sleep(0.5)
 
         # 1) same level, loaded twice in the same session -> identical layout
-        page.evaluate("window.__game.startLevel(1)"); time.sleep(0.7)
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }"); time.sleep(0.7)
         first = layout(page)
-        page.evaluate("window.__game.startLevel(1)"); time.sleep(0.7)
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }"); time.sleep(0.7)
         second = layout(page)
         assert first == second, "reloading a level must reproduce the same type layout"
         assert len(first) > 0
@@ -47,7 +47,7 @@ try:
         page.reload()
         page.wait_for_function("window.__game && window.__game.settings", timeout=20000)
         time.sleep(0.4)
-        page.evaluate("window.__game.startLevel(1)"); time.sleep(0.7)
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }"); time.sleep(0.7)
         after_reload = layout(page)
         assert after_reload == first, "layout must be identical after a page reload"
         print(f"level 1 layout stable across reloads: {len(first)} tiles")
@@ -58,7 +58,7 @@ try:
         assert lvl2 != first, "different levels should not share the same layout"
 
         # 4) still solvable — the deterministic board can be cleared to a win
-        page.evaluate("window.__game.startLevel(1)"); time.sleep(0.7)
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }"); time.sleep(0.7)
         guard = 0
         while True:
             st = page.evaluate("window.__game.state()")

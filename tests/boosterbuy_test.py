@@ -38,7 +38,15 @@ try:
         def undo():     page.evaluate("window.__game.scene.undo()"); time.sleep(0.3)
         def shuffle():  page.evaluate("window.__game.reshuffle()"); time.sleep(0.3)
 
-        page.evaluate("window.__game.startLevel(1)")
+        # Helpers are locked in the first levels; play forward to level 5 so all
+        # three are unlocked (each paying out its one-time stock), then top Shuffle
+        # up to the 3 this test's depletion walk expects. See boosterunlock_test.
+        page.evaluate("window.__game.completeLevel(5)")
+        time.sleep(0.2)
+        page.evaluate("window.__game.grantBooster('shuffle', 2)")
+        time.sleep(0.1)
+
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.7)
 
         # 1) Prices are sourced from the JSON config, not hard-coded.

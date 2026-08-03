@@ -62,7 +62,7 @@ try:
 
         # play a full level through, counting audio refetches (bop/merge/win)
         reqs.clear()
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.5)
         for _ in range(4000):
             s = page.evaluate("window.__game.state()")

@@ -126,10 +126,22 @@ export function makeCoinPill(user, onTap) {
   const unsub = user ? user.on((domain) => { if (domain === "wallet") c.update(); }) : null;
   c.destroy = ((orig) => function (opts) { if (unsub) unsub(); orig.call(c, opts); })(c.destroy);
 
-  c.eventMode = "static";
-  c.cursor = "pointer";
-  // Hit area spans the pill plus the protruding cart badge.
-  c.hitArea = new PIXI.Rectangle(-w / 2, -cartR, (cartCX + cartR) - (-w / 2), cartR * 2);
+  // Turn the shop affordance on/off. With it off the pill is a plain, inert coin
+  // counter: the cart badge goes away and the hit area shrinks back to the pill
+  // (which then ignores taps entirely). Used by the first-run flow, where the
+  // level's top bar shows nothing but the balance.
+  c.setShopEnabled = (on) => {
+    const enabled = on !== false;
+    cbg.visible = enabled;
+    cart.visible = enabled;
+    c.eventMode = enabled ? "static" : "none";
+    c.cursor = enabled ? "pointer" : "default";
+    c.hitArea = enabled
+      ? new PIXI.Rectangle(-w / 2, -cartR, (cartCX + cartR) - (-w / 2), cartR * 2)
+      : new PIXI.Rectangle(-w / 2, -h / 2, w, h);
+    c.scale.set(1); // a disable mid-press must not strand the pressed scale
+  };
+  c.setShopEnabled(true);
   c.on("pointertap", () => { onTap && onTap(); });
   c.on("pointerdown", () => c.scale.set(0.94));
   c.on("pointerup", () => c.scale.set(1));

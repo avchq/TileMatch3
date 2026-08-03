@@ -9,6 +9,60 @@ On load you land on the **lobby** screen, which shows a big centred
 **"Level &lt;n&gt;"** button for the level you're on (progress is saved in
 `localStorage`, so it's remembered between visits). Tap it to start.
 
+**Except on a player's very first run.** A **brand-new user** — one who has never
+played, has no progress and has never completed level 1 — skips the lobby entirely
+and is dropped **straight into level 1**. They meet the lobby for the first time
+when they **complete** that level, which is also what ends the first-run flow: from
+then on every load lands on the lobby as usual. See `user.isNewPlayer()` /
+`progress.completed` in the User section below.
+
+### The "How To Play" popup
+The very first thing level 1 does — before the player is handed any control — is
+open a modal **"How To Play"** popup over the freshly dealt board. It carries a
+single line, **"Collect 3 identical tiles to remove them"**, over an animated
+demonstration of exactly that: a small **3×3 board** (three groups of three) above
+its own **tray**, with a pointing hand that collects matching tiles one by one —
+each flies down into the tray, and the moment the third of a kind lands the triple
+pops and vanishes, the ordinary game loop in miniature. The board refills and the
+demonstration loops. Its pieces (title, line, the three board rows, the arrow and
+tray, the button) **fade in one after another** over spinning light rays.
+
+An **OK** button closes it, and once that fade-in sequence has finished a tap
+**anywhere** closes it too. There is **no skip button** anywhere in the sequence.
+Closing it also writes a "tutorial done" marker into the browser's own storage
+(`localStorage`, separate from the save record) — a leftover from an earlier
+design: **nothing in the game ever reads that marker back**.
+
+The popup is tied to *being on level 1*, not to being a new player, so in normal
+linear play (level 1 is played once) it is a strictly first-session experience —
+but a returning player who replays level 1 does meet it again. Closing it hands
+straight over to the guided opening below.
+
+### The guided first level
+That first level is deliberately pared back to the one thing there is to learn —
+tapping tiles. While a brand-new player is in level 1:
+- The top bar shows **only the coin counter**. The **settings** cog is hidden, and
+  so is the **shop**: the coin pill keeps the balance but loses its cart badge and
+  no longer opens the store.
+- There is **no Back button** — the level can't be left before it's played. (There
+  is therefore no way to quit level 1 part-way; the only way out is to finish it.)
+- **The How To Play popup opens first** (above) and locks the level behind it;
+  everything below starts when it closes.
+- **The first two moves are played for you.** As soon as the board is built the
+  game looks for three identical tiles that are all free to tap right now. Finding
+  a group, it flies **two** of them into the tray on their own, with no input, and
+  puts an **animated pointing hand** on the third — so the very first tap is
+  guaranteed to complete a match and show the whole loop (collect →
+  three-of-a-kind → the tiles vanish) in one action. The hand disappears the
+  moment **any** tile is collected, and on leaving for the home screen. If the
+  board happens not to offer a clean group of three free tiles, the guidance is
+  simply skipped and play starts normally.
+- **The helpers are locked** (see below), so there is nothing else to press.
+
+The stripped-down treatment applies to *any* play of level 1 while the player is
+still brand new, not just the one the boot flow opened; completing level 1 brings
+the ordinary interface back.
+
 Tap any **fully-uncovered** tile to move it to the tray at the bottom. The tray
 keeps **matching types grouped**: a collected tile drops in next to others of its
 kind, or onto the end (top) of the row if its type isn't there yet. Collect
@@ -41,11 +95,20 @@ gives you a second chance instead of a dead end (see below). In-game
   left untouched, and positions and progress are kept, so the level is **not**
   restarted.
 
-Each helper is drawn from a **limited inventory** stored on the player profile —
-a count **bubble** on the button shows how many uses remain and every use spends
-one (new players start with a small stock; see the User object below). When a
-helper hits **0** it doesn't just disable — tapping it walks an **acquisition
-ladder** so you can keep playing:
+**Helpers are not available in the first levels.** A new account is awarded
+**none of them**, and each one **unlocks at its own level** — **Undo** from level
+2, **Reshuffle** from 4, **Wand** from 5 — paying out a small starter stock the
+moment it unlocks (once, and only once). Until then the button still shows its
+icon, so the row is familiar by the time it comes alive, but it is **dimmed and
+wears a 🔒 lock badge** and cannot be used: a tap plays a "nope", shakes the
+button and floats an **"Unlocks at Level N"** label above it. "Unlocks at level N"
+means the player has **cleared level N-1**. The schedule is a single table,
+`BOOSTER_UNLOCKS` in `src/user/User.js`.
+
+Once unlocked, a helper is drawn from a **limited inventory** stored on the player
+profile — a count **bubble** on the button shows how many uses remain and every use
+spends one. When a helper hits **0** it doesn't just disable — tapping it walks an
+**acquisition ladder** so you can keep playing:
 1. **Own one** → the bubble shows the remaining **count** (green) and a tap spends
    one, as usual.
 2. **Out of stock, can afford one** → the bubble shows the **coin price** (a gold
@@ -56,8 +119,10 @@ ladder** so you can keep playing:
    wired up yet — the tap grants the reward immediately; the icon is the
    placeholder.)*
 
-A helper is only **disabled/greyed** when there's **no move to make** (e.g. Undo
-with an empty tray), never merely because stock ran out. The **coin prices** live
+An *unlocked* helper is only **disabled/greyed** when there's **no move to make**
+(e.g. Undo with an empty tray), never merely because stock ran out — the ladder
+always yields a use. A **locked** one is greyed regardless: no amount of coins
+buys past a progression gate. The **coin prices** live
 in a JSON config (`assets/config/prices.json`) so they're tunable without touching
 code.
 
@@ -91,7 +156,9 @@ left** (≤ 4 easy triples) with **nothing still covered** — an **Auto Complet
 button appears in the helper row, **replacing** the three helpers. It's **free**
 (not a booster). Press it and every remaining tile gathers into a pile, then
 flies one-by-one along a curved path into the tray's first slot, popping on
-arrival — when the last one lands, the level is won. The **cog** (top-left) opens Settings and the
+arrival — when the last one lands, the level is won. It is **not offered on
+level 1** — the teaching level is played by hand all the way to the win — so it
+first appears on level 2. The **cog** (top-left) opens Settings and the
 **‹ Back** button beside it leaves the level for the lobby with progress kept.
 
 ### Fortune Wheel — a daily prize wheel
@@ -231,6 +298,14 @@ python3 -m http.server 8099
   tray, Wand/Reshuffle with an empty board — never merely at 0 stock (the ladder
   always yields one). The coin prices come from `assets/config/prices.json`
   (loaded in `main.js`, passed to `GameScene`).
+  Ahead of all of that sits the **progression gate**: `_setBoosterButton` short-
+  circuits to a `"locked"` mode (dimmed button, 🔒 badge) while
+  `user.isBoosterUnlocked(kind)` is false, and `undo()` / `wand()` / `reshuffle()`
+  each open with `_rejectIfLocked(kind, btn)` — so a scripted call
+  (`window.__game.wand()`, `scene.undo()`) is refused exactly like a tap, before
+  the ladder can spend anything. A refusal plays `fail`, `_shake`s the button and
+  floats an **"Unlocks at Level N"** pill (`_showBoosterHint`), replacing any hint
+  already up.
   **Wand** (`wand()` / `_wandPick()`) completes exactly one triple. Over every
   colour that can still reach a triple, `_wandPick` ranks completions by (1) the
   **fewest covered/unavailable tiles used** — so available (free, top-layer)
@@ -241,16 +316,60 @@ python3 -m http.server 8099
   double-tap can't spend two charges. (An upgraded
   "super" wand tied to a win-streak meta shares the button but isn't built.)
   **Auto Complete** (`autoComplete()` / `_autoAvailable()`) is a **free** endgame
-  shortcut, not a booster: when `boardCount + tray.length ≤ 12` and no board tile
+  shortcut, not a booster: from `AUTO_MIN_LEVEL` (2) onward, when
+  `boardCount + tray.length ≤ 12` and no board tile
   is still covered, `_updateBoosters` swaps the three round helpers for a wide
   **Auto Complete** pill in the same row. Pressing it stages every remaining tile
   on `fxLayer`, gathers them into a pile, then flies each along a quadratic
   Bézier into the tray's first slot (staggered), `_popMatch`-ing it on arrival,
-  and calls `_win()` once the board is empty. Input is locked for the whole sweep
+  and calls `_win()` once the board is empty. Level 1 is exempt (the guided level
+  teaches the loop; a free "finish it for me" would cut that short), so
+  `_autoAvailable()` tests `levelNum >= AUTO_MIN_LEVEL` first.
+  Input is locked for the whole sweep
   (`_autoRunning`), which is reset in `loadLevel` so the next level's helper row
   returns. On a win it calls back to the host
   (`onLevelComplete`) rather than self-looping; the top-left **Back** button
-  calls `onExit` to return to the lobby mid-level (progress untouched).
+  leaves the level for the lobby mid-level (progress untouched) through `_exit()`
+  — the single exit path, so the guidance hand and any floating hint can't be left
+  behind on a hidden scene.
+  The **"How To Play" popup** (`src/tutorial.js`, `HowToPlayPopup`) is opened by
+  `loadLevel` whenever `levelNum === TUTORIAL_LEVEL` (1) — the gate is the level
+  number, not `isNewPlayer()`. `_showTutorial()` locks the scene, adds the popup to
+  its own **`tutorialLayer`** (above `overlayLayer`, deliberately not on it, so
+  `overlayLayer.children.length` keeps meaning "a win/lose overlay is up") and
+  captures the current `_guideRun`. The popup owns a modal dim (`eventMode:"static"`,
+  swallowing every tap) plus a centred group — panel, spinning `rays` `Graphics`,
+  title, line, the mini board/tray/arrow demo and the **OK** button — laid out
+  exactly like `_showOverlay`'s group, and re-centred from `GameScene.layout()`.
+  `open()` fades the pieces in one after another (~1.6 s) and then sets
+  `introDone`, which arms tap-anywhere-to-close and starts `_runDemo`: a loop that
+  walks the hand over each matching triple, flies the tiles into the mini tray and
+  pops them, then resets the mini board. Every step is guarded by the popup's own
+  generation token (`_run`, bumped by `close()`), the same pattern the guided
+  opening uses. `close()` writes the `tilemaster.tutorialDone` marker (nothing
+  reads it back), calls its `onClose` **immediately** — which unlocks the scene and
+  fires `_runFirstRunGuide()` when `_firstRun`, so the demo moves follow the
+  explanation — and fades itself out. `_closeTutorial()` tears it down *without*
+  the callback from `loadLevel` and `_exit()`, so a popup can't outlive its board
+  or be left on a hidden scene. It is not listed in `controls()`, like the win/lose
+  overlays.
+  The **guided first level** hangs off `loadLevel`, which sets
+  `_firstRun = user.isNewPlayer() && levelNum === 1`, calls
+  `_applyFirstRunChrome()` (hides `cog` + `backBtn`, `coinPill.setShopEnabled(false)`
+  — the hidden controls drop out of `controls()` on their own, since the host skips
+  invisible objects) and, once the board is placed, fires `_runFirstRunGuide()`.
+  `loadLevel` returns with the board fully interactive — `_layoutBoard` positions
+  tiles outright, there is no build-in animation — so that *is* the "board
+  finished building" moment. The guide picks a triple with `_findGuideTriple()`
+  (free tiles grouped by `type`, lowest type id first, so it's deterministic for a
+  given seeded board), locks input, `_collect`s two of them on a timer, then calls
+  `_showHand(tile)` — a `PIXI.Text("👆")` plus a ripple `Graphics` on `fxLayer`,
+  driven by a ticker loop (`_handAnim`) and repositioned from `layout()` since
+  `_layoutBoard` moves its target. `_hideHand()` runs from `_collect` (so **any**
+  collection dismisses it), `loadLevel` and `_exit`. Every `await` in the guide is
+  guarded by a **generation token** (`_guideRun`, bumped in `loadLevel`): without
+  it, re-entering level 1 mid-sequence would leave the previous run collecting
+  tiles off the old board.
   **Out of Moves** (`_lose()` → `_showLoseOverlay()`): a full tray no longer
   dead-ends. `_lose` shows a **modal** overlay (its dim is `eventMode:"static"`, so
   it swallows every tap and there's no close affordance) with **Home** (`onExit`),
@@ -327,12 +446,24 @@ python3 -m http.server 8099
   `_refreshDailyBtn`), refreshing live on `user` `dailyBonus`/`progress` changes and
   from the same low-frequency `main.js` ticker as the wheel (so a lobby left open
   across midnight re-shows the gift).
+- `src/tutorial.js` is the `HowToPlayPopup` — the modal tutorial level 1 opens
+  before play (see the Gameplay section and the `GameScene` notes above). Unlike
+  the other overlays it is **owned by the level scene**, not by `main.js`: it lives
+  on the scene's `tutorialLayer`, is created/destroyed by `loadLevel` / `_exit`, and
+  re-centres from `GameScene.layout()`. It draws its own mini board and tray from
+  the game's real tile/slot textures, and carries its own copy of the standard
+  button (`_makeButton`) so it stays independent of the scene.
 - `src/settings.js` is the `SettingsScene` — an overlay opened by the **cog
   button** in the top-left of both the lobby and the level. It has **Music** and
   **Sound** toggles (driving `audio.setMusic` / `setSound`, which persist to the
   User object) and a **Back** button that returns to the scene underneath.
 - `src/main.js` boots Pixi, owns the lobby ⇄ game flow, and reads/writes player
-  state (level, settings, wallet) through the **User object** (see below). On boot
+  state (level, settings, wallet) through the **User object** (see below). The last
+  step of boot is the **first-run branch**: `user.isNewPlayer()` → `startLevel(1)`
+  (skip the lobby), else `showLobby(currentLevel)`; `onLevelComplete` records the
+  clear with `user.completeLevel(n)` — which is what makes the player no longer new
+  **and** what pays out any helper unlock that just came due — before advancing the
+  level and returning to the lobby. On boot
   it `loadLevels()` (fetches `assets/config/levels.json`) then `buildLevelGroups()`
   to populate the asset manifest; the highest playable level is simply that list's
   length (`levels.length` — there is no separate `MAX_LEVEL` constant). It
@@ -427,22 +558,39 @@ per level, the latter generated from the `levels.json` config above.
 ### User & persistence (`src/user/`)
 All per-player state lives on one platform-agnostic **`User`** object, ready for
 publishing on **Facebook Instant, Reddit, and Telegram**:
-- **`User.js`** — the model: a stable `id`, `platform`, `progress` (next level),
+- **`User.js`** — the model: a stable `id`, `platform`, `progress` (`level`, the
+  next level to play, plus `completed`, the highest level ever cleared — 0 for a
+  player who has never finished level 1; `completeLevel()` records a clear and
+  `isNewPlayer()` = "level 1 and nothing completed", the gate the first-run flow
+  reads),
   a **multi-currency `wallet`** (`coins`, `gems`, … — a keyed map, so new
   currencies need no code change: `credit`/`debit`/`balance`/`canAfford`), a
   **helper/booster inventory** (`boosters` — a keyed map of
   `undo`/`shuffle`/`wand`… → remaining uses, mirroring the wallet:
-  `boosterCount`/`hasBooster`/`grantBooster`/`useBooster`; new players get a
-  small starter stock), `settings` (`music`, `sound`), and the **Fortune Wheel**
+  `boosterCount`/`hasBooster`/`grantBooster`/`useBooster`; a new account is awarded
+  **none**), the helper **unlock schedule** (`BOOSTER_UNLOCKS`, an exported table of
+  helper → `{ level, grant }`: `boosterUnlockLevel(kind)` and
+  `isBoosterUnlocked(kind)` — the latter derived from `completed`, so a jump
+  straight to a later level is honoured with no bookkeeping to repair — plus
+  `boosterUnlocks`, the list of helpers whose one-time grant has already been paid.
+  `completeLevel()` calls `_grantPendingUnlocks()`, which is what pays it out, once),
+  `settings` (`music`, `sound`), and the **Fortune Wheel**
   per-cycle state (`fortuneWheel` — `group`/`day`/`spinsUsed`/`won`/`seen`, mutated
   via `advanceWheelCycle`/`recordWheelSpin`/`markWheelSeen`, emitting a
   `fortuneWheel` domain), and the **Daily Bonus** claim state (`dailyBonus` —
   just `lastClaimDay`, the day-key of the most recent claim, mutated via
   `recordDailyClaim`, emitting a `dailyBonus` domain). It emits a domain-tagged
   change event on every mutation and (de)serializes via `toJSON`/`fromJSON` with a
-  `version` for forward migrations (currently **v3** — v1→v2 added `fortuneWheel`,
+  `version` for forward migrations (currently **v5** — v1→v2 added `fortuneWheel`,
   v2→v3 added `dailyBonus`; both fill from defaults for older blobs, so each step
-  just stamps the version).
+  just stamps the version. v3→v4 added `progress.completed`, **derived** as
+  `level - 1` — levels only ever advanced on a win — so an existing player is never
+  mistaken for a brand-new one and thrown back into level 1. v4→v5 moved helpers
+  behind the unlock schedule: existing players were handed a starter stock up
+  front, so it seeds `boosterUnlocks` with everything they have already reached —
+  otherwise their next win would pay out a second grant on top — and **zeroes** the
+  stock of anything still locked, since a v4 profile that never cleared a level was
+  carrying helpers it should not have).
 - **`adapters.js`** — a small **async** storage/identity contract
   (`identify` / `load` / `save` / `clear`). `LocalStorageAdapter` is the working
   default on the open web. `FacebookInstantAdapter` / `TelegramAdapter` /

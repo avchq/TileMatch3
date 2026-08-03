@@ -22,6 +22,12 @@ try:
         page.evaluate("() => localStorage.clear()")
         page.reload()
         page.wait_for_function("window.__game && window.__game.settings", timeout=20000)
+        # Boot into the LOBBY: a profile that never cleared level 1 is routed
+        # straight into the level by the first-run flow (see newuser_test.py), so
+        # record a level-1 clear before testing the lobby ⇄ level navigation.
+        page.evaluate("window.__game.completeLevel(1); window.__game.flushSave();")
+        page.reload()
+        page.wait_for_function("window.__game && window.__game.settings", timeout=20000)
         time.sleep(0.6)
 
         box = page.eval_on_selector("canvas", "c => { const r=c.getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height}; }")
@@ -36,7 +42,7 @@ try:
         BACK = (148, 84)
 
         # -- Enter a level ----------------------------------------------------
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.7)
         assert page.evaluate("window.__game.state()")["inLobby"] is False, "should be in the level"
         snap("in_level")

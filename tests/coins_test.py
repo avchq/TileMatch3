@@ -25,6 +25,12 @@ try:
         page.wait_for_function("window.__game && window.__game.scene && !!window.__game.openShop", timeout=20000)
         time.sleep(0.5)
 
+        # Play forward past the first-run flow: a brand-new profile is dropped into a
+        # GUIDED level 1 that plays two moves of its own (see firstlevel_test.py) —
+        # this test drives level 1 itself and wants the ordinary board.
+        page.evaluate("window.__game.completeLevel(5)")
+        time.sleep(0.2)
+
         def coins():    return page.evaluate("window.__game.balance('coins')")
         def pill():     return page.evaluate("window.__game.coinPillText()")
         def bcount(k):  return page.evaluate(f"window.__game.boosterCount('{k}')")
@@ -40,7 +46,7 @@ try:
         assert coins() == 200 and pill()["lobby"] == "200", pill()
 
         # The in-level pill reflects the same balance once a level is started.
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.6)
         assert pill()["game"] == "200", pill()
 
@@ -79,7 +85,7 @@ try:
         print("after coin pack: coins", coins())
 
         # 6) Winning a level awards coins (+reward) and the win overlay shows it.
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.6)
         before_win = coins()
         # Solve the level to a win.

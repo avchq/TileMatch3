@@ -79,7 +79,7 @@ try:
             page.screenshot(path=f"{SC}/fit_lobby_{tag}.png")
 
             # Now inside a level: the board + tray + helper row must all fit.
-            page.evaluate("window.__game.startLevel(1)")
+            page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
             time.sleep(0.6)
             v = view()
             st = page.evaluate("window.__game.state()")

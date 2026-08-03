@@ -53,7 +53,7 @@ try:
 
         # 2) The 7 slots are evenly spaced by (slot + gap) and the tray panel stays
         #    inside the 750-wide safe band (no overflow) and centred on it.
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.5)
         t = tray()
         xs = t["slotXs"]

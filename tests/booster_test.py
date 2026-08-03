@@ -34,12 +34,29 @@ try:
         def undo():     page.evaluate("window.__game.scene.undo()"); time.sleep(0.3)
         def shuffle():  page.evaluate("window.__game.reshuffle()"); time.sleep(0.3)
 
-        # 1) A fresh profile carries the starter inventory, and it's serialized.
+        # 1) A fresh profile owns NO helpers — they are locked in the first levels
+        #    and granted as they unlock (see boosterunlock_test, which owns the
+        #    exact schedule). Play forward to level 5 so all three are unlocked,
+        #    then top Undo/Reshuffle up to 3 so the depletion walk below runs on
+        #    the same stock it always has, whatever the unlock grants happen to be.
         inv = boosters()
-        print("STARTER inventory:", inv)
-        assert inv == {"undo": 3, "shuffle": 3, "wand": 3}, inv
+        print("FRESH inventory:", inv)
+        assert inv == {"undo": 0, "shuffle": 0, "wand": 0}, inv
+        page.evaluate("window.__game.completeLevel(5)")
+        time.sleep(0.2)
+        inv = boosters()
+        print("AFTER unlocks:", inv)
+        assert all(page.evaluate(f"window.__game.boosterUnlocked('{k}')") and inv[k] > 0
+                   for k in ("undo", "shuffle", "wand")), ("every helper unlocked + stocked", inv)
+        page.evaluate("""() => {
+            for (const k of ['undo', 'shuffle']) {
+                const n = 3 - window.__game.boosterCount(k);
+                if (n > 0) window.__game.grantBooster(k, n);
+            }
+        }""")
+        time.sleep(0.1)
 
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.7)
 
         # 2) Bubbles show the stock; Shuffle is usable, Undo is NOT yet — even
@@ -124,7 +141,7 @@ try:
         assert inv["undo"] == 0 and inv["shuffle"] == 0, inv
 
         # 8) A grant re-enables the helper and updates the bubble live.
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.6)
         page.evaluate("window.__game.grantBooster('shuffle', 2)")
         time.sleep(0.1)

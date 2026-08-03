@@ -100,6 +100,14 @@ try:
         page.on("pageerror", lambda e: errs.append("PAGEERROR: " + str(e)))
         page.goto("http://localhost:8099/index.html")
         page.evaluate("() => localStorage.clear()")
+        # Boot into the LOBBY with the ordinary, fully-unlocked interface: a profile
+        # that never cleared level 1 is routed straight into a stripped-down guided
+        # level by the first-run flow (see newuser_test.py / firstlevel_test.py), and
+        # the helpers stay locked until level 5. Record a level-5 clear (persisted,
+        # hence honoured by every reload below) so every control is on screen here.
+        page.reload()
+        page.wait_for_function("window.__game && window.__game.scene", timeout=20000)
+        page.evaluate("window.__game.completeLevel(5); window.__game.flushSave();")
 
         for (vw, vh) in SIZES:
             tag = f"{vw}x{vh}"
@@ -133,7 +141,7 @@ try:
             time.sleep(0.15)
 
             # ---- Level -----------------------------------------------------
-            page.evaluate("window.__game.startLevel(1)")
+            page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
             time.sleep(0.6)
             v, ctrls = check(page, f"{tag} level", {"level"})
             DW, DH = v["designW"], v["designH"]

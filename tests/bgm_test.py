@@ -20,6 +20,12 @@ try:
         page.evaluate("() => localStorage.clear()")
         page.reload()
         page.wait_for_function("window.__game && window.__game.audioState", timeout=20000)
+        # Boot into the LOBBY: a profile that never cleared level 1 is routed
+        # straight into the level by the first-run flow (see newuser_test.py), and
+        # this test checks the lobby's background music.
+        page.evaluate("window.__game.completeLevel(1); window.__game.flushSave();")
+        page.reload()
+        page.wait_for_function("window.__game && window.__game.audioState", timeout=20000)
         time.sleep(0.8)
 
         # 1) Fresh load, in lobby, NO user gesture -> bgm should be playing

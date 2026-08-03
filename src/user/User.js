@@ -4,7 +4,7 @@
 // domain-tagged change event whenever it is mutated, so the store can autosave
 // and UI can react live (mirrors audio.js's onMusicChange/onSoundChange callbacks).
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 5;
 
 // Known virtual currencies. The wallet is a keyed map, so adding a currency is
 // just a new code here (or even an arbitrary code passed to credit/debit) — no
@@ -13,20 +13,37 @@ export const CURRENCIES = ["coins", "gems"];
 
 // In-game helpers ("boosters") the player can spend during a level. Like the
 // wallet, the inventory is a keyed map, so adding a helper is just a new code
-// here — no other model change is required. New players get a small starter
-// stock so the helpers are usable out of the box; once a helper hits 0 it is
-// shown disabled until the player earns/buys more.
+// here — no other model change is required.
 export const BOOSTERS = ["undo", "shuffle", "wand"];
-const STARTER_BOOSTERS = { undo: 3, shuffle: 3, wand: 3 };
+
+// Progression gate: helpers are NOT available in the first levels. A brand-new
+// account is awarded nothing — each helper stays locked (icon visible, lock
+// badge on top, taps rejected) until the player reaches its `level`, at which
+// point `grant` uses are added to the inventory, once and only once.
+// `level` reads as "usable from level N onward", i.e. unlocked once the player
+// has completed level N-1. Adding/retiming a helper is a single edit here.
+export const BOOSTER_UNLOCKS = {
+  undo: { level: 2, grant: 2 },
+  shuffle: { level: 4, grant: 1 },
+  wand: { level: 5, grant: 1 },
+};
+const NO_BOOSTERS = { undo: 0, shuffle: 0, wand: 0 };
 
 const defaults = () => ({
   version: SCHEMA_VERSION,
   id: "",
   platform: "web",
   name: "",
-  progress: { level: 1 },        // next level to play (room to grow: stars, completed[]…)
+  // level: next level to play. completed: highest level ever finished (0 = none,
+  // i.e. a brand-new player who has never cleared level 1) — the signal the
+  // first-run flow gates on (see isNewPlayer). Room to grow: stars, completed[]…
+  progress: { level: 1, completed: 0 },
   wallet: { coins: 0, gems: 0 }, // currency code -> balance
-  boosters: { ...STARTER_BOOSTERS }, // helper code -> remaining uses
+  boosters: { ...NO_BOOSTERS }, // helper code -> remaining uses (none to start)
+  // Helper codes whose one-time unlock grant has already been paid out. Purely
+  // bookkeeping so a grant can't be collected twice — whether a helper is
+  // *locked* is derived from progress (see isBoosterUnlocked).
+  boosterUnlocks: [],
   settings: { music: true, sound: true },
   // Fortune Wheel per-cycle state (see src/fortunewheel.js). group: active prize
   // group (1-based; 0 = never cycled). day: the day-key (YYYY-MM-DD) of the
@@ -53,6 +70,8 @@ export class User {
     this.progress = { ...d.progress, ...(data.progress || {}) };
     this.wallet = { ...d.wallet, ...(data.wallet || {}) };
     this.boosters = { ...d.boosters, ...(data.boosters || {}) };
+    // An array, so it can't ride the shallow sub-object merge above.
+    this.boosterUnlocks = (data.boosterUnlocks || d.boosterUnlocks).slice();
     this.settings = { ...d.settings, ...(data.settings || {}) };
     this.fortuneWheel = { ...d.fortuneWheel, ...(data.fortuneWheel || {}) };
     this.dailyBonus = { ...d.dailyBonus, ...(data.dailyBonus || {}) };
@@ -76,6 +95,21 @@ export class User {
     this.progress.level = v;
     this._emit("progress");
   }
+  /** Highest level ever completed (0 = none). */
+  completedLevel() { return this.progress.completed || 0; }
+  /** Record a level as cleared (monotonic — never walks back). Clearing a level
+   *  is also what unlocks helpers, so any grants that just came due are paid
+   *  out here (see _grantPendingUnlocks). */
+  completeLevel(n) {
+    const v = Math.max(0, Math.floor(n) || 0);
+    if (v <= this.completedLevel()) return;
+    this.progress.completed = v;
+    this._emit("progress");
+    this._grantPendingUnlocks();
+  }
+  /** A brand-new player: never played, no progress, never completed level 1.
+   *  The first-run flow sends them straight into level 1 instead of the lobby. */
+  isNewPlayer() { return this.progress.level <= 1 && this.completedLevel() === 0; }
 
   // ---- wallet (currency-agnostic) -----------------------------------------
   balance(cur) { return this.wallet[cur] || 0; }
@@ -116,6 +150,29 @@ export class User {
     this.boosters[kind] = this.boosterCount(kind) - 1;
     this._emit("boosters");
     return true;
+  }
+
+  // ---- booster progression (helpers unlock over the first levels) ----------
+  /** The level a helper becomes usable from (1 = available from the start). */
+  boosterUnlockLevel(kind) {
+    const u = BOOSTER_UNLOCKS[kind];
+    return u ? u.level : 1;
+  }
+  /** Has the player reached the level that unlocks this helper? Derived from
+   *  progress rather than stored, so a jump straight to a later level (a QA
+   *  setLevel/completeLevel) is honoured with no bookkeeping to repair. */
+  isBoosterUnlocked(kind) {
+    return this.completedLevel() >= this.boosterUnlockLevel(kind) - 1;
+  }
+  /** Pay out the one-time stock for every helper that is unlocked but hasn't
+   *  been granted yet. Idempotent — boosterUnlocks records what's been paid. */
+  _grantPendingUnlocks() {
+    for (const kind of Object.keys(BOOSTER_UNLOCKS)) {
+      if (this.boosterUnlocks.includes(kind)) continue;
+      if (!this.isBoosterUnlocked(kind)) continue;
+      this.boosterUnlocks.push(kind);
+      this.grantBooster(kind, BOOSTER_UNLOCKS[kind].grant); // emits "boosters"
+    }
   }
 
   // ---- fortune wheel (daily prize wheel per-cycle state) --------------------
@@ -194,6 +251,7 @@ export class User {
     this.progress = { ...d.progress };
     this.wallet = { ...d.wallet };
     this.boosters = { ...d.boosters };
+    this.boosterUnlocks = d.boosterUnlocks.slice();
     this.settings = { ...d.settings };
     this.fortuneWheel = { ...d.fortuneWheel };
     this.dailyBonus = { ...d.dailyBonus };
@@ -215,6 +273,7 @@ export class User {
       progress: { ...this.progress },
       wallet: { ...this.wallet },
       boosters: { ...this.boosters },
+      boosterUnlocks: this.boosterUnlocks.slice(),
       settings: { ...this.settings },
       fortuneWheel: { ...this.fortuneWheel, won: (this.fortuneWheel.won || []).slice() },
       dailyBonus: { ...this.dailyBonus },
@@ -233,6 +292,34 @@ export class User {
     // v2 -> v3: adds the dailyBonus sub-object. Like v1->v2, the constructor
     // shallow-merges it from defaults(), so just stamp the version.
     if (o.version === 2) o.version = 3;
+    // v3 -> v4: adds progress.completed. Older blobs never tracked it, but levels
+    // only ever advanced on a win, so a player sitting on level N had completed
+    // N-1 — derive it, otherwise an existing player would look brand-new and get
+    // dropped into the first-run flow.
+    if (o.version === 3) {
+      const p = { ...(o.progress || {}) };
+      p.completed = Math.max(0, (Math.floor(p.level) || 1) - 1);
+      o.progress = p;
+      o.version = 4;
+    }
+    // v4 -> v5: helpers stopped being handed out at account creation and now
+    // unlock over the first levels (BOOSTER_UNLOCKS). Existing players were
+    // given a starter stock up front, so seed boosterUnlocks with everything
+    // they have already reached — otherwise their next win would pay out a
+    // fresh grant on top. Anything still locked has its stock zeroed: a v4
+    // profile that never cleared a level was carrying 3/3/3 it should not have.
+    if (o.version === 4) {
+      const completed = Math.max(0, Math.floor((o.progress || {}).completed) || 0);
+      const boosters = { ...(o.boosters || {}) };
+      const unlocked = [];
+      for (const [kind, u] of Object.entries(BOOSTER_UNLOCKS)) {
+        if (completed >= u.level - 1) unlocked.push(kind);
+        else boosters[kind] = 0;
+      }
+      o.boosters = boosters;
+      o.boosterUnlocks = unlocked;
+      o.version = 5;
+    }
     return o;
   }
 }

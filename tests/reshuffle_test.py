@@ -43,12 +43,15 @@ try:
         page.evaluate("() => localStorage.clear()")
         page.reload()
         page.wait_for_function("window.__game && window.__game.scene", timeout=20000)
-        # Reshuffle is a helper consumed from the inventory; top it up so this test
-        # exercises reshuffle MECHANICS without running out (gating is covered in
-        # booster_test.py).
+        # Reshuffle is a helper consumed from the inventory, and it is LOCKED in the
+        # first levels: play forward past its unlock, then top it up so this test
+        # exercises reshuffle MECHANICS without running out (the inventory ladder is
+        # covered in booster_test.py, the unlock gate in boosterunlock_test.py).
+        page.evaluate("window.__game.completeLevel(5)")
+        time.sleep(0.2)
         page.evaluate("window.__game.grantBooster('shuffle', 999)")
 
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.6)
 
         def solve_some(n):

@@ -4,6 +4,7 @@ import { makeCogButton } from "./settings.js";
 import { makeCoinPill, makeCoinIcon } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
 import { buildColumnBackground } from "./layout.js";
+import { HowToPlayPopup } from "./tutorial.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -11,6 +12,17 @@ const DESIGN_H = 1334;
 // Coins awarded for completing a level — the free source of coins that seeds the
 // shop economy (packs are the paid source). A plain const, trivially tunable.
 const COIN_WIN_REWARD = 25;
+
+// Auto Complete is withheld on the very first level: that level exists to teach
+// the core loop (see the guided opening in loadLevel), and a free "finish it for
+// me" shortcut would let a new player skip the lesson. It joins the helper row
+// from level 2 onward.
+const AUTO_MIN_LEVEL = 2;
+
+// The "How To Play" popup is tied to being on THIS level, not to being a new
+// player: it opens on every entry into level 1 (see _showTutorial). In normal
+// linear play level 1 is played once, so it stays a first-session experience.
+const TUTORIAL_LEVEL = 1;
 
 const CELL = 88;          // tile footprint in board units (px at scale 1)
 const TILE_DRAW = 96;     // drawn tile size (slightly larger than cell for overlap)
@@ -53,7 +65,11 @@ export class GameScene extends PIXI.Container {
     this.fxLayer = new PIXI.Container();
     this.hudLayer = new PIXI.Container();
     this.overlayLayer = new PIXI.Container();
-    this.addChild(this.bgLayer, this.boardLayer, this.trayLayer, this.fxLayer, this.hudLayer, this.overlayLayer);
+    // The tutorial popup gets its own layer ABOVE the win/lose overlays — keeping
+    // it off overlayLayer leaves "is an overlay up?" meaning the win/lose ones.
+    this.tutorialLayer = new PIXI.Container();
+    this.addChild(this.bgLayer, this.boardLayer, this.trayLayer, this.fxLayer, this.hudLayer,
+      this.overlayLayer, this.tutorialLayer);
 
     // Responsive layout state (updated by layout()); defaults to the base design
     // so the scene is correct even before the first layout() call.
@@ -82,6 +98,13 @@ export class GameScene extends PIXI.Container {
     this.locked = false;    // blocks input during win/lose transitions
     this._autoRunning = false; // true while the Auto Complete sweep animates
     this._loseBtns = null;  // { cont, home, replay } while the Out-of-Moves overlay is up
+    this._firstRun = false; // true while a brand-new player is in the guided level 1
+    this._hand = null;      // the tutorial pointing hand, when shown
+    this._handTile = null;  // the tile it points at (so it can follow a re-layout)
+    this._handAnim = null;  // its ticker loop
+    this._guideRun = 0;     // generation token: invalidates an in-flight guided opening
+    this._tutorial = null;  // the "How To Play" popup, while it is up
+    this._boosterHint = null; // the floating "Unlocks at Level N" label, when shown
     this.onLevelComplete = null; // (levelNum) => void — set by the host (main.js)
     this.onSettings = null;      // () => void — open the settings screen
     this.onShop = null;          // () => void — open the shop screen
@@ -169,13 +192,72 @@ export class GameScene extends PIXI.Container {
     return false;
   }
 
+  // ---- helper progression (locked in the first levels) ---------------------
+
+  // Is this helper still locked behind the unlock schedule (BOOSTER_UNLOCKS)?
+  _isBoosterLocked(kind) {
+    return !!this.user && !this.user.isBoosterUnlocked(kind);
+  }
+
+  // Refuse a locked helper and say so: a "nope" sound, a shake of the button, and
+  // a short floating "Unlocks at Level N" label. Returns true when the press was
+  // refused, so every helper entry point can early-out on it — the guard lives in
+  // undo()/wand()/reshuffle() rather than the button callback, so a scripted call
+  // (window.__game.wand(), scene.undo()) is refused just the same.
+  _rejectIfLocked(kind, btn) {
+    if (!this._isBoosterLocked(kind)) return false;
+    this.audio.play("fail");
+    if (btn) this._shake(btn);
+    this._showBoosterHint(btn, kind);
+    return true;
+  }
+
+  // Float a short "Unlocks at Level N" pill above a locked helper: fades in, holds,
+  // fades out. Only one is ever alive — a second tap replaces it.
+  _showBoosterHint(btn, kind) {
+    this._clearBoosterHint();
+    if (!btn || !this.user) return;
+    const text = `Unlocks at Level ${this.user.boosterUnlockLevel(kind)}`;
+    const c = new PIXI.Container();
+    c.__text = text; // test seam (window.__game.boosterHint)
+    const label = new PIXI.Text(text, {
+      fontFamily: "Arial", fontSize: 26, fontWeight: "700", fill: 0xffffff,
+    });
+    label.anchor.set(0.5);
+    const w = label.width + 40, h = 52;
+    const g = new PIXI.Graphics();
+    g.beginFill(0x0a1226, 0.88).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2).endFill();
+    g.lineStyle(3, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+    c.addChild(g, label);
+    // Above the button, clamped so a hint on an edge helper can't run off the
+    // 750-wide safe band (the band, not the view — hudBottom is centred in it).
+    const half = w / 2 + 8;
+    c.position.set(Math.min(DESIGN_W - half, Math.max(half, btn.x)), btn.y - 96);
+    c.alpha = 0;
+    this.hudBottom.addChild(c);
+    this._boosterHint = c;
+    const ticker = this.app.ticker;
+    tween(ticker, { duration: 160, onUpdate: (v) => { c.alpha = v; } })
+      .then(() => delay(ticker, 1000))
+      .then(() => tween(ticker, { duration: 260, onUpdate: (v) => { c.alpha = 1 - v; } }))
+      .then(() => { if (this._boosterHint === c) this._clearBoosterHint(); })
+      .catch(() => {});
+  }
+
+  _clearBoosterHint() {
+    const c = this._boosterHint;
+    this._boosterHint = null;
+    if (c && !c.destroyed) { c.parent && c.parent.removeChild(c); c.destroy({ children: true }); }
+  }
+
   // Auto Complete becomes available only in a trivially-solvable endgame: a small
   // number of tiles left (≤ 4 easy triples) with NONE still covered, so every
   // remaining tile is directly reachable. The remaining count is always a
   // multiple of 3 (each clear removes exactly 3), so this can never grant a win
-  // over a genuinely unmatchable leftover.
+  // over a genuinely unmatchable leftover. Never on level 1 (AUTO_MIN_LEVEL) —
+  // the teaching level is played by hand, all the way to the win.
   _autoAvailable() {
-    return !this.locked && this.boardCount > 0
+    return this.levelNum >= AUTO_MIN_LEVEL && !this.locked && this.boardCount > 0
       && (this.boardCount + this.tray.length) <= 12
       && !this.tiles.some((t) => !t.inTray && !t.matched && t.aliveCovers > 0);
   }
@@ -187,6 +269,18 @@ export class GameScene extends PIXI.Container {
   // that ladder (see _acquireBooster), so the button is live whenever a move is
   // possible; when no move is possible it's greyed and shows the plain stock count.
   _setBoosterButton(btn, badge, kind, count, contextOk) {
+    // Helpers are not available in the first levels: the icon still shows (so the
+    // player learns the row exists) but wears a lock badge, is dimmed, and its
+    // action is refused. It stays event-enabled so a tap can say why.
+    if (this._isBoosterLocked(kind)) {
+      btn._boosterMode = "locked";
+      btn.eventMode = "static";
+      btn.cursor = "default";
+      btn.alpha = 0.55;
+      badge.visible = true;
+      badge.setBadge("locked", 0, null);
+      return;
+    }
     const price = this._boosterPrice(kind);
     const affordable = price != null && !!this.user && this.user.canAfford("coins", price);
     // With no move to make, buying/ads are pointless — show the plain stock count.
@@ -222,6 +316,12 @@ export class GameScene extends PIXI.Container {
       this._buildBackground();
       if (this.tiles.length) this._layoutBoard();
     }
+    // _layoutBoard moved the tiles, so the guidance hand has to follow its target.
+    if (this._hand && this._handTile && !this._handTile.container.destroyed) {
+      this._hand.position.set(this._handTile.container.x, this._handTile.container.y);
+    }
+    // The tutorial popup re-centres itself (its dim covers the whole view).
+    if (this._tutorial && !this._tutorial.destroyed) this._tutorial.layout(DW, DH);
     // Reflow an open win/lose overlay to the new centre.
     if (this.overlayLayer.children.length && this._overlayGroup) {
       this._overlayGroup.position.set(DW / 2, DH / 2);
@@ -326,7 +426,7 @@ export class GameScene extends PIXI.Container {
 
     // Back — sits next to the cog. Stops the level and returns to the lobby;
     // any user-record changes made during the level are left intact (persisted).
-    this.backBtn = this._makeRoundButton("‹", 38, 148, 84, 0x334063, () => this.onExit && this.onExit());
+    this.backBtn = this._makeRoundButton("‹", 38, 148, 84, 0x334063, () => this._exit());
     this.hudTop.addChild(this.backBtn);
   }
 
@@ -389,6 +489,8 @@ export class GameScene extends PIXI.Container {
   //     price, so a tap reads as "buy one for N coins".
   //  • "ad"    — out of stock AND can't afford one: a "watch an ad" icon (a free
   //     use via a rewarded ad). No ad network is wired up yet — it's just the icon.
+  //  • "locked" — the helper hasn't been unlocked yet (see BOOSTER_UNLOCKS): a
+  //     padlock in a muted bubble, sitting on top of a dimmed icon.
   //  (Named setBadge, NOT render — DisplayObject.render is PIXI's per-frame draw
   //   hook and must not be shadowed.)
   _makeCountBadge(cx, cy) {
@@ -399,18 +501,29 @@ export class GameScene extends PIXI.Container {
     const coin = makeCoinIcon(11);
     const ad = new PIXI.Text("📺", { fontFamily: "Arial", fontSize: 22 });
     ad.anchor.set(0.5);
+    const lock = new PIXI.Text("🔒", { fontFamily: "Arial", fontSize: 22 });
+    lock.anchor.set(0.5);
     const t = new PIXI.Text("0", {
       fontFamily: "Arial", fontSize: 26, fontWeight: "900", fill: 0xffffff,
       stroke: 0x14361f, strokeThickness: 4,
     });
     t.anchor.set(0.5);
-    c.addChild(g, coin, ad, t);
+    c.addChild(g, coin, ad, lock, t);
     c.text = t;
     c.setBadge = (mode, count, price) => {
       g.clear();
       coin.visible = false;
       ad.visible = false;
-      if (mode === "buy") {
+      lock.visible = false;
+      if (mode === "locked") {
+        // Not unlocked yet: a padlock in a muted bubble. No count — the player
+        // owns none and can't buy their way past a progression gate.
+        t.text = "";
+        lock.visible = true;
+        const r = 20;
+        g.beginFill(0x5a6480).drawCircle(0, 0, r).endFill();
+        g.lineStyle(3, 0xffffff, 0.9).drawCircle(0, 0, r);
+      } else if (mode === "buy") {
         // Buy tag: gold coin on the left, price to its right, in an orange pill
         // that hugs the button's top-right corner (right edge near the corner).
         t.text = String(price);
@@ -484,6 +597,14 @@ export class GameScene extends PIXI.Container {
     this.levelNum = levelNum;
     this.rawArr = rawArr;
     this.levelText.text = `LEVEL ${levelNum}`;
+    // The very first level a brand-new player sees is the guided one: stripped
+    // chrome (see _applyFirstRunChrome) plus the opening demo moves below.
+    this._firstRun = !!(this.user && this.user.isNewPlayer() && levelNum === 1);
+    this._guideRun++; // any guided opening still in flight belongs to the old board
+    this._applyFirstRunChrome();
+    this._hideHand();
+    this._closeTutorial(); // a popup from a previous load belongs to the old board
+    this._clearBoosterHint();
     this._buildBackground();
     this.overlayLayer.removeChildren();
     this.boardLayer.removeChildren();
@@ -514,6 +635,168 @@ export class GameScene extends PIXI.Container {
     this._refreshFreeStates();
     this._updateProgress();
     this._updateBoosters();
+
+    // The board is fully built and interactive the moment the calls above return
+    // (_layoutBoard places tiles outright — there's no build-in animation), so
+    // this is the "board finished building" moment the opening waits for.
+    // On level 1 the "How To Play" popup comes first and hands over to the guided
+    // opening when it closes; every other level starts play straight away.
+    if (levelNum === TUTORIAL_LEVEL) this._showTutorial();
+    else if (this._firstRun) this._runFirstRunGuide();
+  }
+
+  // ---- the "How To Play" popup ---------------------------------------------
+
+  // Open the tutorial over the dealt board and lock input behind it: the player
+  // reads the rule and watches it happen before touching anything. Closing it
+  // (OK, or a tap anywhere once the intro has played) hands straight over to the
+  // guided opening, so the two demo moves follow the explanation.
+  _showTutorial() {
+    this._closeTutorial();
+    this.locked = true;
+    const run = this._guideRun; // the board this popup belongs to
+    const popup = new HowToPlayPopup(this.app, this.tileTextures, this.slotTexture,
+      this.audio, () => {
+        if (this._tutorial === popup) this._tutorial = null;
+        // A level reload while the popup was up already owns `locked` and has its
+        // own opening to run — this one must not touch either.
+        if (this._guideRun !== run || this.destroyed) return;
+        this.locked = false;
+        if (this._firstRun) this._runFirstRunGuide();
+      });
+    this.tutorialLayer.addChild(popup);
+    popup.layout(this.viewW, this.viewH);
+    this._tutorial = popup;
+    popup.open();
+  }
+
+  // Tear the popup down without running its close handler — for the paths that
+  // are replacing or leaving the level anyway (loadLevel, _exit).
+  _closeTutorial() {
+    const popup = this._tutorial;
+    this._tutorial = null;
+    if (popup && !popup.destroyed) { popup.onClose = null; popup.destroy(); }
+  }
+
+  // ---- first-run guidance --------------------------------------------------
+
+  // On the guided first level the interface is deliberately stripped down to the
+  // one thing the player has to learn: tap tiles. The top bar keeps the coin
+  // counter only — no settings cog, no shop — and there is no Back button, so the
+  // level can't be left before it's played.
+  _applyFirstRunChrome() {
+    const full = !this._firstRun;
+    this.cog.visible = full;
+    this.backBtn.visible = full;
+    this.coinPill.setShopEnabled(full);
+  }
+
+  // Three identical tiles that are all free to tap right now, or null. Scanned in
+  // tile order and returned lowest-type-first, so the pick is deterministic for a
+  // given board (levels are seeded, so the guided opening is reproducible).
+  _findGuideTriple() {
+    const byType = new Map();
+    for (const t of this.tiles) {
+      if (!this._isFree(t)) continue;
+      if (!byType.has(t.type)) byType.set(t.type, []);
+      byType.get(t.type).push(t);
+    }
+    let best = null;
+    for (const [type, group] of byType) {
+      if (group.length < 3) continue;
+      if (!best || type < best.type) best = { type, tiles: group.slice(0, 3) };
+    }
+    return best ? best.tiles : null;
+  }
+
+  // Play the player's first two moves for them, then point at the third tile of
+  // the triple — so their very first tap completes a match and shows the whole
+  // loop (collect → three-of-a-kind → clear) in one action. If the board doesn't
+  // offer a clean group of three free tiles, the guidance is simply skipped.
+  async _runFirstRunGuide() {
+    const trio = this._findGuideTriple();
+    if (!trio) return;
+    const run = this._guideRun;
+    const ticker = this.app.ticker;
+    // Guard every await: the player can't leave (no Back button), but a restart or
+    // a scripted exitLevel()/startLevel() can hide or rebuild the board out from
+    // under the sequence. The generation token catches even a reload of the SAME
+    // level — without it a second guide would run over the first's tiles.
+    const stale = () =>
+      this._guideRun !== run || !this._firstRun || this.destroyed || !this.visible;
+    this.locked = true; // the demo moves play with no input from the player
+    // A stale run bails WITHOUT touching `locked` — the run that superseded it owns
+    // that flag now (and loadLevel clears it on every entry anyway).
+    await delay(ticker, 500);
+    if (stale()) return;
+    this._collect(trio[0]);
+    await delay(ticker, 520);
+    if (stale()) return;
+    this._collect(trio[1]);
+    await delay(ticker, 420);
+    if (stale()) return;
+    this.locked = false;
+    this._showHand(trio[2]);
+  }
+
+  // An animated pointing hand over a tile: a tapping finger plus a ripple ring, so
+  // the target reads even where the emoji renders flat. Lives on fxLayer — above
+  // the board and tray, below the HUD — which shares the board's coordinate space,
+  // so the tile's own position can be used directly.
+  _showHand(tile) {
+    this._hideHand();
+    if (!tile || !tile.container || tile.container.destroyed) return;
+    const c = new PIXI.Container();
+    c.__tileId = tile.id; // test seam (window.__game.handState)
+    c.eventMode = "none"; // never steals the tap it is asking for
+    const ring = new PIXI.Graphics();
+    c.addChild(ring);
+    const hand = new PIXI.Text("👆", {
+      fontFamily: '"Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",Arial',
+      fontSize: 60,
+    });
+    hand.anchor.set(0.5, 0);
+    c.addChild(hand);
+    c.position.set(tile.container.x, tile.container.y);
+    this.fxLayer.addChild(c);
+    this._hand = c;
+    this._handTile = tile;
+
+    // Tap loop: the finger dips toward the tile and a ring expands out of it, once
+    // per beat. Bails if the container goes away mid-tween (a level reload), like
+    // the other micro-animators.
+    let beat = 0;
+    const fn = () => {
+      if (c.destroyed) { this.app.ticker.remove(fn); return; }
+      beat = (beat + this.app.ticker.deltaMS) % 1200;
+      const p = beat / 1200;
+      const dip = p < 0.25 ? Math.sin((p / 0.25) * Math.PI) : 0; // quick press
+      hand.position.set(0, 18 - dip * 14);
+      hand.scale.set(1 - dip * 0.08);
+      const rp = Math.min(1, p / 0.6);
+      ring.clear();
+      ring.lineStyle(5, 0xffffff, (1 - rp) * 0.75);
+      ring.drawCircle(0, 0, 26 + rp * 34);
+    };
+    this._handAnim = fn;
+    this.app.ticker.add(fn);
+  }
+
+  // Leave the level for the lobby. The single exit path, so the guidance hand
+  // (and any floating hint) can't be left behind on a hidden scene.
+  _exit() {
+    this._hideHand();
+    this._closeTutorial();
+    this._clearBoosterHint();
+    if (this.onExit) this.onExit();
+  }
+
+  _hideHand() {
+    if (this._handAnim) { this.app.ticker.remove(this._handAnim); this._handAnim = null; }
+    const c = this._hand;
+    this._hand = null;
+    this._handTile = null;
+    if (c && !c.destroyed) { c.parent && c.parent.removeChild(c); c.destroy({ children: true }); }
   }
 
   _createTile(p, id, coverers, covered) {
@@ -617,6 +900,9 @@ export class GameScene extends PIXI.Container {
   }
 
   _collect(t) {
+    // The guidance hand has done its job the moment ANY tile is collected — the
+    // pointed-at one or not (and including the two moves played for the player).
+    this._hideHand();
     t.inTray = true;
     this.boardCount--;
     // free up tiles beneath
@@ -751,6 +1037,7 @@ export class GameScene extends PIXI.Container {
 
   undo() {
     if (this.locked) return;
+    if (this._rejectIfLocked("undo", this.undoBtn)) return; // not unlocked yet
     if (this.history.length === 0) return;      // nothing to undo
     // Undo is a helper: get one to spend via the acquisition ladder (own → buy with
     // coins → watch an ad), then use it. See _acquireBooster.
@@ -846,6 +1133,7 @@ export class GameScene extends PIXI.Container {
   // several sets shares this button but is out of scope here.)
   wand() {
     if (this.locked) return;                       // won/lost, or a wand animation in flight
+    if (this._rejectIfLocked("wand", this.wandBtn)) return; // not unlocked yet
     if (!this.user) return;
     // Check there's a move to make BEFORE spending/buying, so we never charge for a
     // no-op (an empty board, etc.). _wandPick() is a pure read.
@@ -1077,6 +1365,7 @@ export class GameScene extends PIXI.Container {
   // Unlike restart(), the level is NOT rebuilt.
   reshuffle() {
     if (this.locked) return;
+    if (this._rejectIfLocked("shuffle", this.shuffleBtn)) return; // not unlocked yet
     const boardTiles = this.tiles.filter((t) => !t.matched && !t.inTray);
     if (boardTiles.length === 0) return;
     // Reshuffle is a helper: get one to spend via the acquisition ladder (own → buy
@@ -1208,6 +1497,7 @@ export class GameScene extends PIXI.Container {
   //                face reflects which tier applies (coin price vs 📺). See
   //                _continueAfterLoss / _makeContinueButton.
   _showLoseOverlay() {
+    this._winBtn = null; // this path is the lose overlay — no win button lives
     this.overlayLayer.removeChildren();
     const dim = new PIXI.Graphics();
     dim.beginFill(0x040814, 0.62).drawRect(0, 0, this.viewW, this.viewH).endFill();
@@ -1240,7 +1530,7 @@ export class GameScene extends PIXI.Container {
     const home = this._makeButton("Home", 250, 88, -136, -6, 0x556080, () => {
       this._loseBtns = null;
       this.overlayLayer.removeChildren();
-      if (this.onExit) this.onExit();
+      this._exit();
     });
     const replay = this._makeButton("Replay", 250, 88, 136, -6, 0x4d8dff, () => {
       this._loseBtns = null;
@@ -1382,9 +1672,11 @@ export class GameScene extends PIXI.Container {
 
     const btn = this._makeButton(btnLabel, 320, 92, 0, 100, 0x39c06a, () => {
       this.overlayLayer.removeChildren();
+      this._winBtn = null;
       onBtn();
     });
     group.addChild(btn);
+    this._winBtn = btn; // test seam (window.__game.pressWinContinue)
 
     tt.scale.set(0.2);
     tween(this.app.ticker, {

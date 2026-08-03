@@ -28,6 +28,11 @@ try:
         page.reload()
         page.wait_for_function("window.__game && window.__game.scene", timeout=20000)
         time.sleep(0.5)
+        # Play forward past the first-run flow: a brand-new profile is dropped into a
+        # GUIDED level 1 that plays two moves of its own (see firstlevel_test.py),
+        # which would collide with this test filling the tray by hand.
+        page.evaluate("window.__game.completeLevel(5)")
+        time.sleep(0.2)
 
         def st():      return page.evaluate("window.__game.state()")
         def lst():     return page.evaluate("window.__game.loseState()")
@@ -74,7 +79,7 @@ try:
         print("continue price:", cfg.get("continue"), "scene:", cprice())
         assert cprice() == cfg["continue"], (cprice(), cfg.get("continue"))
 
-        page.evaluate("window.__game.startLevel(1)")
+        page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.7)
         full = st()["boardCount"]     # tiles on a fresh level-1 board
         assert coins() == 0, "a fresh profile starts with no coins"
@@ -142,6 +147,9 @@ try:
         assert lst()["loseOverlay"] is True
         page.evaluate("window.__game.pressLoseReplay()")
         time.sleep(0.5)
+        # Replay reloads level 1, which opens the "How To Play" popup again (it is
+        # tied to the level, not to being new) — dismiss it to keep playing.
+        page.evaluate("window.__game.closeTutorial()")
         s = st()
         print("after replay:", s)
         assert s["overlay"] is False, "the overlay closed"
