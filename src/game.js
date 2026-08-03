@@ -118,6 +118,9 @@ export class GameScene extends PIXI.Container {
     // wallet changes, since that flips whether an empty helper is affordable to buy.
     if (this.user) this.user.on((domain) => {
       if (domain === "boosters" || domain === "wallet") this._updateBoosters();
+      // Clearing a level can unlock the shop — light the pill's cart up live
+      // rather than waiting for the next loadLevel.
+      if (domain === "progress") this._applyFirstRunChrome();
     });
     this._updateBoosters();
   }
@@ -684,11 +687,14 @@ export class GameScene extends PIXI.Container {
   // one thing the player has to learn: tap tiles. The top bar keeps the coin
   // counter only — no settings cog, no shop — and there is no Back button, so the
   // level can't be left before it's played.
+  // The shop affordance has a gate of its own on top of that (the shop is a
+  // progression unlock, see User.SHOP_UNLOCK_LEVEL), so the cart appears later
+  // than the rest of the chrome comes back.
   _applyFirstRunChrome() {
     const full = !this._firstRun;
     this.cog.visible = full;
     this.backBtn.visible = full;
-    this.coinPill.setShopEnabled(full);
+    this.coinPill.setShopEnabled(full && (!this.user || this.user.isShopUnlocked()));
   }
 
   // Three identical tiles that are all free to tap right now, or null. Scanned in

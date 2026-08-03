@@ -118,10 +118,13 @@ export class LobbyScene extends PIXI.Container {
     this.topHud.addChild(cog);
     this.cog = cog;
 
-    // Coin balance pill — top-right, mirroring the cog. Tapping it opens the shop.
+    // Coin balance pill — top-right, mirroring the cog. Tapping it opens the shop,
+    // but only once the shop is unlocked (see _refreshShopGate); until then it is a
+    // plain coin counter.
     this.coinPill = makeCoinPill(this.user, () => this.onShop && this.onShop());
     this.coinPill.position.set(DESIGN_W - 108, 84);
     this.topHud.addChild(this.coinPill);
+    this._refreshShopGate();
 
     // Fortune Wheel entry button — a self-animating little wheel in the top-left
     // corner (on topHud so it tracks the corner on tall screens, like the cog).
@@ -150,12 +153,20 @@ export class LobbyScene extends PIXI.Container {
     this.rail.add("dailyBonus", this.dailyBtn, () => this._dailyBonusAvailable());
 
     // Keep the rail live: progression unlocks features, a wheel spin / rollover
-    // changes the free-spin badge, and a daily claim retires the gift.
+    // changes the free-spin badge, and a daily claim retires the gift. Progression
+    // also unlocks the shop, so the cart can appear the moment a level is cleared.
     this.user.on((domain) => {
       if (domain === "fortuneWheel" || domain === "dailyBonus" || domain === "progress") {
         this.refreshFeatures();
       }
+      if (domain === "progress") this._refreshShopGate();
     });
+  }
+
+  // The shop is a progression unlock (User.SHOP_UNLOCK_LEVEL): until it comes due
+  // the pill loses its cart badge and ignores taps, staying a plain coin counter.
+  _refreshShopGate() {
+    this.coinPill.setShopEnabled(!this.user || this.user.isShopUnlocked());
   }
 
   _makeWheelButton() {

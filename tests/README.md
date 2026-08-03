@@ -82,7 +82,8 @@ line per test.
   **locked** (`boosterState().*Locked`, dimmed) and a `pressBooster` on each is a
   no-op that floats the right `boosterHint()`. Re-entering level 1 while still new
   keeps the treatment; a returning player gets the full HUD, no demo moves and no
-  hand.
+  hand — except the **shop**, which has a progression gate of its own and only
+  lights up once level 2 is passed (`shopunlock_test.py`).
 - **`lobby_test.py`** — the game lands on the lobby with the correct `Level N`
   play button; starting a level leaves the lobby, and solving it reaches the win
   overlay (`boardCount == 0`) and returns to the lobby.
@@ -291,6 +292,15 @@ Only `howtoplay_test.py` leaves it open.
   via the mock payment provider grants its contents — a bundle grants coins **and** a
   mix of boosters, a single-item pack grants only coins; the balance persists across
   a reload.
+- **`shopunlock_test.py`** — the **shop's progression gate**
+  (`SHOP_UNLOCK_LEVEL` = 3, i.e. **after passing level 2**). Drives `shopState()`
+  (`unlocked` / `completed` / `lobbyEnabled` / `lobbyCart` / `gameEnabled`) and
+  `tapCoinPill(where)`: a brand-new player and a player who has only cleared level
+  **1** get a plain coin counter in **both** scenes — no cart badge, the balance
+  still shown, the pill still in `controls()`, and a tap opens nothing. Clearing
+  level 2 flips it **live** (no reload) in the level *and* the lobby, the pill then
+  opens the shop from either, and the unlock survives a reload (it is derived from
+  the persisted `progress.completed`).
 - **`reset_test.py`** — resetting the profile restores progress, wallet, and
   settings to defaults while preserving the identity (`id`), and the reset
   persists across a reload.

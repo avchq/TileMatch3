@@ -51,7 +51,9 @@ That first level is deliberately pared back to the one thing there is to learn �
 tapping tiles. While a brand-new player is in level 1:
 - The top bar shows **only the coin counter**. The **settings** cog is hidden, and
   so is the **shop**: the coin pill keeps the balance but loses its cart badge and
-  no longer opens the store.
+  no longer opens the store. (The cog and Back button come back the moment level 1
+  is cleared; the **shop** waits longer — it has a progression gate of its own and
+  only appears after **level 2** is passed, see Coins below.)
 - There is **no Back button** — the level can't be left before it's played. (There
   is therefore no way to quit level 1 part-way; the only way out is to finish it.)
 - **The How To Play popup opens first** (above) and locks the level behind it;
@@ -154,7 +156,14 @@ its three buttons):
 
 **Coins** are a spendable currency shown in a **coin pill** at the top-right of
 both the lobby and the level HUD. You **earn 25 coins for clearing a level** (the
-win overlay shows the reward). Tapping the coin pill opens the **Shop**, which sells
+win overlay shows the reward).
+
+The **shop is a progression unlock like the helpers**: it only opens up once the
+player has **passed level 2** (`SHOP_UNLOCK_LEVEL` = 3 in `src/user/User.js`,
+read as "available from level 3 onward"). Until then the pill is a plain coin
+counter — it still shows the balance, but it loses its **shopping-cart badge** and
+ignores taps, in the lobby and in a level alike. Clearing level 2 lights it up
+**live**, with no reload. Afterwards, tapping the coin pill opens the **Shop**, which sells
 **packages** for real money — each grants a mix of contents (a coins amount and/or a
 set of boosters), so a package can be a single item (just coins) or a bundle (e.g.
 1200 coins + 3 wands + 5 undos + 1 reshuffle). See the Shop + User sections below.
@@ -475,7 +484,14 @@ python3 -m http.server 8099
   reward) — and **`makeCoinPill(user, onTap)`**, the shared coin-balance HUD control
   used by both the lobby and the level: a gold coin + the live balance + a small
   **shopping-cart** icon signalling that a tap opens the shop. It live-refreshes on
-  any `wallet` change (parallel to `makeCogButton` in `settings.js`). The coin reward for
+  any `wallet` change (parallel to `makeCogButton` in `settings.js`).
+  `setShopEnabled(on)` is the pill's **shop affordance switch**: off, the cart badge
+  goes away, the hit area shrinks back to the pill, and the tap handler itself
+  returns early (so even a synthesized tap can't open the shop). Two things drive
+  it — the shop's **progression gate** (`user.isShopUnlocked()`, refreshed from
+  `LobbyScene._refreshShopGate` / `GameScene._applyFirstRunChrome` and on every
+  `progress` change, so clearing level 2 lights the cart up live) and the guided
+  first level, which withholds it on top of that. The coin reward for
   a win is `COIN_WIN_REWARD` in `game.js` (`_win()`). (Spending coins on helpers is
   done on-demand inside a level, not in the shop.)
 - `src/fortunewheel.js` is the `FortuneWheelScene` — the daily prize-wheel overlay
@@ -675,6 +691,9 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   straight to a later level is honoured with no bookkeeping to repair — plus
   `boosterUnlocks`, the list of helpers whose one-time grant has already been paid.
   `completeLevel()` calls `_grantPendingUnlocks()`, which is what pays it out, once),
+  the **shop** gate (`SHOP_UNLOCK_LEVEL` + `isShopUnlocked()`, derived from
+  `completed` the same way and with nothing to grant — it only decides whether the
+  coin pill offers the store),
   `settings` (`music`, `sound`), and the **Fortune Wheel**
   per-cycle state (`fortuneWheel` — `group`/`day`/`spinsUsed`/`won`/`seen`, mutated
   via `advanceWheelCycle`/`recordWheelSpin`/`markWheelSeen`, emitting a

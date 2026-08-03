@@ -129,9 +129,12 @@ export function makeCoinPill(user, onTap) {
   // Turn the shop affordance on/off. With it off the pill is a plain, inert coin
   // counter: the cart badge goes away and the hit area shrinks back to the pill
   // (which then ignores taps entirely). Used by the first-run flow, where the
-  // level's top bar shows nothing but the balance.
+  // level's top bar shows nothing but the balance, and by the shop's own
+  // progression gate (User.SHOP_UNLOCK_LEVEL — passing level 2).
+  let shopEnabled = true;
   c.setShopEnabled = (on) => {
     const enabled = on !== false;
+    shopEnabled = enabled;
     cbg.visible = enabled;
     cart.visible = enabled;
     c.eventMode = enabled ? "static" : "none";
@@ -142,7 +145,9 @@ export function makeCoinPill(user, onTap) {
     c.scale.set(1); // a disable mid-press must not strand the pressed scale
   };
   c.setShopEnabled(true);
-  c.on("pointertap", () => { onTap && onTap(); });
+  // Guarded rather than relying on eventMode alone: a locked pill must stay inert
+  // even for a tap that reaches the handler another way (a queued/emitted event).
+  c.on("pointertap", () => { if (shopEnabled && onTap) onTap(); });
   c.on("pointerdown", () => c.scale.set(0.94));
   c.on("pointerup", () => c.scale.set(1));
   c.on("pointerupoutside", () => c.scale.set(1));

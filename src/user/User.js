@@ -29,6 +29,11 @@ export const BOOSTER_UNLOCKS = {
 };
 const NO_BOOSTERS = { undo: 0, shuffle: 0, wand: 0 };
 
+// The coin SHOP is gated the same way: it is not offered while the player is still
+// learning the game. Reads like BOOSTER_UNLOCKS' `level` — "available from level N
+// onward", i.e. once level N-1 has been cleared. 3 = after passing level 2.
+export const SHOP_UNLOCK_LEVEL = 3;
+
 const defaults = () => ({
   version: SCHEMA_VERSION,
   id: "",
@@ -164,6 +169,12 @@ export class User {
   isBoosterUnlocked(kind) {
     return this.completedLevel() >= this.boosterUnlockLevel(kind) - 1;
   }
+  /** Is the coin shop offered yet? Derived from progress like isBoosterUnlocked,
+   *  so a QA jump straight to a later level is honoured with nothing to repair.
+   *  The coin pill keeps showing the balance either way — only the cart
+   *  affordance (and the tap that opens the shop) waits for this. */
+  isShopUnlocked() { return this.completedLevel() >= SHOP_UNLOCK_LEVEL - 1; }
+
   /** Pay out the one-time stock for every helper that is unlocked but hasn't
    *  been granted yet. Idempotent — boosterUnlocks records what's been paid. */
   _grantPendingUnlocks() {

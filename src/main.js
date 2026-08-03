@@ -10,6 +10,7 @@ import { AudioManager } from "./audio.js";
 import { AssetManager, PRELOAD_GROUPS, MANIFEST, buildLevelGroups } from "./assets.js";
 import { loadLevels } from "./levelConfig.js";
 import { UserStore } from "./user/UserStore.js";
+import { SHOP_UNLOCK_LEVEL } from "./user/User.js";
 import { createSplash } from "./splash.js";
 
 const DESIGN_W = 750;
@@ -469,7 +470,21 @@ async function boot() {
     credit: (cur, n) => user.credit(cur, n),
     debit: (cur, n) => user.debit(cur, n),
     // ---- shop / coins UI ----
+    // The shop's progression gate (SHOP_UNLOCK_LEVEL) and how each scene's coin
+    // pill reflects it: `enabled` is the live cart affordance (cart badge shown +
+    // taps accepted), which the guided first level also suppresses on its own.
+    shopState: () => ({
+      unlocked: user.isShopUnlocked(),
+      unlockLevel: SHOP_UNLOCK_LEVEL,
+      completed: user.completedLevel(),
+      lobbyEnabled: lobby.coinPill.eventMode === "static",
+      lobbyCart: lobby.coinPill.children.some((c) => c.text === "🛒" && c.visible),
+      gameEnabled: scene.coinPill.eventMode === "static",
+    }),
+    // Tap the coin pill the way a player does — a no-op while the shop is locked.
+    tapCoinPill: (where) => (where === "level" ? scene : lobby).coinPill.emit("pointertap"),
     openShop: () => shop.open(),
+    closeShop: () => shop._back(),
     shopVisible: () => shop.visible,
     coinPillText: () => ({ lobby: lobby.coinPill.label.text, game: scene.coinPill.label.text }),
     packages: () => payments.getCatalog(),

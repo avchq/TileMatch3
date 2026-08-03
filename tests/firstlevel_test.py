@@ -156,9 +156,18 @@ try:
         print("RETURNING PLAYER L1 -> hud:", h, "tray:", s["tray"], "hand:", hand())
         snap("returning_player")
         assert page.evaluate("window.__game.firstRun()") is False, "no longer the guided level"
-        assert h["cog"] is True and h["back"] is True and h["shopEnabled"] is True, h
+        assert h["cog"] is True and h["back"] is True, h
         assert s["tray"] == [], ("no moves are played for a returning player", s["tray"])
         assert hand()["visible"] is False, "no guidance hand for a returning player"
+        # The SHOP is the exception: it has a progression gate of its own and only
+        # opens up after level 2 is passed (shopunlock_test.py owns the schedule),
+        # so the pill is still a plain counter here.
+        assert h["shopEnabled"] is False, ("the shop is still locked after level 1", h)
+        page.evaluate("window.__game.completeLevel(2)")
+        time.sleep(0.2)
+        h = hud()
+        print("AFTER LEVEL 2 -> hud:", h)
+        assert h["shopEnabled"] is True, ("passing level 2 opens the shop", h)
 
         print("ERRORS:", len(errors))
         for e in errors[:10]:
