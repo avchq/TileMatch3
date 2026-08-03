@@ -337,7 +337,6 @@ export class GameScene extends PIXI.Container {
   controls() {
     const list = [
       { name: "levelText", obj: this.levelText },
-      { name: "progressText", obj: this.progressText },
       { name: "coinPill", obj: this.coinPill },
       { name: "cog", obj: this.cog },
       { name: "back", obj: this.backBtn },
@@ -379,13 +378,6 @@ export class GameScene extends PIXI.Container {
     this.levelText.anchor.set(0.5);
     this.levelText.position.set(DESIGN_W / 2, 84);
     this.hudTop.addChild(this.levelText);
-
-    this.progressText = new PIXI.Text("", {
-      fontFamily: "Arial", fontSize: 24, fontWeight: "700", fill: 0xcfe0ff,
-    });
-    this.progressText.anchor.set(0.5);
-    this.progressText.position.set(DESIGN_W / 2, 128);
-    this.hudTop.addChild(this.progressText);
 
     // Coin balance pill — top-right of the HUD bar. Tapping it opens the shop.
     this.coinPill = makeCoinPill(this.user, () => this.onShop && this.onShop());
@@ -631,7 +623,6 @@ export class GameScene extends PIXI.Container {
 
     this._layoutBoard();
     this._refreshFreeStates();
-    this._updateProgress();
     this._updateBoosters();
 
     // The board is fully built and interactive the moment the calls above return
@@ -937,7 +928,6 @@ export class GameScene extends PIXI.Container {
 
     this.audio.play("tile_bop");
     this._layoutTray();
-    this._updateProgress();
     this._updateBoosters();
 
     // settle after the slide-in
@@ -1002,10 +992,6 @@ export class GameScene extends PIXI.Container {
     }
   }
 
-  _updateProgress() {
-    this.progressText.text = `${this.boardCount} tiles left`;
-  }
-
   // Return one collected tile from the tray back to the board: restore its board
   // state (inTray/coverage/boardCount), remove it from the tray + history, and
   // reparent it. Cancels any in-flight tray-slide tween FIRST — if the tile was
@@ -1052,7 +1038,6 @@ export class GameScene extends PIXI.Container {
     this._animateScale(t.container, t.homeScale, 1);
     this._refreshFreeStates();
     this._layoutTray();
-    this._updateProgress();
     this._updateBoosters();
   }
 
@@ -1098,7 +1083,6 @@ export class GameScene extends PIXI.Container {
       r.cont.scale.set(r.ss);
     }
     this._refreshFreeStates();
-    this._updateProgress();
     this._layoutTray();
     this._updateBoosters();
 
@@ -1173,7 +1157,6 @@ export class GameScene extends PIXI.Container {
     this._refreshFreeStates();
     this.audio.play("tile_bop");
     this._layoutTray();
-    this._updateProgress();
 
     // Let the tiles fly in, then unlock and resolve the completed triple.
     setTimeout(() => {
@@ -1351,7 +1334,6 @@ export class GameScene extends PIXI.Container {
     this.history = [];
     this.boardCount = 0;
     this._autoRunning = false;
-    this._updateProgress();
     this._win();
   }
 
@@ -1427,7 +1409,6 @@ export class GameScene extends PIXI.Container {
     // ones complete the deck's open groups). Used by solveTap / tests.
     this.solutionOrder = order.map((t) => t.id);
     this._refreshFreeStates();
-    this._updateProgress();
   }
 
   // A fresh valid removal order (a linear extension of the covering DAG) over

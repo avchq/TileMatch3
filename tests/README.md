@@ -111,6 +111,10 @@ Only `howtoplay_test.py` leaves it open.
   audio channels and persist to the user profile.
 - **`roundbtn_test.py`** — the in-level round buttons (undo / reshuffle) are
   clickable at their HUD positions and drive their actions without errors.
+- **`levelhud_test.py`** — the level's top bar carries the level title, coin pill,
+  cog and Back button and **nothing else**: no text anywhere in the level scene
+  reads "*n* tiles left". Checked on a fresh board, after collecting tiles and
+  after an undo (the moments the old remaining-tiles counter re-rendered).
 - **`cog_corner_test.py`** — the settings cog is pinned to the **top-left corner**
   of the screen in both the lobby and inside a level, and stays there on viewports
   taller than the 750×1334 design canvas (regression guard: the lobby cog used to
