@@ -4,35 +4,21 @@
 // domain-tagged change event whenever it is mutated, so the store can autosave
 // and UI can react live (mirrors audio.js's onMusicChange/onSoundChange callbacks).
 
+import { CONFIG } from "../config.js";
+
 export const SCHEMA_VERSION = 5;
 
-// Known virtual currencies. The wallet is a keyed map, so adding a currency is
-// just a new code here (or even an arbitrary code passed to credit/debit) — no
-// other code change is required.
-export const CURRENCIES = ["coins", "gems"];
+// Every tunable this model reads — the starting wallet and booster inventory,
+// the helper unlock schedule and the shop's gate — lives in src/config.js,
+// documented there. The two tables are pulled out as local aliases so the logic
+// below stays readable; config.js remains the only place to EDIT them.
+const BOOSTER_UNLOCKS = CONFIG.boosters.unlocks;
+const SHOP_UNLOCK_LEVEL = CONFIG.features.shop.unlockLevel;
 
-// In-game helpers ("boosters") the player can spend during a level. Like the
-// wallet, the inventory is a keyed map, so adding a helper is just a new code
-// here — no other model change is required.
-export const BOOSTERS = ["undo", "shuffle", "wand"];
-
-// Progression gate: helpers are NOT available in the first levels. A brand-new
-// account is awarded nothing — each helper stays locked (icon visible, lock
-// badge on top, taps rejected) until the player reaches its `level`, at which
-// point `grant` uses are added to the inventory, once and only once.
-// `level` reads as "usable from level N onward", i.e. unlocked once the player
-// has completed level N-1. Adding/retiming a helper is a single edit here.
-export const BOOSTER_UNLOCKS = {
-  undo: { level: 2, grant: 2 },
-  shuffle: { level: 4, grant: 1 },
-  wand: { level: 5, grant: 1 },
-};
-const NO_BOOSTERS = { undo: 0, shuffle: 0, wand: 0 };
-
-// The coin SHOP is gated the same way: it is not offered while the player is still
-// learning the game. Reads like BOOSTER_UNLOCKS' `level` — "available from level N
-// onward", i.e. once level N-1 has been cleared. 3 = after passing level 2.
-export const SHOP_UNLOCK_LEVEL = 3;
+// The wallet / inventory a brand-new account starts with (config.js). Copied on
+// every use — CONFIG is frozen, and these become live mutable state.
+const startingWallet = () => ({ ...CONFIG.economy.startingWallet });
+const startingBoosters = () => ({ ...CONFIG.boosters.startingInventory });
 
 const defaults = () => ({
   version: SCHEMA_VERSION,
@@ -43,8 +29,8 @@ const defaults = () => ({
   // i.e. a brand-new player who has never cleared level 1) — the signal the
   // first-run flow gates on (see isNewPlayer). Room to grow: stars, completed[]…
   progress: { level: 1, completed: 0 },
-  wallet: { coins: 0, gems: 0 }, // currency code -> balance
-  boosters: { ...NO_BOOSTERS }, // helper code -> remaining uses (none to start)
+  wallet: startingWallet(),     // currency code -> balance (config.js)
+  boosters: startingBoosters(), // helper code -> remaining uses (none to start)
   // Helper codes whose one-time unlock grant has already been paid out. Purely
   // bookkeeping so a grant can't be collected twice — whether a helper is
   // *locked* is derived from progress (see isBoosterUnlocked).

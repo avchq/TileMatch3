@@ -11,6 +11,16 @@ root README documents tile/tray mechanics, boosters, level config, and the
 responsive 750×1334 design-space layout system — context you need so a change fits
 existing behaviour instead of contradicting it.
 
+## Key parameters go in `src/config.js`
+
+Feature gates, unlock levels, progression thresholds and economy amounts live in
+the single central config `src/config.js` (exported as the frozen `CONFIG`
+object), each with a comment explaining what it does. **Every new tunable
+parameter must be added there** — never inline a level threshold, grant size or
+reward amount into a module; import it from the config instead. Layout/visual
+constants stay with their scene, and large data tables stay in
+`assets/config/*.json`. `tests/config_test.py` enforces this.
+
 ## Testing is mandatory for every change
 
 **Always run the test suite after any change to game code, and never consider a

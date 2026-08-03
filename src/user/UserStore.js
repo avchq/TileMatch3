@@ -5,8 +5,10 @@
 
 import { User } from "./User.js";
 import { detectPlatform, makeAdapter } from "./platform.js";
+import { CONFIG } from "../config.js";
 
-const SAVE_DEBOUNCE_MS = 400;
+// How long a change waits before it is written back (src/config.js).
+const SAVE_DEBOUNCE_MS = CONFIG.persistence.saveDebounceMs;
 
 export class UserStore {
   constructor(adapter) {

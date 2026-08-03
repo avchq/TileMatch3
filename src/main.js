@@ -10,7 +10,7 @@ import { AudioManager } from "./audio.js";
 import { AssetManager, PRELOAD_GROUPS, MANIFEST, buildLevelGroups } from "./assets.js";
 import { loadLevels } from "./levelConfig.js";
 import { UserStore } from "./user/UserStore.js";
-import { SHOP_UNLOCK_LEVEL } from "./user/User.js";
+import { CONFIG } from "./config.js";
 import { createSplash } from "./splash.js";
 
 const DESIGN_W = 750;
@@ -306,6 +306,10 @@ async function boot() {
     settingsVisible: () => settings.visible,
     currentLevel: () => currentLevel,
     inLobby: () => lobby.visible,
+    // The central tuning config (src/config.js) exactly as the game loaded it:
+    // every feature gate, unlock level, grant and economy amount. config_test.py
+    // reads it and asserts the live game really behaves the way it says.
+    config: () => CONFIG,
     // Responsive-fit info: the design area the scenes reflow into and how the
     // renderer maps onto the viewport (used by the orientation/fit test).
     view: () => ({
@@ -470,12 +474,12 @@ async function boot() {
     credit: (cur, n) => user.credit(cur, n),
     debit: (cur, n) => user.debit(cur, n),
     // ---- shop / coins UI ----
-    // The shop's progression gate (SHOP_UNLOCK_LEVEL) and how each scene's coin
+    // The shop's progression gate (CONFIG.features.shop.unlockLevel) and how each scene's coin
     // pill reflects it: `enabled` is the live cart affordance (cart badge shown +
     // taps accepted), which the guided first level also suppresses on its own.
     shopState: () => ({
       unlocked: user.isShopUnlocked(),
-      unlockLevel: SHOP_UNLOCK_LEVEL,
+      unlockLevel: CONFIG.features.shop.unlockLevel,
       completed: user.completedLevel(),
       lobbyEnabled: lobby.coinPill.eventMode === "static",
       lobbyCart: lobby.coinPill.children.some((c) => c.text === "🛒" && c.visible),

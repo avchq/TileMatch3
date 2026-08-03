@@ -1,8 +1,5 @@
 {
-  "_comment": "Fortune Wheel prize wheel. groups[] = one wheel each; the active group advances once per day and wraps. Each prize: type (coins|undo|wand|shuffle|lightning), amount, and independent freeWeight/adWeight (free spin vs ad spins). headlinePrize = the type that gets the highlight-fly treatment. unlockLevel = lobby-button campaign level; spinsPerCycle = daily spins (1st free, rest ad).",
-  "unlockLevel": 5,
-  "spinsPerCycle": 6,
-  "headlinePrize": "lightning",
+  "_comment": "Fortune Wheel PRIZE DATA. groups[] = one wheel each; the active group advances once per day and wraps. Each prize: type (coins|undo|wand|shuffle|lightning), amount, and independent freeWeight/adWeight (free spin vs ad spins). The feature's GATE and PACING (unlockLevel, spinsPerCycle, headlinePrize) are NOT here — they live with every other key parameter in CONFIG.features.fortuneWheel, src/config.js.",
   "groups": [
     [
       { "type": "coins",   "amount": 30,  "freeWeight": 30, "adWeight": 20 },

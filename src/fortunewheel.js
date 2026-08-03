@@ -8,13 +8,16 @@
 //
 // Persisted per-cycle state lives on the User model (user.fortuneWheel: group /
 // day / spinsUsed / won / seen); grants go through user.credit / user.grantBooster
-// so they autosave and refresh the HUD counters live. The prize table + the two
-// global constants come from assets/config/turntable.json (passed in as cfg), so
-// nothing here is hardcoded — the slice count is built from the active group.
+// so they autosave and refresh the HUD counters live. Nothing here is hardcoded:
+// the PRIZE TABLE comes from assets/config/turntable.json (passed in as cfg) and
+// the slice count is built from the active group, while the feature's GATE and
+// PACING (unlock level, spins per cycle, headline prize) come from
+// CONFIG.features.fortuneWheel in src/config.js, alongside every other gate.
 
 import { tween, delay, easeInCubic, easeOutCubic, easeInOutQuad, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
 import { fitPanel } from "./layout.js";
+import { CONFIG } from "./config.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -44,11 +47,12 @@ export class FortuneWheelScene extends PIXI.Container {
     this.user = user;
     this.onBack = null;            // () => void — optional hook when the overlay closes
 
+    // Prize DATA from the JSON config; GATE + PACING from src/config.js.
     cfg = cfg || {};
     this.groups = Array.isArray(cfg.groups) ? cfg.groups : [];
-    this.unlockLevel = typeof cfg.unlockLevel === "number" ? cfg.unlockLevel : 5;
-    this.spinsPerCycle = typeof cfg.spinsPerCycle === "number" ? cfg.spinsPerCycle : 6;
-    this.headlinePrize = typeof cfg.headlinePrize === "string" ? cfg.headlinePrize : "lightning";
+    this.unlockLevel = CONFIG.features.fortuneWheel.unlockLevel;
+    this.spinsPerCycle = CONFIG.features.fortuneWheel.spinsPerCycle;
+    this.headlinePrize = CONFIG.features.fortuneWheel.headlinePrize;
 
     // Geometry.
     this._R = 240;

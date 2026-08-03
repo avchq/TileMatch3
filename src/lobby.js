@@ -163,7 +163,7 @@ export class LobbyScene extends PIXI.Container {
     });
   }
 
-  // The shop is a progression unlock (User.SHOP_UNLOCK_LEVEL): until it comes due
+  // The shop is a progression unlock (CONFIG.features.shop.unlockLevel): until it comes due
   // the pill loses its cart badge and ignores taps, staying a plain coin counter.
   _refreshShopGate() {
     this.coinPill.setShopEnabled(!this.user || this.user.isShopUnlocked());

@@ -130,7 +130,7 @@ export function makeCoinPill(user, onTap) {
   // counter: the cart badge goes away and the hit area shrinks back to the pill
   // (which then ignores taps entirely). Used by the first-run flow, where the
   // level's top bar shows nothing but the balance, and by the shop's own
-  // progression gate (User.SHOP_UNLOCK_LEVEL — passing level 2).
+  // progression gate (CONFIG.features.shop.unlockLevel — passing level 2).
   let shopEnabled = true;
   c.setShopEnabled = (on) => {
     const enabled = on !== false;

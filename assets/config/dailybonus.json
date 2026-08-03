@@ -1,6 +1,5 @@
 {
-  "_comment": "Daily Bonus prize pool. The claim popup shows three boxes; each box rolls one independent weighted draw from prizes[] before it's shown. type: coins|undo|wand|shuffle (this port's Hint helper is 'wand'). amount: coins amount or booster count. weight: relative chance (not a percentage) — a row's chance is its weight over the total. unlockLevel: lobby-button level gate (1 = available from the start).",
-  "unlockLevel": 1,
+  "_comment": "Daily Bonus PRIZE POOL. The claim popup shows three boxes; each box rolls one independent weighted draw from prizes[] before it's shown. type: coins|undo|wand|shuffle (this port's Hint helper is 'wand'). amount: coins amount or booster count. weight: relative chance (not a percentage) — a row's chance is its weight over the total. The feature's GATE (unlockLevel) is NOT here — it lives with every other key parameter in CONFIG.features.dailyBonus, src/config.js.",
   "prizes": [
     { "type": "shuffle", "amount": 2, "weight": 5 },
     { "type": "wand",    "amount": 2, "weight": 5 },

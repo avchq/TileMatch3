@@ -12,13 +12,15 @@
 // The ONLY persisted state is the day-key of the most recent claim
 // (user.dailyBonus.lastClaimDay); "has the calendar date changed since then?" is
 // the whole eligibility check. Grants go through user.credit / user.grantBooster
-// so they autosave and tick the HUD counters live. The prize pool + unlock level
-// come from assets/config/dailybonus.json (passed in as cfg) — nothing here is
-// hardcoded.
+// so they autosave and tick the HUD counters live. Nothing here is hardcoded: the
+// PRIZE POOL comes from assets/config/dailybonus.json (passed in as cfg) and the
+// feature's GATE (unlock level) from CONFIG.features.dailyBonus in src/config.js,
+// alongside every other gate.
 
 import { tween, delay, easeInCubic, easeOutCubic, easeInOutQuad, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
 import { fitPanel } from "./layout.js";
+import { CONFIG } from "./config.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -54,9 +56,10 @@ export class DailyBonusScene extends PIXI.Container {
     this.user = user;
     this.onBack = null;            // () => void — optional hook when the overlay closes
 
+    // Prize DATA from the JSON config; the GATE from src/config.js.
     cfg = cfg || {};
     this.prizes = Array.isArray(cfg.prizes) ? cfg.prizes : [];
-    this.unlockLevel = typeof cfg.unlockLevel === "number" ? cfg.unlockLevel : 1;
+    this.unlockLevel = CONFIG.features.dailyBonus.unlockLevel;
 
     // Test / runtime seams.
     this._todayOverride = null;    // force the day-key (rollover tests)

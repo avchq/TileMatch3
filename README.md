@@ -113,7 +113,8 @@ icon, so the row is familiar by the time it comes alive, but it is **dimmed and
 wears a 🔒 lock badge** and cannot be used: a tap plays a "nope", shakes the
 button and floats an **"Unlocks at Level N"** label above it. "Unlocks at level N"
 means the player has **cleared level N-1**. The schedule is a single table,
-`BOOSTER_UNLOCKS` in `src/user/User.js`.
+`boosters.unlocks` in the central config **`src/config.js`** (see Key parameters
+below).
 
 Once unlocked, a helper is drawn from a **limited inventory** stored on the player
 profile — a count **bubble** on the button shows how many uses remain and every use
@@ -159,8 +160,8 @@ both the lobby and the level HUD. You **earn 25 coins for clearing a level** (th
 win overlay shows the reward).
 
 The **shop is a progression unlock like the helpers**: it only opens up once the
-player has **passed level 2** (`SHOP_UNLOCK_LEVEL` = 3 in `src/user/User.js`,
-read as "available from level 3 onward"). Until then the pill is a plain coin
+player has **passed level 2** (`features.shop.unlockLevel` = 3 in
+**`src/config.js`**, read as "available from level 3 onward"). Until then the pill is a plain coin
 counter — it still shows the balance, but it loses its **shopping-cart badge** and
 ignores taps, in the lobby and in a level alike. Clearing level 2 lights it up
 **live**, with no reload. Afterwards, tapping the coin pill opens the **Shop**, which sells
@@ -255,15 +256,15 @@ On landing, the prize **flies to its top-bar counter**, which ticks up; the
 headline prize gets an extra highlight before it collects. After the last spin the
 wheel closes itself back to the lobby.
 
-The prize table and constants live in `assets/config/turntable.json` (groups of
-prizes, each with an `amount` and independent `freeWeight`/`adWeight`, plus
-`unlockLevel`, `spinsPerCycle`, and which prize `type` is the `headlinePrize`), so
-odds and pacing are tunable without touching code. Prize types map to this port's
+The prize table lives in `assets/config/turntable.json` (groups of prizes, each
+with an `amount` and independent `freeWeight`/`adWeight`), so odds are tunable
+without touching code; the feature's **gate and pacing** (`unlockLevel`,
+`spinsPerCycle`, and which prize `type` is the `headlinePrize`) sit with every
+other key parameter in **`src/config.js`** (`features.fortuneWheel`). Prize types map to this port's
 economy: `coins` → wallet, `undo`/`wand`/`shuffle` → boosters (the original's
 "Hint" is this game's **wand**), and `lightning` → a coins bonus (kept as the
-headline prize). **Note:** the shipped `unlockLevel` is **5**, but this port
-currently ships only **4** levels, so with the default the button won't appear in
-normal play until more levels exist — lower `unlockLevel` in the config to demo it.
+headline prize). **Note:** the shipped `unlockLevel` is **5** — lower
+`features.fortuneWheel.unlockLevel` in `src/config.js` to demo it sooner.
 
 ### Daily Bonus — a free once-a-day gift
 A second daily-return hook, separate from the wheel and **not** a login-streak
@@ -295,8 +296,9 @@ inventory, flying to its top-bar counter) and the popup closes.
 
 The prize pool lives in `assets/config/dailybonus.json` — a list of
 `{ type, amount, weight }` rows (`type`: `coins`/`undo`/`wand`/`shuffle`; the
-original's "Hint" is this port's **wand**) plus an `unlockLevel` (shipped as **1**,
-so it's available from the start). The draw is **weighted**, strongly favouring
+original's "Hint" is this port's **wand**); its `unlockLevel` (shipped as **1**, so
+it's available from the start) lives in **`src/config.js`**
+(`features.dailyBonus`). The draw is **weighted**, strongly favouring
 small coin amounts and rarely giving boosters — tune the odds by editing the
 weights, no code change.
 
@@ -376,8 +378,9 @@ python3 -m http.server 8099
   double-tap can't spend two charges. (An upgraded
   "super" wand tied to a win-streak meta shares the button but isn't built.)
   **Auto Complete** (`autoComplete()` / `_autoAvailable()`) is a **free** endgame
-  shortcut, not a booster: from `AUTO_MIN_LEVEL` (2) onward, when
-  `boardCount + tray.length ≤ 12` and no board tile
+  shortcut, not a booster: from `AUTO_MIN_LEVEL` (`config.js`
+  `progression.autoComplete.minLevel`, 2) onward, when
+  `boardCount + tray.length ≤ AUTO_MAX_TILES` (12) and no board tile
   is still covered, `_updateBoosters` swaps the three round helpers for a wide
   **Auto Complete** pill in the same row. Pressing it stages every remaining tile
   on `fxLayer`, gathers them into a pile, then flies each along a quadratic
@@ -492,7 +495,7 @@ python3 -m http.server 8099
   `LobbyScene._refreshShopGate` / `GameScene._applyFirstRunChrome` and on every
   `progress` change, so clearing level 2 lights the cart up live) and the guided
   first level, which withholds it on top of that. The coin reward for
-  a win is `COIN_WIN_REWARD` in `game.js` (`_win()`). (Spending coins on helpers is
+  a win is `economy.coinWinReward` in `src/config.js` (spent by `game.js` `_win()`). (Spending coins on helpers is
   done on-demand inside a level, not in the shop.)
 - `src/fortunewheel.js` is the `FortuneWheelScene` — the daily prize-wheel overlay
   (modeled on `ShopScene`: full-screen dim + centred panel + `easeOutBack` pop +
@@ -508,9 +511,10 @@ python3 -m http.server 8099
   over the not-yet-won pool (`freeWeight` on the free spin, `adWeight` after —
   never collapsed), animates to it (`_spinWheelTo`), then **grants on the fly's
   landing** (`user.credit`/`user.grantBooster`, so the top-bar counter ticks in
-  sync). The prize table + constants come from `assets/config/turntable.json`
+  sync). The prize table comes from `assets/config/turntable.json`
   (loaded in `main.js`, passed to the scene); a missing/failed config degrades to
-  no groups (button stays hidden). The lobby button, its animation (a slow rest-beat
+  no groups (button stays hidden). Its gate + pacing (`unlockLevel`,
+  `spinsPerCycle`, `headlinePrize`) are read straight from `src/config.js`. The lobby button, its animation (a slow rest-beat
   plus a wheel spin that fires both periodically and on hover — see
   `_startWheelSpin`), the NEW /
   free-spin badges, and its availability gate live in `src/lobby.js`
@@ -529,9 +533,10 @@ python3 -m http.server 8099
   no re-roll), animates the box open, and reveals the prize. `_double()` watches a
   stubbed rewarded ad (`_adResult` seam: `succeed`/`cancel`/`fail`) to double the
   amount; `_take(multiplier)` flies the icon to its HUD counter and grants on
-  landing (`user.credit`/`user.grantBooster`), then closes. The prize pool +
-  `unlockLevel` come from `assets/config/dailybonus.json`; a missing/failed config
-  degrades to an empty pool (button stays hidden). The lobby button, its animation
+  landing (`user.credit`/`user.grantBooster`), then closes. The prize pool comes
+  from `assets/config/dailybonus.json`; a missing/failed config degrades to an
+  empty pool (button stays hidden). Its `unlockLevel` gate is read straight from
+  `src/config.js`. The lobby button, its animation
   (a slow rest-beat, a periodic squashy hop, and a swell-plus-gift-wiggle on hover —
   see `_startDailyPulse`),
   and
@@ -628,6 +633,41 @@ python3 -m http.server 8099
     `tests/resize_overlap_test.py`.
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
+### Key parameters (`src/config.js`)
+Every **tuning knob** of the game — feature gates, unlock schedules, progression
+thresholds and economy amounts — lives in **one file**, `src/config.js`, exported
+as a single frozen `CONFIG` object with a paragraph of explanation on each value.
+**Any new parameter goes there**: modules read config, they never define it. The
+sections are:
+
+| Section | What's in it |
+| --- | --- |
+| `progression` | `tutorialLevel` (which level opens "How To Play" + the guided opening) and `autoComplete.minLevel` / `.maxTiles` (the window the free Auto Complete button is offered in) |
+| `features` | one gate per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel` |
+| `boosters` | `kinds`, the `startingInventory` of a new account, and `unlocks` — the helper → `{ level, grant }` schedule |
+| `economy` | `currencies`, the `startingWallet`, and `coinWinReward` (the only free coin faucet) |
+| `board` | `traySlots` — the tray capacity, the core difficulty dial |
+| `persistence` | `saveDebounceMs` — the autosave debounce |
+
+Every `unlockLevel` reads **"available from level N onward"**, i.e. it opens once
+the player has *cleared* level N-1; gates are derived from `progress.completed`,
+never stored, so a QA jump to a later level is honoured with nothing to repair.
+
+Two kinds of value deliberately stay **out** of it:
+- **Layout/visual constants** (panel sizes, slot pitch, colours, tween
+  durations) — they belong next to the scene that draws them.
+- **Large data tables**, which stay as JSON under `assets/config/` so they can be
+  re-tuned without touching source at all: `levels.json` (the level table),
+  `prices.json` (coin prices), `turntable.json` (wheel prize groups + odds),
+  `dailybonus.json` (the weighted prize pool). Those files hold **prize/level
+  data only** — the *gates and pacing* around them are in `config.js`.
+
+It is a JS module rather than a fifth JSON file for two reasons: JSON has no
+comments (and these parameters are useless without them), and some values are
+needed **synchronously** — `User.migrate()` reads the unlock schedule while
+rehydrating a saved profile, before any `fetch` could have resolved. With no
+build step it is still just a data file you edit and reload.
+
 ### Levels (`assets/config/levels.json` + `src/levelConfig.js`)
 Every level is declared in **one place** — the JSON array in
 `assets/config/levels.json` (a tunable data config alongside `prices.json` /
@@ -685,13 +725,13 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   **helper/booster inventory** (`boosters` — a keyed map of
   `undo`/`shuffle`/`wand`… → remaining uses, mirroring the wallet:
   `boosterCount`/`hasBooster`/`grantBooster`/`useBooster`; a new account is awarded
-  **none**), the helper **unlock schedule** (`BOOSTER_UNLOCKS`, an exported table of
-  helper → `{ level, grant }`: `boosterUnlockLevel(kind)` and
+  **none**), the helper **unlock schedule** (`CONFIG.boosters.unlocks` in `src/config.js`, a
+  table of helper → `{ level, grant }`: `boosterUnlockLevel(kind)` and
   `isBoosterUnlocked(kind)` — the latter derived from `completed`, so a jump
   straight to a later level is honoured with no bookkeeping to repair — plus
   `boosterUnlocks`, the list of helpers whose one-time grant has already been paid.
   `completeLevel()` calls `_grantPendingUnlocks()`, which is what pays it out, once),
-  the **shop** gate (`SHOP_UNLOCK_LEVEL` + `isShopUnlocked()`, derived from
+  the **shop** gate (`CONFIG.features.shop.unlockLevel` + `isShopUnlocked()`, derived from
   `completed` the same way and with nothing to grant — it only decides whether the
   coin pill offers the store),
   `settings` (`music`, `sound`), and the **Fortune Wheel**
@@ -763,13 +803,14 @@ object and writes changes back to it.
 JS/
   index.html
   vendor/pixi.min.js
+  src/config.js             # KEY PARAMETERS: feature gates, unlocks, economy
   src/{main,splash,game,lobby,settings,shop,fortunewheel,dailybonus,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
     config/levels.json      # the level table: {background,data,types,preload?} per level
     config/prices.json      # coin prices: in-level helper buys + the Out-of-Moves continue
-    config/turntable.json   # Fortune Wheel: prize groups + odds, unlock level, spins/cycle
-    config/dailybonus.json  # Daily Bonus: weighted prize pool + unlock level
+    config/turntable.json   # Fortune Wheel prize groups + odds (gate/pacing: src/config.js)
+    config/dailybonus.json  # Daily Bonus weighted prize pool (gate: src/config.js)
     levels/level{1..13}.json
     bg/*.jpg
     audio/*.mp3

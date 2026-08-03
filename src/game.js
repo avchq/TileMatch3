@@ -5,29 +5,24 @@ import { makeCoinPill, makeCoinIcon } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
 import { buildColumnBackground } from "./layout.js";
 import { HowToPlayPopup } from "./tutorial.js";
+import { CONFIG } from "./config.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
-// Coins awarded for completing a level — the free source of coins that seeds the
-// shop economy (packs are the paid source). A plain const, trivially tunable.
-const COIN_WIN_REWARD = 25;
+// ---- Tunables (src/config.js) ---------------------------------------------
+// Aliased here so the code below reads the same as it always has; config.js is
+// where each of them is explained and where they are edited.
+const COIN_WIN_REWARD = CONFIG.economy.coinWinReward;   // coins paid for a win
+const AUTO_MIN_LEVEL = CONFIG.progression.autoComplete.minLevel;  // no Auto Complete below this level
+const AUTO_MAX_TILES = CONFIG.progression.autoComplete.maxTiles;  // …nor above this many tiles left
+const TUTORIAL_LEVEL = CONFIG.progression.tutorialLevel; // level that opens "How To Play" + the guide
+const TRAY_SLOTS = CONFIG.board.traySlots;               // tray capacity — fill it with no match and you lose
 
-// Auto Complete is withheld on the very first level: that level exists to teach
-// the core loop (see the guided opening in loadLevel), and a free "finish it for
-// me" shortcut would let a new player skip the lesson. It joins the helper row
-// from level 2 onward.
-const AUTO_MIN_LEVEL = 2;
-
-// The "How To Play" popup is tied to being on THIS level, not to being a new
-// player: it opens on every entry into level 1 (see _showTutorial). In normal
-// linear play level 1 is played once, so it stays a first-session experience.
-const TUTORIAL_LEVEL = 1;
-
+// ---- Layout (presentation, deliberately NOT in config.js) ------------------
 const CELL = 88;          // tile footprint in board units (px at scale 1)
 const TILE_DRAW = 96;     // drawn tile size (slightly larger than cell for overlap)
 const LIFT = 7;           // per-layer vertical lift for the 3D-stack look
-const TRAY_SLOTS = 7;
 const SLOT = 84;          // default tray slot size, before a level sizes it to fit
 const SLOT_GAP = 6;       // horizontal gap between tray slots
 const SLOT_PAD = 18;      // padding between the slot row and the tray panel edge
@@ -253,15 +248,15 @@ export class GameScene extends PIXI.Container {
     if (c && !c.destroyed) { c.parent && c.parent.removeChild(c); c.destroy({ children: true }); }
   }
 
-  // Auto Complete becomes available only in a trivially-solvable endgame: a small
-  // number of tiles left (≤ 4 easy triples) with NONE still covered, so every
-  // remaining tile is directly reachable. The remaining count is always a
-  // multiple of 3 (each clear removes exactly 3), so this can never grant a win
-  // over a genuinely unmatchable leftover. Never on level 1 (AUTO_MIN_LEVEL) —
-  // the teaching level is played by hand, all the way to the win.
+  // Auto Complete becomes available only in a trivially-solvable endgame: at most
+  // AUTO_MAX_TILES left with NONE still covered, so every remaining tile is
+  // directly reachable. The remaining count is always a multiple of 3 (each clear
+  // removes exactly 3), so this can never grant a win over a genuinely
+  // unmatchable leftover. Never below AUTO_MIN_LEVEL — the teaching level is
+  // played by hand, all the way to the win. Both bounds: src/config.js.
   _autoAvailable() {
     return this.levelNum >= AUTO_MIN_LEVEL && !this.locked && this.boardCount > 0
-      && (this.boardCount + this.tray.length) <= 12
+      && (this.boardCount + this.tray.length) <= AUTO_MAX_TILES
       && !this.tiles.some((t) => !t.inTray && !t.matched && t.aliveCovers > 0);
   }
 
@@ -688,7 +683,7 @@ export class GameScene extends PIXI.Container {
   // counter only — no settings cog, no shop — and there is no Back button, so the
   // level can't be left before it's played.
   // The shop affordance has a gate of its own on top of that (the shop is a
-  // progression unlock, see User.SHOP_UNLOCK_LEVEL), so the cart appears later
+  // progression unlock, see CONFIG.features.shop.unlockLevel), so the cart appears later
   // than the rest of the chrome comes back.
   _applyFirstRunChrome() {
     const full = !this._firstRun;

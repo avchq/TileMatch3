@@ -281,6 +281,21 @@ Only `howtoplay_test.py` leaves it open.
   (`dailyBonusState`, `openDailyBonus`, `pickDailyBox`, `takeDailyBonus`,
   `doubleDailyBonus`, `forceDailyPrize`, `setDailyAdResult`, `setDailyToday`).
 
+### Key parameters
+
+- **`config_test.py`** — the central tuning config (`src/config.js`, exposed as
+  `window.__game.config()`). Asserts it ships the intended values (the `EXPECT`
+  table at the top of the file mirrors `config.js` — re-balancing means editing
+  both, on purpose) and is deeply **frozen**; that the **live game** reads them
+  rather than a copy that drifted (a new profile's wallet/inventory equal the
+  configured starting values, each helper's unlock level and one-time grant match
+  the schedule, the shop/wheel/daily gates open exactly at their `unlockLevel`,
+  the wheel offers `spinsPerCycle` spins, the tray lays out `traySlots` slots,
+  Auto Complete is never offered outside its `minLevel`/`maxTiles` window, and a
+  win pays exactly `coinWinReward`); and that there is **no second source** — the
+  JSON prize tables no longer carry the gates, and the modules the constants came
+  from derive them from `CONFIG` instead of re-declaring a literal.
+
 ### User profile & persistence
 
 - **`user_test.py`** — a fresh profile has the expected defaults (platform, a
