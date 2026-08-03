@@ -33,6 +33,10 @@ try:
         # locked (see firstlevel_test.py). Record a level-5 clear so the helper row
         # below is the normal one, and level 1 is an ordinary replay.
         page.evaluate("window.__game.completeLevel(5); window.__game.flushSave();")
+        # Those helpers are unlocked but untaught, so entering a level would open a
+        # coached first use and park the board (boostercoach_test.py owns it). This
+        # test drives full level descents — take the lesson as read.
+        page.evaluate("window.__game.markBoosterCoached('all')")
         time.sleep(0.5)
 
         def astate(): return page.evaluate("window.__game.autoState()")

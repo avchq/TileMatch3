@@ -606,6 +606,31 @@ async function boot() {
     },
     // Text of the floating "Unlocks at Level N" label, "" when none is showing.
     boosterHint: () => (scene._boosterHint ? scene._boosterHint.__text : ""),
+    // ---- the coached first use of a helper ----
+    // The modal that dims the level and lifts one helper button out of the dim on
+    // the level it unlocks. Shaped zero object when none is up, like tutorialState.
+    boosterCoachState: () => {
+      const c = scene._coach;
+      if (!c || c.destroyed) {
+        return { visible: false, kind: "", caption: "", btnX: 0, btnY: 0, dimW: 0, dimH: 0 };
+      }
+      return c.state();
+    },
+    // The ONE tap the coaching allows, through the real pointer path — so it runs
+    // the actual helper, exactly as a player's tap would.
+    pressCoachedBooster: () => scene._coach && scene._coach.btn.emit("pointertap"),
+    // Tap the dim. Unlike the How To Play popup this must NOT dismiss anything —
+    // there is no way out of the coaching but using the helper.
+    tapCoachDim: () => scene._coach && scene._coach.dim.emit("pointertap"),
+    // Has this helper already had its coached first use? (persisted on the profile)
+    boosterCoached: (kind) => user.isBoosterCoached(kind),
+    // Mark coaching as already seen without playing it — "all" for every helper.
+    // Tests that need ordinary unlocked helpers use this after completeLevel(),
+    // since an unlocked-but-untaught helper opens a modal on the next level.
+    markBoosterCoached: (kind) => {
+      const kinds = kind === "all" ? CONFIG.boosters.kinds : [kind];
+      for (const k of kinds) user.markBoosterCoached(k);
+    },
     // ---- out-of-moves / continue overlay ----
     // Coin price to continue a lost round (from prices.json "continue"; null if
     // unconfigured -> Continue always falls back to the free ad tier).

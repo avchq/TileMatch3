@@ -32,6 +32,10 @@ try:
         # GUIDED level 1 that plays two moves of its own (see firstlevel_test.py),
         # which would collide with this test filling the tray by hand.
         page.evaluate("window.__game.completeLevel(5)")
+        # Unlocked-but-untaught helpers open a coached first use on the next level
+        # entry (boostercoach_test.py), which would park the board this test fills
+        # by hand. Take the lesson as read.
+        page.evaluate("window.__game.markBoosterCoached('all')")
         time.sleep(0.2)
 
         def st():      return page.evaluate("window.__game.state()")

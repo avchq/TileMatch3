@@ -108,6 +108,10 @@ try:
         page.reload()
         page.wait_for_function("window.__game && window.__game.scene", timeout=20000)
         page.evaluate("window.__game.completeLevel(5); window.__game.flushSave();")
+        # Unlocked-but-untaught helpers open a coached first use on the next level
+        # entry, which lifts a helper button out of the HUD (boostercoach_test.py
+        # owns that). The overlap sweep wants the ordinary helper row.
+        page.evaluate("window.__game.markBoosterCoached('all')")
 
         for (vw, vh) in SIZES:
             tag = f"{vw}x{vh}"

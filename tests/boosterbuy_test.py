@@ -43,8 +43,13 @@ try:
         # up to the 3 this test's depletion walk expects. See boosterunlock_test.
         page.evaluate("window.__game.completeLevel(5)")
         time.sleep(0.2)
-        page.evaluate("window.__game.grantBooster('shuffle', 2)")
+        grant = page.evaluate("window.__game.config()")["boosters"]["unlocks"]["shuffle"]["grant"]
+        page.evaluate(f"window.__game.grantBooster('shuffle', {3 - grant})")
         time.sleep(0.1)
+        # Unlocked but untaught helpers open a coached first use on the next level
+        # entry (boostercoach_test.py), which parks the board. Not this test's
+        # subject — take the lesson as read.
+        page.evaluate("window.__game.markBoosterCoached('all')")
 
         page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.7)

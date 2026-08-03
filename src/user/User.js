@@ -6,7 +6,7 @@
 
 import { CONFIG } from "../config.js";
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 // Every tunable this model reads — the starting wallet and booster inventory,
 // the helper unlock schedule and the shop's gate — lives in src/config.js,
@@ -35,6 +35,12 @@ const defaults = () => ({
   // bookkeeping so a grant can't be collected twice — whether a helper is
   // *locked* is derived from progress (see isBoosterUnlocked).
   boosterUnlocks: [],
+  // Helper codes whose COACHED FIRST USE has already been played (see
+  // CONFIG.boosters.coach and src/boostercoach.js). Same shape and spirit as
+  // boosterUnlocks above — a one-time, idempotent record — but a separate list
+  // because the two happen at different moments: the grant is paid the instant
+  // the gate opens, the lesson waits until the player is actually in a level.
+  boosterCoach: [],
   settings: { music: true, sound: true },
   // Fortune Wheel per-cycle state (see src/fortunewheel.js). group: active prize
   // group (1-based; 0 = never cycled). day: the day-key (YYYY-MM-DD) of the
@@ -63,6 +69,7 @@ export class User {
     this.boosters = { ...d.boosters, ...(data.boosters || {}) };
     // An array, so it can't ride the shallow sub-object merge above.
     this.boosterUnlocks = (data.boosterUnlocks || d.boosterUnlocks).slice();
+    this.boosterCoach = (data.boosterCoach || d.boosterCoach).slice();
     this.settings = { ...d.settings, ...(data.settings || {}) };
     this.fortuneWheel = { ...d.fortuneWheel, ...(data.fortuneWheel || {}) };
     this.dailyBonus = { ...d.dailyBonus, ...(data.dailyBonus || {}) };
@@ -172,6 +179,16 @@ export class User {
     }
   }
 
+  // ---- booster coaching (the guided first use of each helper) ---------------
+  /** Has this helper's coached first use already been played? */
+  isBoosterCoached(kind) { return this.boosterCoach.includes(kind); }
+  /** Record that it has. Idempotent — the lesson happens once, ever. */
+  markBoosterCoached(kind) {
+    if (!kind || this.isBoosterCoached(kind)) return;
+    this.boosterCoach.push(kind);
+    this._emit("boosters");
+  }
+
   // ---- fortune wheel (daily prize wheel per-cycle state) --------------------
   wheelGroup() { return this.fortuneWheel.group || 0; }
   wheelDay() { return this.fortuneWheel.day || ""; }
@@ -249,6 +266,7 @@ export class User {
     this.wallet = { ...d.wallet };
     this.boosters = { ...d.boosters };
     this.boosterUnlocks = d.boosterUnlocks.slice();
+    this.boosterCoach = d.boosterCoach.slice();
     this.settings = { ...d.settings };
     this.fortuneWheel = { ...d.fortuneWheel };
     this.dailyBonus = { ...d.dailyBonus };
@@ -271,6 +289,7 @@ export class User {
       wallet: { ...this.wallet },
       boosters: { ...this.boosters },
       boosterUnlocks: this.boosterUnlocks.slice(),
+      boosterCoach: this.boosterCoach.slice(),
       settings: { ...this.settings },
       fortuneWheel: { ...this.fortuneWheel, won: (this.fortuneWheel.won || []).slice() },
       dailyBonus: { ...this.dailyBonus },
@@ -317,6 +336,14 @@ export class User {
       o.boosterUnlocks = unlocked;
       o.version = 5;
     }
+    // v5 -> v6: adds boosterCoach, the record of which helpers have had their
+    // coached first use. It is left EMPTY on purpose — that is the whole point.
+    // An existing player is already past some of these gates, so seeding it the
+    // way v4->v5 seeded boosterUnlocks would mean they never meet the coaching
+    // at all. Empty means every helper they have unlocked is still owed its
+    // lesson, and gets it on the next level played (one per level, lowest
+    // unlock first — see GameScene._maybeCoachBooster).
+    if (o.version === 5) o.version = 6;
     return o;
   }
 }

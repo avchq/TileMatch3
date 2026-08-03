@@ -5,6 +5,7 @@ import { makeCoinPill, makeCoinIcon } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
 import { buildColumnBackground } from "./layout.js";
 import { HowToPlayPopup } from "./tutorial.js";
+import { BoosterCoach } from "./boostercoach.js";
 import { CONFIG } from "./config.js";
 
 const DESIGN_W = 750;
@@ -18,6 +19,8 @@ const AUTO_MIN_LEVEL = CONFIG.progression.autoComplete.minLevel;  // no Auto Com
 const AUTO_MAX_TILES = CONFIG.progression.autoComplete.maxTiles;  // …nor above this many tiles left
 const TUTORIAL_LEVEL = CONFIG.progression.tutorialLevel; // level that opens "How To Play" + the guide
 const TRAY_SLOTS = CONFIG.board.traySlots;               // tray capacity — fill it with no match and you lose
+const BOOSTER_UNLOCKS = CONFIG.boosters.unlocks;         // helper -> { level, grant }
+const COACH = CONFIG.boosters.coach;                     // the guided first use of each helper
 
 // ---- Layout (presentation, deliberately NOT in config.js) ------------------
 const CELL = 88;          // tile footprint in board units (px at scale 1)
@@ -100,6 +103,8 @@ export class GameScene extends PIXI.Container {
     this._guideRun = 0;     // generation token: invalidates an in-flight guided opening
     this._tutorial = null;  // the "How To Play" popup, while it is up
     this._boosterHint = null; // the floating "Unlocks at Level N" label, when shown
+    this._coach = null;       // the coached first use of a helper, while it is up
+    this._coachPending = null; // a helper owed its coaching, waiting for the first collect
     this.onLevelComplete = null; // (levelNum) => void — set by the host (main.js)
     this.onSettings = null;      // () => void — open the settings screen
     this.onShop = null;          // () => void — open the shop screen
@@ -248,6 +253,84 @@ export class GameScene extends PIXI.Container {
     if (c && !c.destroyed) { c.parent && c.parent.removeChild(c); c.destroy({ children: true }); }
   }
 
+  // ---- the coached first use of a helper -----------------------------------
+
+  // Which helper (if any) is owed its coaching right now: unlocked, but never
+  // taught. More than one can be owed at once — a save that crossed several
+  // gates before this feature existed, or a QA jump — so the lowest unlock level
+  // goes first and the rest wait for later levels. One lesson per level entry.
+  _owedCoach() {
+    if (!COACH.enabled || !this.user) return null;
+    let best = null;
+    for (const [kind, u] of Object.entries(BOOSTER_UNLOCKS)) {
+      if (!this.user.isBoosterUnlocked(kind)) continue;
+      if (this.user.isBoosterCoached(kind)) continue;
+      if (!best || u.level < best.level) best = { kind, level: u.level };
+    }
+    return best && best.kind;
+  }
+
+  // Is there actually a move for this helper to make? The coaching has no
+  // dismissal path — using the helper is the only way out — so opening one over
+  // a board where the helper would no-op would strand the player behind a modal
+  // that can never close. When it can't act, the lesson simply stays owed and
+  // comes round again on the next level.
+  _coachCanAct(kind) {
+    if (kind === "undo") return this.history.length > 0;
+    if (kind === "wand") { const p = this._wandPick(); return !!(p && p.tiles.length); }
+    if (kind === "shuffle") return this.tiles.some((t) => !t.matched && !t.inTray);
+    return false;
+  }
+
+  // Called once the board has finished building. Undo is the odd one out: there
+  // is nothing to undo on a fresh board, so it is only ARMED here and opens from
+  // _collect once the player has actually collected something.
+  _maybeCoachBooster() {
+    const kind = this._owedCoach();
+    if (!kind) return;
+    if (kind === "undo") { this._coachPending = "undo"; return; }
+    if (!this._coachCanAct(kind)) return;
+    this._openCoach(kind);
+  }
+
+  // Dim the level and lift one helper button out of the dim. The rest of the
+  // level is parked in a "guiding" state until the player uses it (see the
+  // `_coach` guards in _onTapTile / undo / wand / reshuffle / autoComplete).
+  _openCoach(kind) {
+    if (this._coach || !this.user) return;
+    this._coachPending = null;
+    const btn = { undo: this.undoBtn, shuffle: this.shuffleBtn, wand: this.wandBtn }[kind];
+    const badge = { undo: this.undoBadge, shuffle: this.shuffleBadge, wand: this.wandBadge }[kind];
+    if (!btn || !badge) return;
+    const coach = new BoosterCoach(this.app, kind, btn, badge);
+    this.tutorialLayer.addChild(coach);
+    coach.layout(this.viewW, this.viewH);
+    this._coach = coach;
+  }
+
+  // Take the coaching down and give the button back to the helper row. `taught`
+  // is true only on the path that actually used the helper — walking away (a
+  // level reload, the Back button) leaves it owed, so it fires again next time.
+  _closeCoach(taught = false) {
+    const coach = this._coach;
+    this._coach = null;
+    this._coachPending = null;
+    if (!coach) return;
+    if (taught && this.user) this.user.markBoosterCoached(coach.kind);
+    coach.close();
+    this._updateBoosters();
+  }
+
+  // The gate every helper opens with while a coaching is up: the coached one is
+  // let through (and marked taught), everything else is inert. Returns true when
+  // the press should be refused.
+  _blockedByCoach(kind) {
+    if (!this._coach) return false;
+    if (this._coach.kind !== kind) return true;
+    this._closeCoach(true);
+    return false;
+  }
+
   // Auto Complete becomes available only in a trivially-solvable endgame: at most
   // AUTO_MAX_TILES left with NONE still covered, so every remaining tile is
   // directly reachable. The remaining count is always a multiple of 3 (each clear
@@ -320,6 +403,9 @@ export class GameScene extends PIXI.Container {
     }
     // The tutorial popup re-centres itself (its dim covers the whole view).
     if (this._tutorial && !this._tutorial.destroyed) this._tutorial.layout(DW, DH);
+    // The coaching holds a helper button on loan, so it has to put it back on the
+    // row at the new offsets rather than leaving it where the old ones put it.
+    if (this._coach && !this._coach.destroyed) this._coach.layout(DW, DH);
     // Reflow an open win/lose overlay to the new centre.
     if (this.overlayLayer.children.length && this._overlayGroup) {
       this._overlayGroup.position.set(DW / 2, DH / 2);
@@ -595,6 +681,9 @@ export class GameScene extends PIXI.Container {
     this._hideHand();
     this._closeTutorial(); // a popup from a previous load belongs to the old board
     this._clearBoosterHint();
+    // Any coaching from the previous board goes too, and stays owed — reloading
+    // out of a lesson is not the same as having had it.
+    this._closeCoach();
     this._buildBackground();
     this.overlayLayer.removeChildren();
     this.boardLayer.removeChildren();
@@ -632,6 +721,10 @@ export class GameScene extends PIXI.Container {
     // opening when it closes; every other level starts play straight away.
     if (levelNum === TUTORIAL_LEVEL) this._showTutorial();
     else if (this._firstRun) this._runFirstRunGuide();
+    // ...and on any other level, a helper that just came off its gate gets its
+    // coached first use here. Level 1 never reaches this branch, and nothing is
+    // owed there anyway — every helper is still locked.
+    else this._maybeCoachBooster();
   }
 
   // ---- the "How To Play" popup ---------------------------------------------
@@ -780,6 +873,7 @@ export class GameScene extends PIXI.Container {
     this._hideHand();
     this._closeTutorial();
     this._clearBoosterHint();
+    this._closeCoach();
     if (this.onExit) this.onExit();
   }
 
@@ -883,6 +977,9 @@ export class GameScene extends PIXI.Container {
 
   _onTapTile(t) {
     if (this.locked) return;
+    // While a coaching is up the level is parked: the dim already swallows real
+    // taps, and this stops the scripted ones (window.__game.solveTap()) too.
+    if (this._coach) return;
     if (!this._isFree(t)) {
       this._shake(t.container);
       return;
@@ -929,6 +1026,20 @@ export class GameScene extends PIXI.Container {
     this.audio.play("tile_bop");
     this._layoutTray();
     this._updateBoosters();
+
+    // Undo's coaching waits for exactly this moment — the first collected tile
+    // is the first thing there is to undo. The beat lets the tile land in the
+    // tray before the dim comes down over it.
+    if (this._coachPending === "undo") {
+      this._coachPending = null;
+      setTimeout(() => {
+        // Guarded like the guided opening (_runFirstRunGuide): the player can
+        // leave or reload the level inside this beat, and a lesson must never
+        // open on a board that is no longer on screen.
+        if (this._coach || this.destroyed || !this.visible) return;
+        if (this._owedCoach() === "undo" && this._coachCanAct("undo")) this._openCoach("undo");
+      }, COACH.undoDelayMs);
+    }
 
     // settle after the slide-in
     setTimeout(() => this._settle(), 190);
@@ -1024,6 +1135,7 @@ export class GameScene extends PIXI.Container {
 
   undo() {
     if (this.locked) return;
+    if (this._blockedByCoach("undo")) return;   // another helper is being taught
     if (this._rejectIfLocked("undo", this.undoBtn)) return; // not unlocked yet
     if (this.history.length === 0) return;      // nothing to undo
     // Undo is a helper: get one to spend via the acquisition ladder (own → buy with
@@ -1118,6 +1230,7 @@ export class GameScene extends PIXI.Container {
   // several sets shares this button but is out of scope here.)
   wand() {
     if (this.locked) return;                       // won/lost, or a wand animation in flight
+    if (this._blockedByCoach("wand")) return;      // another helper is being taught
     if (this._rejectIfLocked("wand", this.wandBtn)) return; // not unlocked yet
     if (!this.user) return;
     // Check there's a move to make BEFORE spending/buying, so we never charge for a
@@ -1256,7 +1369,7 @@ export class GameScene extends PIXI.Container {
   // _autoAvailable() holds (a trivially-solvable endgame). Locks input for the
   // whole sweep so a rapid double-tap can't launch it twice.
   async autoComplete() {
-    if (this.locked || this._autoRunning || !this._autoAvailable()) return;
+    if (this.locked || this._autoRunning || this._coach || !this._autoAvailable()) return;
     this.locked = true;
     this._autoRunning = true;
 
@@ -1348,6 +1461,7 @@ export class GameScene extends PIXI.Container {
   // Unlike restart(), the level is NOT rebuilt.
   reshuffle() {
     if (this.locked) return;
+    if (this._blockedByCoach("shuffle")) return;   // another helper is being taught
     if (this._rejectIfLocked("shuffle", this.shuffleBtn)) return; // not unlocked yet
     const boardTiles = this.tiles.filter((t) => !t.matched && !t.inTray);
     if (boardTiles.length === 0) return;

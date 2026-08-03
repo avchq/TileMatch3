@@ -93,9 +93,15 @@ the first-run flow before they can drive the ordinary game:
 - needing the **lobby** on boot (`lobby`, `back`, `settings`, `cog_corner`, `bgm`)
   → `window.__game.completeLevel(1)` + `flushSave()`, then reload;
 - needing **unlocked helpers** or an unguided level 1 (`booster`, `boosterbuy`,
-  `undo`, `wand`, `reshuffle`, `continue`, `coins`, `auto`, `resize_overlap`) →
-  `completeLevel(5)`, past every helper's unlock level. Without it the guided
-  level 1 plays two moves of its own and every helper refuses to act.
+  `undo`, `wand`, `reshuffle`, `continue`, `coins`, `auto`, `resize_overlap`,
+  `config`) → `completeLevel(5)`, past every helper's unlock level. Without it the
+  guided level 1 plays two moves of its own and every helper refuses to act.
+  **Follow it with `markBoosterCoached('all')`.** Clearing those levels leaves
+  every helper unlocked but never *taught*, and an untaught helper opens its
+  **coached first use** on the next level entry — a modal that dims the board,
+  lifts one helper button out of the HUD and blocks all other input until it is
+  used. That is `boostercoach_test.py`'s subject; for every other test it is an
+  unexpected modal parked over the board, so take the lesson as read.
 
 **Note:** **every** entry into level 1 — a boot into it, `startLevel(1)`, or the
 lose overlay's **Replay** — opens the modal **"How To Play"** popup, which locks the
@@ -192,14 +198,27 @@ Only `howtoplay_test.py` leaves it open.
   levels differ, and the fixed board is still solvable to a win.
 - **`boosterunlock_test.py`** — helper **progression**: a new account is awarded
   nothing and every helper is locked; each then unlocks at its own level (Undo 2,
-  Reshuffle 4, Wand 5 — the `UNLOCKS` table at the top of the file mirrors
-  `BOOSTER_UNLOCKS`, and is the only place the schedule is spelled out) and is
+  Wand 3, Reshuffle 5 — the `UNLOCKS` table at the top of the file mirrors
+  `CONFIG.boosters.unlocks`, and is the only place the schedule is spelled out) and is
   granted its stock right then, and only that helper. The grant is **one-time** — spend it,
   clear more levels, it stays spent — and both the inventory and the paid-out
   record (`boosterUnlocks`) survive a reload. `reset()` puts everything back behind
-  its gate. Also covers the **v4→v5 migration**: an existing save keeps the stock it
+  its gate. Also covers the **v4→v5 migration** (an existing save keeps the stock it
   was given up front, is not handed a second grant, and has anything still locked
-  zeroed.
+  zeroed) and **v5→v6**, which adds `boosterCoach` and leaves it deliberately
+  **empty** — a migrated save is owed every coached first use.
+- **`boostercoach_test.py`** — the **coached first use** each helper gets on the
+  level it unlocks: the screen dims, that one button is lifted out of the HUD with
+  its caption, and everything else goes inert. Wand and Reshuffle coach the moment
+  the board is built; **Undo waits for the first collected tile** (there is nothing
+  to undo before that). There is **no way out but using the helper** — tapping the
+  dim, tapping tiles and pressing the other two helpers all do nothing — and the
+  tap is a **genuine** use: stock drops by one and the helper really acts (undo
+  returns the tile, wand clears a triple, reshuffle re-deals without losing tiles).
+  Each helper is coached **once, ever**, and the record survives a reload; leaving
+  mid-lesson restores the lifted button and leaves it still owed. A profile that
+  jumped **past** every gate is owed all three and gets them one per level, lowest
+  unlock level first. Level 1 keeps its own guided opening, untouched.
 - **`booster_test.py`** — the Undo/Shuffle helpers draw from an inventory on the
   user record: a fresh profile has **nothing** (helpers are locked), unlocking pays
   out the scheduled stock, each use decrements it and updates the count bubble, the

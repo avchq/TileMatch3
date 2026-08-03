@@ -44,6 +44,9 @@ try:
         assert inv == {"undo": 0, "shuffle": 0, "wand": 0}, inv
         page.evaluate("window.__game.completeLevel(5)")
         time.sleep(0.2)
+        # Unlocked-but-untaught helpers open a coached first use on the next level
+        # entry (boostercoach_test.py owns it); this test is about the inventory.
+        page.evaluate("window.__game.markBoosterCoached('all')")
         inv = boosters()
         print("AFTER unlocks:", inv)
         assert all(page.evaluate(f"window.__game.boosterUnlocked('{k}')") and inv[k] > 0

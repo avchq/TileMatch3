@@ -3,14 +3,16 @@ from playwright.sync_api import sync_playwright
 
 # Helper (booster) PROGRESSION. Boosters are not available in the first levels:
 # a new account is awarded none, and each helper unlocks at its own level —
-# Undo from level 2, Reshuffle from 4, Wand from 5 (BOOSTER_UNLOCKS in
-# src/user/User.js) — paying out its one-time stock the moment it unlocks, once
+# Undo from level 2, Wand from 3, Reshuffle from 5 (CONFIG.boosters.unlocks in
+# src/config.js) — paying out its one-time stock the moment it unlocks, once
 # and only once. "Unlocked at level N" means the player has cleared level N-1.
 # The in-level look/behaviour of a locked helper is covered by firstlevel_test.py;
-# the acquisition ladder for an UNLOCKED but empty helper by booster_test.py.
-# This table mirrors BOOSTER_UNLOCKS — retiming a helper there means editing it here.
+# the acquisition ladder for an UNLOCKED but empty helper by booster_test.py; and
+# the guided first use each helper gets when it unlocks by boostercoach_test.py.
+# This table mirrors the config — retiming a helper there means editing it here.
+# It must stay sorted by level: step 3 clears levels in order.
 
-UNLOCKS = [("undo", 2, 2), ("shuffle", 4, 1), ("wand", 5, 1)]  # kind, level, grant
+UNLOCKS = [("undo", 2, 2), ("wand", 3, 2), ("shuffle", 5, 2)]  # kind, level, grant
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
@@ -68,10 +70,16 @@ try:
             assert inv() == expect, (f"clearing level {level - 1} grants only {kind}", inv(), expect)
 
         # 4) The grant is one-time: spend it, clear more levels, and it stays spent.
+        # Every helper is unlocked but untaught by now, so a level entry would open
+        # a coached first use over the board (boostercoach_test.py owns that); this
+        # test is about the grants, so take the lesson as read.
+        page.evaluate("window.__game.markBoosterCoached('all')")
         page.evaluate("window.__game.startLevel(5)")
         time.sleep(0.6)
-        page.evaluate("window.__game.reshuffle()")   # spends the single shuffle
-        time.sleep(0.4)
+        shuffle_grant = dict((k, g) for k, _, g in UNLOCKS)["shuffle"]
+        for _ in range(shuffle_grant):               # spend the whole shuffle grant
+            page.evaluate("window.__game.reshuffle()")
+            time.sleep(0.4)
         assert page.evaluate("window.__game.boosterCount('shuffle')") == 0, \
             ("the reshuffle grant was spent", inv())
         complete(9)
@@ -99,6 +107,8 @@ try:
         print("AFTER RESET -> boosters:", prof["boosters"], "unlocks:", prof["boosterUnlocks"])
         assert prof["boosters"] == {"undo": 0, "shuffle": 0, "wand": 0}, prof["boosters"]
         assert prof["boosterUnlocks"] == [], prof["boosterUnlocks"]
+        assert prof["boosterCoach"] == [], ("reset clears the coaching record too",
+                                            prof["boosterCoach"])
         assert not any(unlocked(k) for k, _, _ in UNLOCKS), "reset re-locks every helper"
 
         # 7) Migration: an existing (v4) save keeps the stock it was given up front
@@ -118,15 +128,21 @@ try:
         prof = page.evaluate("window.__game.user()")
         print("MIGRATED v4 -> version:", prof["version"], "boosters:", prof["boosters"],
               "unlocks:", prof["boosterUnlocks"])
-        assert prof["version"] == 5, prof["version"]
-        # Cleared level 3 -> Undo (L2) and Reshuffle (L4) are reached, Wand (L5) is not.
-        assert unlocked("undo") is True and unlocked("shuffle") is True, prof
-        assert unlocked("wand") is False, prof
-        assert prof["boosters"] == {"undo": 3, "shuffle": 3, "wand": 0}, \
+        assert prof["version"] == 6, prof["version"]
+        # Cleared level 3 -> Undo (L2) and Wand (L3) are reached, Reshuffle (L5) is not.
+        assert unlocked("undo") is True and unlocked("wand") is True, prof
+        assert unlocked("shuffle") is False, prof
+        assert prof["boosters"] == {"undo": 3, "shuffle": 0, "wand": 3}, \
             ("owned stock kept for reached helpers, zeroed for the locked one", prof["boosters"])
-        assert sorted(prof["boosterUnlocks"]) == ["shuffle", "undo"], prof["boosterUnlocks"]
-        complete(4)   # reaches level 5 -> the Wand unlock is paid out now, once
-        assert page.evaluate("window.__game.boosterCount('wand')") == 1, inv()
+        assert sorted(prof["boosterUnlocks"]) == ["undo", "wand"], prof["boosterUnlocks"]
+        # v5->v6 leaves the coaching record EMPTY on purpose: a save that was
+        # already past these gates is still owed every lesson, or the coaching
+        # would never reach an existing player at all.
+        assert prof["boosterCoach"] == [], \
+            ("a migrated save is owed every coached first use", prof["boosterCoach"])
+        shuffle_grant = dict((k, g) for k, _, g in UNLOCKS)["shuffle"]
+        complete(4)   # reaches level 5 -> the Reshuffle unlock is paid out now, once
+        assert page.evaluate("window.__game.boosterCount('shuffle')") == shuffle_grant, inv()
         assert page.evaluate("window.__game.boosterCount('undo')") == 3, \
             ("an already-reached helper is not re-granted on a later win", inv())
 

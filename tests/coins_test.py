@@ -29,6 +29,9 @@ try:
         # GUIDED level 1 that plays two moves of its own (see firstlevel_test.py) —
         # this test drives level 1 itself and wants the ordinary board.
         page.evaluate("window.__game.completeLevel(5)")
+        # Unlocked-but-untaught helpers open a coached first use on the next level
+        # entry (boostercoach_test.py owns it); this test drives the board itself.
+        page.evaluate("window.__game.markBoosterCoached('all')")
         time.sleep(0.2)
 
         def coins():    return page.evaluate("window.__game.balance('coins')")

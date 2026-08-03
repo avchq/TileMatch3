@@ -41,10 +41,15 @@ try:
         assert wcount() == 0, wcount()
         page.evaluate("window.__game.completeLevel(5)")
         time.sleep(0.2)
-        assert wcount() == 1, ("unlocking the wand grants one", wcount())
-        page.evaluate("window.__game.grantBooster('wand', 2)")
+        grant = page.evaluate("window.__game.config()")["boosters"]["unlocks"]["wand"]["grant"]
+        assert wcount() == grant, ("unlocking the wand pays out its scheduled stock", wcount())
+        page.evaluate(f"window.__game.grantBooster('wand', {3 - grant})")
         time.sleep(0.1)
         assert wcount() == 3, wcount()
+        # Those helpers are unlocked but untaught, so the next level entry would
+        # open a coached first use and park the board (boostercoach_test.py owns
+        # that flow). This test is about the wand's mechanics — skip the lesson.
+        page.evaluate("window.__game.markBoosterCoached('all')")
 
         page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.7)

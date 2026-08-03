@@ -107,7 +107,7 @@ gives you a second chance instead of a dead end (see below). In-game
 
 **Helpers are not available in the first levels.** A new account is awarded
 **none of them**, and each one **unlocks at its own level** — **Undo** from level
-2, **Reshuffle** from 4, **Wand** from 5 — paying out a small starter stock the
+2, **Wand** from 3, **Reshuffle** from 5 — paying out **2 uses** the
 moment it unlocks (once, and only once). Until then the button still shows its
 icon, so the row is familiar by the time it comes alive, but it is **dimmed and
 wears a 🔒 lock badge** and cannot be used: a tap plays a "nope", shakes the
@@ -136,6 +136,41 @@ always yields a use. A **locked** one is greyed regardless: no amount of coins
 buys past a progression gate. The **coin prices** live
 in a JSON config (`assets/config/prices.json`) so they're tunable without touching
 code.
+
+#### The coached first use
+
+Unlocking a helper is only half the lesson — on its own, the button just stops
+being grey. So the first time each helper is available, the level **dims**, that
+one button is **lifted out of the dim** with a **caption** above it and a pulsing
+tap effect on top, and the rest of the game is parked:
+
+| Helper | Coached on level | Caption |
+| --- | --- | --- |
+| **Undo** | 2 | *"Undo the last move"* |
+| **Wand** | 3 | *"Auto match a group of tiles"* |
+| **Reshuffle** | 5 | *"Reset the remaining tiles in this level"* |
+
+While it is up **nothing else responds** — tiles, the other two helpers, Auto
+Complete — and there is **no way to dismiss it**: no OK button, and tapping the
+dim does nothing. The only way out is to use the helper, which is the point of
+it. The tap is **not a demo**: it runs the real helper on the real board and
+spends a charge through the ordinary ladder, so the undo genuinely rolls the last
+move back, the wand genuinely completes a triple, and the reshuffle genuinely
+re-deals.
+
+**Wand** and **Reshuffle** coach the instant the board finishes building.
+**Undo** waits for the **first collected tile** — there is nothing to undo before
+that — and appears a beat later. A helper that has **no move to make** is not
+coached at all that level (it would be a modal with no exit); the lesson simply
+stays owed.
+
+Each helper is coached **once, ever**, recorded on the profile as
+`user.boosterCoach`. Leaving the level mid-lesson doesn't count — it fires again
+next time. And a helper whose unlock level was **never played** (a QA jump, or a
+save that was already past the gate) is **still owed** its coaching and gets it on
+the next level played, one helper per level, lowest unlock level first. The
+feature can be switched off wholesale with `boosters.coach.enabled` in
+**`src/config.js`**.
 
 ### Out of Moves — a paid second chance
 When the 7-slot tray fills with no match left, a strictly **modal "Out of Moves"**
@@ -368,6 +403,21 @@ python3 -m http.server 8099
   the ladder can spend anything. A refusal plays `fail`, `_shake`s the button and
   floats an **"Unlocks at Level N"** pill (`_showBoosterHint`), replacing any hint
   already up.
+  The other side of that gate is the **coached first use** (`src/boostercoach.js`,
+  `BoosterCoach`). `loadLevel` ends with `_maybeCoachBooster()`, which asks
+  `_owedCoach()` for the lowest-unlock helper that is unlocked but not yet in
+  `user.boosterCoach`, checks `_coachCanAct(kind)` (never open a modal the helper
+  can't close), and opens the overlay on `tutorialLayer`. The overlay **reparents
+  the button and its badge** out of `hudBottom` so they sit above its dim, and
+  `close()` hands them back at their row coordinates; `layout()` re-derives that
+  position from `ox`/`oy`, so a resize mid-lesson keeps the button on its row.
+  `undo` is armed rather than opened, and fires from `_collect` after
+  `boosters.coach.undoDelayMs`. While `scene._coach` is set, `_onTapTile`,
+  `autoComplete()` and the two non-coached helpers return early; the coached one
+  passes through `_blockedByCoach(kind)`, which closes the lesson, marks it taught
+  and falls through to the real action — so the tap spends a charge and acts for
+  real. Teardown rides the same paths as the hand and the hint (`loadLevel`,
+  `_exit`), and leaving that way does **not** mark it taught.
   **Wand** (`wand()` / `_wandPick()`) completes exactly one triple. Over every
   colour that can still reach a triple, `_wandPick` ranks completions by (1) the
   **fewest covered/unavailable tiles used** — so available (free, top-layer)
@@ -644,7 +694,7 @@ sections are:
 | --- | --- |
 | `progression` | `tutorialLevel` (which level opens "How To Play" + the guided opening) and `autoComplete.minLevel` / `.maxTiles` (the window the free Auto Complete button is offered in) |
 | `features` | one gate per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel` |
-| `boosters` | `kinds`, the `startingInventory` of a new account, and `unlocks` — the helper → `{ level, grant }` schedule |
+| `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — and `coach` (`enabled`, `undoDelayMs`) for the guided first use |
 | `economy` | `currencies`, the `startingWallet`, and `coinWinReward` (the only free coin faucet) |
 | `board` | `traySlots` — the tray capacity, the core difficulty dial |
 | `persistence` | `saveDebounceMs` — the autosave debounce |
@@ -731,6 +781,10 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   straight to a later level is honoured with no bookkeeping to repair — plus
   `boosterUnlocks`, the list of helpers whose one-time grant has already been paid.
   `completeLevel()` calls `_grantPendingUnlocks()`, which is what pays it out, once),
+  the **coaching** record (`boosterCoach` + `isBoosterCoached`/`markBoosterCoached`
+  — same one-time, idempotent shape as `boosterUnlocks`, but a separate list
+  because the grant is paid the instant the gate opens while the lesson waits
+  until the player is actually in a level),
   the **shop** gate (`CONFIG.features.shop.unlockLevel` + `isShopUnlocked()`, derived from
   `completed` the same way and with nothing to grant — it only decides whether the
   coin pill offers the store),
@@ -741,7 +795,7 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   just `lastClaimDay`, the day-key of the most recent claim, mutated via
   `recordDailyClaim`, emitting a `dailyBonus` domain). It emits a domain-tagged
   change event on every mutation and (de)serializes via `toJSON`/`fromJSON` with a
-  `version` for forward migrations (currently **v5** — v1→v2 added `fortuneWheel`,
+  `version` for forward migrations (currently **v6** — v1→v2 added `fortuneWheel`,
   v2→v3 added `dailyBonus`; both fill from defaults for older blobs, so each step
   just stamps the version. v3→v4 added `progress.completed`, **derived** as
   `level - 1` — levels only ever advanced on a win — so an existing player is never
@@ -750,7 +804,10 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   front, so it seeds `boosterUnlocks` with everything they have already reached —
   otherwise their next win would pay out a second grant on top — and **zeroes** the
   stock of anything still locked, since a v4 profile that never cleared a level was
-  carrying helpers it should not have).
+  carrying helpers it should not have. v5→v6 added `boosterCoach` and deliberately
+  leaves it **empty**: an existing player is already past some of these gates, so
+  seeding it the way v4→v5 seeded `boosterUnlocks` would mean they never meet the
+  coaching at all — empty means every helper they own is still owed its lesson).
 - **`adapters.js`** — a small **async** storage/identity contract
   (`identify` / `load` / `save` / `clear`). `LocalStorageAdapter` is the working
   default on the open web. `FacebookInstantAdapter` / `TelegramAdapter` /

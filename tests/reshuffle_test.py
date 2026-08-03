@@ -50,6 +50,9 @@ try:
         page.evaluate("window.__game.completeLevel(5)")
         time.sleep(0.2)
         page.evaluate("window.__game.grantBooster('shuffle', 999)")
+        # Unlocked-but-untaught helpers open a coached first use on the next level
+        # entry (boostercoach_test.py owns it); this test is about the mechanics.
+        page.evaluate("window.__game.markBoosterCoached('all')")
 
         page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
         time.sleep(0.6)

@@ -27,8 +27,9 @@ EXPECT = {
         "kinds": ["undo", "shuffle", "wand"],
         "startingInventory": {"undo": 0, "shuffle": 0, "wand": 0},
         "unlocks": {"undo": {"level": 2, "grant": 2},
-                    "shuffle": {"level": 4, "grant": 1},
-                    "wand": {"level": 5, "grant": 1}},
+                    "wand": {"level": 3, "grant": 2},
+                    "shuffle": {"level": 5, "grant": 2}},
+        "coach": {"enabled": True, "undoDelayMs": 250},
     },
     "economy": {"currencies": ["coins", "gems"],
                 "startingWallet": {"coins": 0, "gems": 0},
@@ -115,6 +116,10 @@ try:
         page.evaluate("window.__game.completeLevel(5)")
         page.evaluate("window.__game.flushSave()")
         time.sleep(0.4)
+        # Those helpers are now unlocked but never taught, so the next level would
+        # open a coached first use and park the board (boostercoach_test.py owns
+        # that). Mark it seen — this test is about the config, not the lesson.
+        page.evaluate("window.__game.markBoosterCoached('all')")
         for kind, u in C["boosters"]["unlocks"].items():
             assert page.evaluate(f"window.__game.boosterUnlocked('{kind}')") is True, kind
             n = page.evaluate(f"window.__game.boosterCount('{kind}')")

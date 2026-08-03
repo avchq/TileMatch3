@@ -171,8 +171,33 @@ export const CONFIG = deepFreeze({
     // here. Note the staggering: one new thing to learn per level or two.
     unlocks: {
       undo: { level: 2, grant: 2 },     // the safety net, so it comes first
-      shuffle: { level: 4, grant: 1 },  // "the board is stuck" — needs a fuller board to make sense
-      wand: { level: 5, grant: 1 },     // the strongest helper, held back the longest
+      wand: { level: 3, grant: 2 },     // the one that always works, taught early
+      shuffle: { level: 5, grant: 2 },  // "the board is stuck" — needs a fuller board to make sense
+    },
+
+    // THE COACHED FIRST USE — unlocking a helper is only half the lesson. On the
+    // level a helper turns on, the screen dims, that one button is lifted out of
+    // the dim with a caption and a tap effect, and the only thing the player can
+    // do is use it once, for real (a genuine use: it spends a charge and the
+    // helper actually acts). It happens once per helper, ever — the record lives
+    // on the profile as `user.boosterCoach`.
+    //
+    // A helper whose unlock level was never played — a QA jump, or a save that
+    // was already past the gate before coaching existed — is still OWED its
+    // coaching and gets it on the next level played, one helper per level,
+    // lowest unlock level first. Without that the feature would never reach an
+    // existing player at all.
+    coach: {
+      // Master switch. false ships the unlock schedule with no coaching at all:
+      // helpers simply stop being grey, as they did before.
+      enabled: true,
+
+      // Undo is the one helper that cannot be demonstrated on a fresh board —
+      // there is nothing to undo until a tile has been collected — so its
+      // coaching waits for the first collect and then this beat, long enough
+      // that the tile has landed in the tray and the dim doesn't clip the
+      // animation. The other two coach the moment the board finishes building.
+      undoDelayMs: 250,
     },
   },
 
