@@ -101,10 +101,22 @@ try:
 
         # Press Auto Complete — the sweep animation runs, then the level is won.
         remaining_before = a["total"]
+        page.evaluate("window.__game.clearSoundLog()")
         page.evaluate("window.__game.autoComplete()")
         time.sleep(2.4)        # Phase A + staggered Phase B + pops for up to 12 tiles
         s = st()
         print("after autoComplete:", s)
+
+        # Every tile that lands in the tray bops — the same landing cue a
+        # hand-collected tile makes — so the sweep sounds like the moves it stands
+        # in for instead of going silent after the single gather cue. Expect one
+        # bop per swept tile PLUS the one that starts the gather (phase A).
+        log = page.evaluate("window.__game.soundLog()")
+        bops = log.count("tile_bop")
+        print("sweep sounds:", {"tiles": remaining_before, "bops": bops, "log": log})
+        assert bops == remaining_before + 1, (
+            "one tile_bop per tile landing in the tray, plus the gather cue",
+            remaining_before, bops, log)
         assert s["boardCount"] == 0, ("board cleared", s)
         assert s["tray"] == [], ("rack emptied", s)
         assert s["overlay"] is True, ("win overlay shown", s)

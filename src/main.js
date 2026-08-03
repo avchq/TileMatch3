@@ -300,6 +300,11 @@ async function boot() {
   splash.hide();
 
   // ---- test / debug API (used by the headless verification driver) ---------
+  // Rolling record of the SFX one-shots the audio manager actually emitted,
+  // exposed below as soundLog()/clearSoundLog().
+  const sfxLog = [];
+  audio.onPlay = (name) => { if (sfxLog.length < 500) sfxLog.push(name); };
+
   window.__game = {
     app, scene, lobby, settings, assets, audio, store,
     openSettings: () => settings.open(),
@@ -399,6 +404,11 @@ async function boot() {
     }),
     playSound: (name) => audio.play(name),
     soundNames: () => Object.keys(audio.buffers),
+    // Names of the one-shots actually emitted since the last clearSoundLog(),
+    // so a test can assert *when* a cue fires (and how many times) rather than
+    // just that the file loads. Capped so a long session can't grow it forever.
+    soundLog: () => sfxLog.slice(),
+    clearSoundLog: () => { sfxLog.length = 0; },
     manifest: MANIFEST,
     loadedGroups: () => [...assets._loaded],
     audioState: () => ({

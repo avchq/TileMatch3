@@ -17,6 +17,7 @@ export class AudioManager {
     this._bgSuspended = false; // true only while WE paused a running ctx for a hidden tab
     this.onMusicChange = null; // (on) => void — host persists the preference
     this.onSoundChange = null; // (on) => void
+    this.onPlay = null;        // (name) => void — fired per one-shot ACTUALLY emitted
   }
 
   // Compat: a single "muted" view of both channels for the in-game master
@@ -78,6 +79,7 @@ export class AudioManager {
     if (!entry || !this._ctx) return;
     const src = this._source(entry, false);
     src.start(0);
+    if (this.onPlay) this.onPlay(name);
     return src;
   }
 

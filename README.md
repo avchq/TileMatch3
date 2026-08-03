@@ -209,7 +209,9 @@ left** (≤ 4 easy triples) with **nothing still covered** — an **Auto Complet
 button appears in the helper row, **replacing** the three helpers. It's **free**
 (not a booster). Press it and every remaining tile gathers into a pile, then
 flies one-by-one along a curved path into the tray's first slot, popping on
-arrival — when the last one lands, the level is won. It is **not offered on
+arrival — **each landing bops**, the same cue a hand-collected tile makes, so the
+sweep sounds like the run of moves it stands in for rather than falling silent
+after the gather — when the last one lands, the level is won. It is **not offered on
 level 1** — the teaching level is played by hand all the way to the win — so it
 first appears on level 2. The **cog** (top-left) opens Settings and the
 **‹ Back** button beside it leaves the level for the lobby with progress kept.
@@ -434,8 +436,11 @@ python3 -m http.server 8099
   is still covered, `_updateBoosters` swaps the three round helpers for a wide
   **Auto Complete** pill in the same row. Pressing it stages every remaining tile
   on `fxLayer`, gathers them into a pile, then flies each along a quadratic
-  Bézier into the tray's first slot (staggered), `_popMatch`-ing it on arrival,
-  and calls `_win()` once the board is empty. Level 1 is exempt (the guided level
+  Bézier into the tray's first slot (staggered), playing `tile_bop` and
+  `_popMatch`-ing it on arrival,
+  and calls `_win()` once the board is empty. The per-arrival `tile_bop` is the
+  same one-shot `_addToTray` fires for a hand-collected tile, so a sweep of *n*
+  tiles emits *n* bops after the single one that opens the gather phase. Level 1 is exempt (the guided level
   teaches the loop; a free "finish it for me" would cut that short), so
   `_autoAvailable()` tests `levelNum >= AUTO_MIN_LEVEL` first.
   Input is locked for the whole sweep

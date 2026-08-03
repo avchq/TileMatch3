@@ -1435,6 +1435,7 @@ export class GameScene extends PIXI.Container {
           cont.scale.set(s0 + (endScale - s0) * e);
         },
       });
+      this.audio.play("tile_bop");         // same landing bop a hand-collected tile makes
       this._popMatch(cont);                // pulse + fade + destroy = "discarded"
     }));
     await delay(ticker, 260);              // let the final pop finish before the overlay

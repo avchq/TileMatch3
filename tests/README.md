@@ -261,7 +261,9 @@ Only `howtoplay_test.py` leaves it open.
   the button never shows (level 1 is finished by hand); a level-2 descent then
   checks the availability flag against the gate at every step with the HUD row
   mirroring it, pressing it sweeps every tile into the first slot and
-  wins the level (board/rack empty, overlay shown), Continue advances a level,
+  wins the level (board/rack empty, overlay shown). The sweep is also checked to
+  **sound**: `soundLog()` must hold one `tile_bop` per tile landing in the tray
+  plus the one that opens the gather. Continue advances a level,
   and the next level's helper row recovers (the `_autoRunning` reset).
 
 ### Fortune Wheel
