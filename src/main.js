@@ -190,7 +190,7 @@ async function boot() {
       // The daily-bonus button reappears purely because the calendar day changed
       // (no user-state mutation fires), so refresh it here too — a lobby left open
       // across midnight re-shows the gift live, like the wheel's fresh free spin.
-      lobby._refreshDailyBtn();
+      lobby.refreshFeatures();
     }
   });
 
@@ -358,6 +358,11 @@ async function boot() {
       slotXs: scene.slotPositions.map((p) => p.x),
     }),
     lobbyButtonText: () => lobby.playBtn.label.text,
+    // The lobby's feature-button rail: slot assignment + live geometry of every
+    // entry, in design units. `moving` is true while a slide/fade is in flight,
+    // so a test can assert a reflow is animated without sampling on a stopwatch.
+    // -> [{ key, available, slot, x, y, targetY, visible, alpha, moving }]
+    featureRail: () => lobby.rail.slots(),
     startLevel,
     // Leave the level the way the Back button does — through the scene's single
     // exit path, so the guidance hand / booster hint / tutorial popup are torn
@@ -483,7 +488,11 @@ async function boot() {
     pressWheelSpin: () => wheel._spinBtn.emit("pointertap"),
     wheelState: () => ({
       unlocked: user.progress.level >= wheel.unlockLevel,
-      buttonVisible: lobby.wheelBtn.visible,
+      // Is the lobby button OFFERED. Not `wheelBtn.visible`: the feature rail
+      // fades buttons in/out and holds an entering one back until the reflow
+      // settles, so the raw flag lags the gate by up to half a second. Use
+      // featureRail() for where the button actually is on screen.
+      buttonVisible: lobby.featureAvailable("freeSpin"),
       group: user.wheelGroup(),
       spinsUsed: user.wheelSpinsUsed(),
       spinsLeft: wheel.spinsPerCycle - user.wheelSpinsUsed(),
@@ -496,8 +505,8 @@ async function boot() {
       day: user.wheelDay(),
     }),
     wheelBadges: () => ({
-      new: lobby.wheelBtn.newBadge.visible && lobby.wheelBtn.visible,
-      free: lobby.wheelBtn.freeBadge.visible && lobby.wheelBtn.visible,
+      new: lobby.wheelBtn.newBadge.visible && lobby.featureAvailable("freeSpin"),
+      free: lobby.wheelBtn.freeBadge.visible && lobby.featureAvailable("freeSpin"),
     }),
     // Live wheel + pointer rotations (pointer-deflection animation tests).
     wheelPointer: () => ({ wheel: wheel.wheel.rotation, pointer: wheel.pointer.rotation }),
@@ -520,7 +529,7 @@ async function boot() {
     pressDailyClaim: () => daily._claimBtn.emit("pointertap"),
     dailyBonusState: () => ({
       unlocked: user.progress.level >= daily.unlockLevel,
-      buttonVisible: lobby.dailyBtn.visible,
+      buttonVisible: lobby.featureAvailable("dailyBonus"), // offered — see wheelState
       canClaim: daily.canClaim(),
       lastDay: user.dailyBonusLastDay(),
       overlayOpen: daily.visible,
@@ -532,7 +541,7 @@ async function boot() {
       prizes: (daily._prizes || []).map((p) => (p ? { type: p.type, amount: p.amount } : null)),
     }),
     // Force the day-key (rollover tests) — also refresh the lobby gift button.
-    setDailyToday: (key) => { daily._todayOverride = key; lobby._refreshDailyBtn(); },
+    setDailyToday: (key) => { daily._todayOverride = key; lobby.refreshFeatures(); },
     // Pin the prize behind every box (deterministic prize tests).
     forceDailyPrize: (index) => { daily._forceIndex = index; },
     // Trigger the lobby gift's periodic hop immediately (its idle timer is

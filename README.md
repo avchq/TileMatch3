@@ -169,11 +169,52 @@ level 1** — the teaching level is played by hand all the way to the win — so
 first appears on level 2. The **cog** (top-left) opens Settings and the
 **‹ Back** button beside it leaves the level for the lobby with progress kept.
 
+### Feature buttons — the lobby rail
+The lobby's **feature entry buttons** (Fortune Wheel's **Free Spin**, then
+**Daily Bonus**) are not pinned to fixed spots. They are entries on a **feature
+rail** (`src/featurerail.js`): a vertical ladder of **slots** running top-to-bottom
+down an **outer edge** of the game column, filled by whichever buttons are
+currently **available**, in a **fixed priority order**:
+
+1. **Free Spin**
+2. **Daily Bonus**
+
+The rail always packs them into **consecutive slots with no holes**. If #1 is
+unavailable, **#2 takes its place**; the moment #1 becomes available again it
+reclaims the top slot and #2 **moves back down** to its ordered position. Every
+such move is **animated** — a button changing slots **slides** between them
+(~320 ms, ease-in-out) while one entering **fades in** at its slot and one leaving
+**fades out** in place (~220 ms). A leaving button stops accepting taps at the
+*start* of its fade, not the end. Arriving at the lobby **snaps** the rail into its
+arrangement rather than playing a slide.
+
+The reflow is **staggered**: a button entering the rail holds its fade-in until the
+slides have finished. Slots are only about **1.2 button-heights** apart, so a
+neighbour sliding past would otherwise be sitting on top of the arriving button for
+most of the move — and two overlapping controls is exactly what
+`resize_overlap_test.py` forbids. A button waiting to enter is not on screen at
+all (opacity drives `visible`), so it is neither hit-testable nor counted as a
+control.
+
+Availability is per feature and unchanged by the rail — it decides only *where* an
+available button sits, never *whether* it is offered (Free Spin: unlocked by
+progression and spins left this cycle; Daily Bonus: unlocked by progression and
+today's gift unclaimed). Because the wheel unlocks at level **5** and the gift at
+level **1**, a new player sees the gift alone, in the **first** slot.
+
+The rail is edge-agnostic — it owns only an `x` and the slot ladder (`RAIL_LEFT_X`
+/ `RAIL_RIGHT_X`, `RAIL_Y0` 214, `RAIL_GAP` 182), so a second rail down the
+**right** edge is another instance, not new machinery. Adding a feature button is
+one `rail.add(key, button, isAvailable)` call in the priority order. The always-on
+corner chrome (settings **cog**, **coin pill**) is *not* on the rail: it never
+reflows. The rail sits on the lobby's `topHud` layer, so it tracks the **top
+corner** on tall screens like the cog does.
+
 ### Fortune Wheel — a daily prize wheel
 A **prize wheel** reached from the lobby (not part of a level): a daily-return
-hook that hands out coins and boosters used elsewhere. A persistent **wheel
-button** sits in the lobby's **top-left corner, right under the settings cog** —
-it **beats slowly** at rest (a gentle grow/shrink) and its little wheel **spins**
+hook that hands out coins and boosters used elsewhere. Its **wheel button** is the
+**first entry on the lobby's left-edge feature rail** (see above), below the
+settings cog — it **beats slowly** at rest (a gentle grow/shrink) and its little wheel **spins**
 both **periodically on its own** (every few seconds — spins up, the pointer flicks,
 winds down) and **on mouse-over** (a hover kicks off a spin unless one's already
 running); it swells while hovered. It carries a
@@ -181,7 +222,8 @@ running); it swells while hovered. It carries a
 badge whenever the current cycle's free spin is unclaimed (the badge drops the
 moment that spin is used, live, with no reload). The button only appears once the
 player has **progressed to the unlock level** and hides again once the day's spins
-are used up, reappearing at the next daily rollover.
+are used up, reappearing at the next daily rollover — and while it is away the
+Daily Bonus button slides up into its slot.
 
 Prizes are organised into **groups** — one wheel's worth each — and the wheel is
 built from the **active group** (its slice count comes from the group, not a fixed
@@ -217,14 +259,15 @@ normal play until more levels exist — lower `unlockLevel` in the config to dem
 ### Daily Bonus — a free once-a-day gift
 A second daily-return hook, separate from the wheel and **not** a login-streak
 calendar: there is no Day 1→7 chain, no streak, and no penalty for missing a day.
-A **gift button** sits in the lobby's **top-left corner, under the wheel button**;
-it **beats slowly** (a looping grow/shrink) and — unlike the wheel — carries **no
+Its **gift button** is the **second entry on the lobby's left-edge feature rail**
+(see above) — under the wheel button when that one is offered, and **in its place**
+when it isn't; it **beats slowly** (a looping grow/shrink) and — unlike the wheel — carries **no
 badge**, because the beat itself is the "unclaimed" indicator; layered on top, the
 gift gives a little squashy **hop** every few seconds (the same ~5s cadence as the
 wheel's self-spin) to draw the eye. On **mouse-over** the button swells and the
 gift **wiggles**. The button **only
 appears while today's gift is unclaimed** and hides the moment it's claimed,
-returning at the next calendar-day rollover. Eligibility is a plain **"has the
+returning (and animating back into its slot) at the next calendar-day rollover. Eligibility is a plain **"has the
 calendar date changed since the last claim?"** check — a **midnight reset, one
 claim per day**; the **only** thing persisted is the day-key of the most recent
 claim (`user.dailyBonus.lastClaimDay`).
@@ -354,7 +397,11 @@ python3 -m http.server 8099
   walks the hand over each matching triple, flies the tiles into the mini tray and
   pops them, then resets the mini board. Every step is guarded by the popup's own
   generation token (`_run`, bumped by `close()`), the same pattern the guided
-  opening uses. `close()` writes the `tilemaster.tutorialDone` marker (nothing
+  opening uses — but the demo is a chain of `await`s, and the popup can be
+  **destroyed** between any two of them (leaving the level takes it with it) without
+  the token changing. Every resume point therefore goes through `_stale(run)`, which
+  checks `destroyed`/`closing` as well as the token; without it, a `_demoPick`
+  resuming after a destroy called `addChild` on a dead container and threw. `close()` writes the `tilemaster.tutorialDone` marker (nothing
   reads it back), calls its `onClose` **immediately** — which unlocks the scene and
   fires `_runFirstRunGuide()` when `_firstRun`, so the demo moves follow the
   explanation — and fades itself out. `_closeTutorial()` tears it down *without*
@@ -394,7 +441,28 @@ python3 -m http.server 8099
   from its tray slot to its home cell (`_layoutBoard` supplies the target). Input
   stays **locked** for the whole fly-back and unlocks when the last tile lands.
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
-  **"Level &lt;n&gt;"** play button and title.
+  **"Level &lt;n&gt;"** play button and title. It also owns the **feature buttons**
+  (Free Spin / Daily Bonus) and hands their arrangement to a `FeatureRail`.
+- `src/featurerail.js` is the `FeatureRail` — the ordered, self-arranging column of
+  lobby feature buttons (see the Gameplay section). `add(key, display, isAvailable)`
+  registers an entry **in priority order**; `refresh({ animate })` re-asks every
+  predicate, packs the available ones into **consecutive slots** `0..n-1`, and
+  re-targets each button's position/opacity. Entries own no position — the rail sets
+  `x`/`y`/`alpha`/`visible` and takes `eventMode` away at the *start* of a fade-out
+  (an `alpha:0` display object is still hit-testable in Pixi). `visible` is derived
+  from opacity (`alpha > 0`), which is what keeps a button still **waiting out a
+  reflow** (its fade-in delayed by `moveMs`) out of both hit-testing and the scene's
+  `controls()` list. `available(key)` reports the **gate** — what
+  `wheelState()/dailyBonusState().buttonVisible` mean — as opposed to where the
+  animation has got to, which is `featureRail()`. Animation is a single
+  ticker callback advancing per-entry duration animators (`easeInOutQuad` for the
+  slide, `easeOutCubic` for the fade, both from `tween.js`) rather than `tween()`:
+  re-targeting mid-flight is the normal case here and `tween()` returns a bare
+  promise with no cancel. `retarget` is a **no-op when the target is unchanged**, so
+  the 4 s day-rollover poll in `main.js` can refresh the rail freely without ever
+  restarting an in-flight move. `slots()` is the debug/test snapshot behind
+  `window.__game.featureRail()`. `RAIL_LEFT_X`/`RAIL_RIGHT_X` + `RAIL_Y0`/`RAIL_GAP`
+  define the ladder, so a right-edge rail is just another instance.
 - `src/shop.js` is the `ShopScene` — an overlay (modeled on `SettingsScene`)
   opened by tapping the **coin pill** in either scene. It lists the **packages** for
   sale (from `payments.js`), each row showing the package name, a one-line contents
@@ -429,10 +497,11 @@ python3 -m http.server 8099
   no groups (button stays hidden). The lobby button, its animation (a slow rest-beat
   plus a wheel spin that fires both periodically and on hover — see
   `_startWheelSpin`), the NEW /
-  free-spin badges, and its progression gate live in `src/lobby.js`
-  (`_makeWheelButton` / `_startWheelSpin` / `_refreshWheelBtn`), reading the wheel's
-  `unlockLevel` / `canSpin()` and refreshing live on `user` `fortuneWheel`/`progress`
-  changes.
+  free-spin badges, and its availability gate live in `src/lobby.js`
+  (`_makeWheelButton` / `_startWheelSpin` / `_updateWheelBadges` /
+  `_freeSpinAvailable`), reading the wheel's `unlockLevel` / `canSpin()` and
+  refreshing live on `user` `fortuneWheel`/`progress` changes. It is entry **#1** on
+  the lobby's feature rail; where it sits is the rail's call, not the button's.
 - `src/dailybonus.js` is the `DailyBonusScene` — the free once-a-day gift overlay
   (modeled on `FortuneWheelScene`: full-screen dim + centred panel + `easeOutBack`
   pop + `layout` reflow), opened from the lobby's pulsing gift button. It has no
@@ -451,9 +520,10 @@ python3 -m http.server 8099
   see `_startDailyPulse`),
   and
   its gate live in `src/lobby.js` (`_makeDailyButton` / `_startDailyPulse` /
-  `_refreshDailyBtn`), refreshing live on `user` `dailyBonus`/`progress` changes and
-  from the same low-frequency `main.js` ticker as the wheel (so a lobby left open
-  across midnight re-shows the gift).
+  `_dailyBonusAvailable`), refreshing live on `user` `dailyBonus`/`progress` changes
+  and from the same low-frequency `main.js` ticker as the wheel (so a lobby left open
+  across midnight re-shows the gift). It is entry **#2** on the lobby's feature rail,
+  so it **rises into the wheel button's slot** whenever that one isn't offered.
 - `src/tutorial.js` is the `HowToPlayPopup` — the modal tutorial level 1 opens
   before play (see the Gameplay section and the `GameScene` notes above). Unlike
   the other overlays it is **owned by the level scene**, not by `main.js`: it lives
@@ -513,8 +583,10 @@ python3 -m http.server 8099
     the background** — the game is never blown up to the full width. The crisp
     background covers only the centred column; a blurred, cover-fit copy fills the
     sides (`layout.js` `buildColumnBackground`). Corner chrome (settings cog, coin
-    pill, Fortune Wheel / Daily Bonus buttons) therefore rides the **corners of the
-    column**, not the physical screen corners.
+    pill) and the feature rail (Free Spin / Daily Bonus) therefore ride the
+    **edges of the column**, not the physical screen edges — the rail's `x` and slot
+    ladder are plain design-space coordinates on the `topHud` layer, so pinning it
+    to an outer edge needs no per-element anchoring logic.
   - The **board is sized to the 750 column**, not the viewport
     (`GameScene._layoutBoard` fits it by `min((min(viewW,750)-60)/spanX,
     areaH/spanY)`), so on a wide screen the tiles stay column-sized and the play

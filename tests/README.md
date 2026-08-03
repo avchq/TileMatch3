@@ -134,6 +134,25 @@ Only `howtoplay_test.py` leaves it open.
   hook (each scene exposes a `controls()` list). Regression guard: the lobby title
   used to clip the top-left Daily-Bonus / wheel button column on tall screens — now
   centred text is width-capped to the safe centre band (`layout.js` `fitTextWidth`).
+- **`featurerail_test.py`** — the lobby's **feature-button rail**
+  (`src/featurerail.js`): the feature buttons fill **consecutive slots** down the
+  left edge in the fixed priority order (1. Free Spin, 2. Daily Bonus), with **no
+  holes**. Regression guard: with the wheel still locked (below level 5) the Daily
+  Bonus button must sit in the **first** slot (y 214) — it used to hard-code y 396
+  and float under an empty slot. Unlocking the wheel makes it **reclaim slot 0**
+  while the gift **slides back down** to slot 1, and re-locking it promotes the gift
+  again — both moves asserted to be **animated** by sampling the button's `y` every
+  frame (many samples, seen strictly between the two slots — a teleport would land in
+  one). The reflow is also sampled frame-by-frame for **overlap**: the two buttons'
+  bounds must never intersect while both are on screen (the arriving button holds its
+  fade-in until the slides finish; regression guard — a naive simultaneous fade+slide
+  stacked them and tripped `resize_overlap_test.py`).
+  Also covers a fade-in reaching `alpha 1`, a fade-out ending `visible:false`,
+  a single-occupant rail staying put, an **idle rail not twitching** across the 4 s
+  day-rollover poll (`moving:false` — the poller must not restart in-flight tweens),
+  an empty rail re-populating when a new day re-arms the gift, and the arrangement
+  surviving a round trip through a level. Drives it via `window.__game.featureRail()`
+  plus the live `lobby.wheelBtn`/`lobby.dailyBtn` display objects.
 - **`tray_size_test.py`** — the bottom tray is sized to the **current level's tile
   size**, not a fixed 84px slot: the slot equals `clamp(TILE_DRAW*boardScale,
   SLOT_MIN, SLOT_MAX)` across levels, the 7 slots stay evenly spaced and the panel

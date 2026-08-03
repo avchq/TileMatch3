@@ -343,8 +343,15 @@ export class HowToPlayPopup extends PIXI.Container {
   // The looping demonstration: collect each type in turn, three tiles at a time,
   // and clear the triple the moment the third lands — the real game's loop, in
   // miniature. Runs until the popup closes (the generation token stops it).
+  // The demo is a chain of awaits, so between any two of them the popup may have
+  // been closed AND destroyed (leaving the level takes it with it). Every resume
+  // point re-checks this before touching the display tree: comparing the
+  // generation token alone isn't enough, because a destroy never bumps it — and
+  // an addChild onto a destroyed container throws.
+  _stale(run) { return this._run !== run || this.destroyed || this.closing; }
+
   async _runDemo(run) {
-    const stale = () => this._run !== run || this.destroyed || this.closing;
+    const stale = () => this._stale(run);
     while (!stale()) {
       for (const type of [0, 1, 2]) {
         const tiles = this.demoTiles.filter((t) => t.type === type);
@@ -367,9 +374,9 @@ export class HowToPlayPopup extends PIXI.Container {
     this.hand.alpha = 1;
     await this._moveTo(this.hand, sp.x, sp.y + 6, this._handPlaced ? 240 : 300, run);
     this._handPlaced = true;
-    if (this._run !== run) return;
+    if (this._stale(run)) return;
     await this._handTap(run);
-    if (this._run !== run) return;
+    if (this._stale(run)) return;
     // Lift the tile out of its row onto the demo itself, so it flies OVER the
     // tray panel and slots — then put the hand back on top of everything.
     const slot = this.demoSlots[slotIndex];
@@ -401,7 +408,7 @@ export class HowToPlayPopup extends PIXI.Container {
   // Three of a kind in the tray: they pop and vanish, exactly as in the game.
   async _demoMatch(run) {
     await delay(this.app.ticker, 200);
-    if (this._run !== run) return;
+    if (this._stale(run)) return;
     const tiles = this.trayTiles.slice();
     this.trayTiles = [];
     const base = tiles.map((t) => t.sprite.scale.x);
@@ -421,6 +428,7 @@ export class HowToPlayPopup extends PIXI.Container {
 
   // Put the board back the way it started and fade it in, so the loop can replay.
   async _demoReset(run) {
+    if (this._stale(run)) return;
     this.hand.alpha = 0;
     this._handPlaced = false;
     for (const t of this.demoTiles) {

@@ -7,6 +7,7 @@ import { tween, easeOutBack } from "./tween.js";
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill } from "./shop.js";
 import { buildColumnBackground, fitTextWidth } from "./layout.js";
+import { FeatureRail, RAIL_LEFT_X } from "./featurerail.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -122,32 +123,38 @@ export class LobbyScene extends PIXI.Container {
     this.coinPill.position.set(DESIGN_W - 108, 84);
     this.topHud.addChild(this.coinPill);
 
-    // Fortune Wheel entry button — a self-animating little wheel pinned to the
-    // top-left corner, right under the settings cog (on topHud so it tracks the
-    // corner on tall screens, like the cog). Gated on progression + daily spins
-    // remaining, with "new" and "free spin" badges (see _refreshWheelBtn /
-    // _startWheelSpin).
+    // Fortune Wheel entry button — a self-animating little wheel in the top-left
+    // corner (on topHud so it tracks the corner on tall screens, like the cog).
+    // Gated on progression + daily spins remaining, with "new" and "free spin"
+    // badges (see _updateWheelBadges / _startWheelSpin).
     this.wheelBtn = this._makeWheelButton();
-    this.wheelBtn.position.set(86, 214);
     this.wheelBtn.visible = false;
     this.topHud.addChild(this.wheelBtn);
     this._startWheelSpin();
 
-    // Daily Bonus entry button — a gently pulsing gift pinned to the top-left
-    // corner, right under the wheel button. It only appears while today's gift is
-    // unclaimed (no separate red-dot — the pulse IS the indicator) and hides the
-    // moment it's claimed, returning at the next calendar-day rollover.
+    // Daily Bonus entry button — a gently pulsing gift. It only appears while
+    // today's gift is unclaimed (no separate red-dot — the pulse IS the
+    // indicator) and hides the moment it's claimed, returning at the next
+    // calendar-day rollover.
     this.dailyBtn = this._makeDailyButton();
-    this.dailyBtn.position.set(86, 396);
     this.dailyBtn.visible = false;
     this.topHud.addChild(this.dailyBtn);
     this._startDailyPulse();
 
-    // Keep both buttons' visibility live: progression unlocks them, a wheel spin /
-    // rollover changes the free-spin badge, and a daily claim hides the gift.
+    // Neither button owns a position: they are entries on the left-edge FEATURE
+    // RAIL, which packs whichever ones are available into consecutive slots in
+    // THIS registration order — Free Spin first, Daily Bonus second — and
+    // animates them between slots as availability changes (see featurerail.js).
+    this.rail = new FeatureRail(this.app.ticker, { x: RAIL_LEFT_X });
+    this.rail.add("freeSpin", this.wheelBtn, () => this._freeSpinAvailable());
+    this.rail.add("dailyBonus", this.dailyBtn, () => this._dailyBonusAvailable());
+
+    // Keep the rail live: progression unlocks features, a wheel spin / rollover
+    // changes the free-spin badge, and a daily claim retires the gift.
     this.user.on((domain) => {
-      if (domain === "fortuneWheel" || domain === "progress") this._refreshWheelBtn();
-      if (domain === "dailyBonus" || domain === "progress") this._refreshDailyBtn();
+      if (domain === "fortuneWheel" || domain === "dailyBonus" || domain === "progress") {
+        this.refreshFeatures();
+      }
     });
   }
 
@@ -265,19 +272,47 @@ export class LobbyScene extends PIXI.Container {
     this.app.ticker.add(fn);
   }
 
-  // Gate + badges: visible only when the wheel is unlocked (progression) and the
-  // day's spins aren't used up; "new" until first open; "free" while the free spin
-  // is unclaimed.
-  _refreshWheelBtn() {
-    if (!this.wheelBtn) return;
+  // ---- feature availability ------------------------------------------------
+  // The rail asks these on every refresh to decide who gets a slot. They only say
+  // WHETHER a feature is offered; WHERE its button sits is the rail's business.
+
+  // The wheel is offered once progression unlocks it and while the day's spins
+  // aren't used up.
+  _freeSpinAvailable() {
     const w = this.fortuneWheel;
-    const unlocked = !!w && this.user.progress.level >= w.unlockLevel;
-    const show = unlocked && w.canSpin();
-    this.wheelBtn.visible = show;
-    if (show) {
-      this.wheelBtn.newBadge.visible = !this.user.wheelSeen();
-      this.wheelBtn.freeBadge.visible = this.user.wheelSpinsUsed() === 0;
-    }
+    return !!w && this.user.progress.level >= w.unlockLevel && w.canSpin();
+  }
+
+  // The gift is offered once progression unlocks it and while today's is unclaimed.
+  _dailyBonusAvailable() {
+    const d = this.dailyBonus;
+    return !!d && this.user.progress.level >= d.unlockLevel && d.canClaim();
+  }
+
+  /**
+   * Re-gate every feature button and re-pack the rail. Pass `animate: false` to
+   * snap (used on lobby entry, so arriving never plays a slide).
+   */
+  refreshFeatures({ animate = true } = {}) {
+    if (!this.rail) return;
+    this._updateWheelBadges();
+    this.rail.refresh({ animate });
+  }
+
+  // Badges the rail knows nothing about: "new" until the wheel is first opened,
+  // "free" while the free spin of the cycle is unclaimed.
+  _updateWheelBadges() {
+    if (!this.wheelBtn) return;
+    this.wheelBtn.newBadge.visible = !this.user.wheelSeen();
+    this.wheelBtn.freeBadge.visible = this.user.wheelSpinsUsed() === 0;
+  }
+
+  /**
+   * Is a feature currently offered? Distinct from `<btn>.visible`, which is also
+   * false while an entering button waits out a reflow, or true mid fade-out.
+   */
+  featureAvailable(key) {
+    return !!this.rail && this.rail.available(key);
   }
 
   _makeDailyButton() {
@@ -364,15 +399,6 @@ export class LobbyScene extends PIXI.Container {
     this.app.ticker.add(fn);
   }
 
-  // Gate: visible only while the daily bonus is unlocked (progression) and today's
-  // gift is still unclaimed.
-  _refreshDailyBtn() {
-    if (!this.dailyBtn) return;
-    const d = this.dailyBonus;
-    const show = !!d && this.user.progress.level >= d.unlockLevel && d.canClaim();
-    this.dailyBtn.visible = show;
-  }
-
   _makePlayButton() {
     const c = new PIXI.Container();
     const w = 440, h = 138;
@@ -420,8 +446,8 @@ export class LobbyScene extends PIXI.Container {
     this.visible = true;
     this._buildBackground(level);
     this.playBtn.label.text = `Level ${level}`;
-    this._refreshWheelBtn();
-    this._refreshDailyBtn();
+    // Snap, don't slide: the rail should already be arranged when the lobby appears.
+    this.refreshFeatures({ animate: false });
 
     const allDone = celebrate && level >= this.maxLevel;
     this.subtitle.text = allDone
