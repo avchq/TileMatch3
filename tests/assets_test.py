@@ -25,11 +25,11 @@ try:
         # Let the first boot fully settle (all preload fetches done) BEFORE we
         # clear the counter and reload — otherwise its in-flight fetches leak
         # past reqs.clear() and get counted against the reload, inflating counts.
-        page.wait_for_function("window.__game && window.__game.soundNames().length >= 6", timeout=20000)
+        page.wait_for_function("window.__game && window.__game.soundNames().length >= 7", timeout=20000)
         page.evaluate("localStorage.removeItem('tilemaster.level')")
         reqs.clear()
         page.reload()
-        page.wait_for_function("window.__game && window.__game.soundNames().length >= 6", timeout=20000)
+        page.wait_for_function("window.__game && window.__game.soundNames().length >= 7", timeout=20000)
         time.sleep(0.8)
 
         print("--- network requests during load (assets) ---")
@@ -39,13 +39,13 @@ try:
 
         sounds = page.evaluate("window.__game.soundNames()")
         print("decoded sounds:", sounds)
-        assert len(sounds) == 6, f"expected 6 decoded sounds, got {sounds}"
+        assert len(sounds) == 7, f"expected 7 decoded sounds, got {sounds}"
 
         # every audio file fetched exactly once during preload
         audio_loads = {u: c for u, c in reqs.items() if u.startswith("assets/audio/")}
         print("audio fetches during preload:", audio_loads)
         assert all(c == 1 for c in audio_loads.values()), "audio should be fetched once"
-        assert len(audio_loads) == 6, "all 6 audio files preloaded"
+        assert len(audio_loads) == 7, "all 7 audio files preloaded"
 
         # NOW the key test: play each sound 20 times; expect ZERO new network reqs
         reqs.clear()
@@ -55,7 +55,7 @@ try:
         time.sleep(0.6)
         new_audio_reqs = {u: c for u, c in reqs.items() if u.startswith("assets/audio/")}
         any_new = {u: c for u, c in reqs.items() if u.startswith("assets/")}
-        print(f"--- after 120 sound plays: new asset requests = {any_new} ---")
+        print(f"--- after 140 sound plays: new asset requests = {any_new} ---")
         assert not new_audio_reqs, f"NETWORK GET on play! {new_audio_reqs}"
         assert not any_new, f"unexpected asset refetch on play: {any_new}"
         print("PASS: 120 plays -> 0 network requests")

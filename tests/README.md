@@ -282,13 +282,19 @@ Only `howtoplay_test.py` leaves it open.
   turns, the **pointer leans with the spin, never against it** (sampled through a
   spin: the wheel rotation only ever increases, so every deflection must be
   negative, reaching the full lean at speed) and **returns to 0 once it settles**.
+  Sampled through that same spin, the **spin-click sound bed** runs for as long as
+  the wheel turns — exactly one loop, never stacked — with its **playback rate
+  riding the wheel's speed** (full cadence at peak, thinning out as it slows), and
+  is **stopped when the wheel settles** (no loop left running). It also obeys the
+  **Sound** setting: switching sound off mid-spin **cuts the bed immediately**, and
+  a spin started with sound off never opens one.
   **Ad spins**
   (every spin after the free one) only resolve on a successful rewarded video —
   **cancel/fail spend nothing and win nothing**. Per-cycle state (group / spins /
   won list) **persists across a reload**, and forcing the **day rollover** advances
   to the next group (wrapping after the last), clears the won list + spin count, and
   restores a fresh free spin. Drives it via the `window.__game` wheel hooks
-  (`wheelState`, `wheelBadges`, `wheelPointer`, `openWheel`,
+  (`wheelState`, `wheelBadges`, `wheelPointer`, `wheelSpinSfx`, `openWheel`,
   `spinWheel`/`pressWheelSpin`, `forceWheelPrize`, `setWheelAdResult`,
   `setWheelToday`).
 
@@ -394,7 +400,7 @@ Only `howtoplay_test.py` leaves it open.
   canvas click on the lobby cog reaches the game. Aborting
   `assets/config/levels.json` leaves the splash up in its **error** state with the
   message shown, rather than fading onto a blank canvas.
-- **`assets_test.py`** — the preload fetches and decodes all 6 audio files exactly
+- **`assets_test.py`** — the preload fetches and decodes all 7 audio files exactly
   once, and starting play triggers no asset re-fetch.
 - **`lazy_test.py`** — levels beyond the preload set are registered but not loaded
   until `ensureLevel` fetches their JSON on demand (and only once).

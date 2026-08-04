@@ -299,7 +299,10 @@ after costs a **rewarded video** (stubbed — grants on a successful view; cance
 failure spends nothing, and a failure shows a brief "ad not available" message).
 The result is **decided before the wheel turns**, then it animates to the winning
 slice (accelerate → hold → decelerate, with a marquee lamp ring that blinks idle /
-chases while spinning / flashes on a win). The red pointer at the top pivots about
+chases while spinning / flashes on a win). A **click bed plays for exactly as long
+as the wheel turns**: a looping run of clicks whose playback rate rides the wheel's
+live angular speed, so it winds up, holds and slows with the wheel rather than
+replaying a canned slow-down, and stops the moment the wheel does. The red pointer at the top pivots about
 its tip where it rests on the rim and **leans in the direction of the spin** — hard
 while the wheel is fast (with a slight rattle), easing back to upright as it slows,
 so it ends pointing straight at the winning slice. A prize can only
@@ -466,7 +469,9 @@ python3 -m http.server 8099
   layer strings of `x|y` grid positions — bottom layer first, upper layers
   offset by 0.5 so a tile straddles up to four below it.
 - **Backgrounds** (`assets/bg/*.jpg`) and **audio** (`assets/audio/*.mp3`) are
-  the original Cocos native assets, copied and renamed.
+  the original Cocos native assets, copied and renamed — except the Fortune
+  Wheel's spin clicks (`wheel-spin-click-slow-down-fast-101154.mp3`), which are
+  an added stock sound the original had no equivalent of.
 - **Tile faces** are regenerated at runtime (`src/icons.js`) as emoji on white
   tiles — the original per-theme icon atlas was not among the downloaded Cocos
   native files, so an equivalent 20-icon food set is drawn instead.
@@ -870,6 +875,13 @@ per level, the latter generated from the `levels.json` config above.
   `AudioBufferSourceNode`. Sounds overlap freely and playback makes **no network
   request** — replacing the old HTML5-`Audio` `cloneNode()` approach that
   re-fetched the file from the server on every single play.
+- Besides the fire-and-forget one-shots (`audio.play`), a sound can run as a
+  **sustained loop** (`audio.playLoop`) for as long as the thing making it does —
+  used by the Fortune Wheel's spin clicks. It returns a handle whose `setRate()`
+  **retunes the loop live** (so a click bed can speed up and slow down with what
+  it is voicing) and whose `stop()` ends it; `loopEnd` loops only the head of a
+  recording whose tail is a one-off ending. Loops are cut the moment **Sound** is
+  switched off (a one-shot can just stop being started; a loop can't).
 - **Background music** starts in the lobby on initial load. Browsers that block
   autoplay before a user gesture start it on the first pointer interaction
   instead. **Music** (bgm) and **Sound** (sfx) are two independent channels

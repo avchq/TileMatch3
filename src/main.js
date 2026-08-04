@@ -565,6 +565,14 @@ async function boot() {
     }),
     // Live wheel + pointer rotations (pointer-deflection animation tests).
     wheelPointer: () => ({ wheel: wheel.wheel.rotation, pointer: wheel.pointer.rotation }),
+    // The spin-click sound bed: is it running, and at what playback rate (which
+    // tracks the wheel's live speed). `loops` is the audio manager's total, so a
+    // test can also see the bed was not left running after the wheel settled.
+    wheelSpinSfx: () => ({
+      active: !!wheel._spinSfx && !wheel._spinSfx.stopped,
+      rate: wheel._spinSfx ? wheel._spinSfx.rate : 0,
+      loops: audio._loops.size,
+    }),
     // Force the day-key and re-check the rollover (day-rollover tests).
     setWheelToday: (key) => { wheel._todayOverride = key; wheel.checkRollover(); },
     // Pin the next winning slice index (deterministic prize tests).

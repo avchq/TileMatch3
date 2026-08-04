@@ -120,9 +120,11 @@ try:
         force(1)
         press()
         samples = []
+        sfx = []
         end = time.time() + 6
         while time.time() < end:
             samples.append(page.evaluate("window.__game.wheelPointer()"))
+            sfx.append(page.evaluate("window.__game.wheelSpinSfx()"))
             if not st()["spinning"] and len(samples) > 3:
                 break
             time.sleep(0.03)
@@ -139,6 +141,23 @@ try:
         assert abs(page.evaluate("window.__game.wheelPointer()")["pointer"]) < 1e-6, \
             ("the pointer returns to centre once the wheel settles",
              page.evaluate("window.__game.wheelPointer()"))
+
+        # ---- 2c. The spin-click sound bed (sampled through the same spin) ---
+        # A looping click bed runs for exactly as long as the wheel turns, and its
+        # playback rate rides the wheel's live speed: near full cadence at peak,
+        # slowing to a sparse tick as it settles.
+        on = [s for s in sfx if s["active"]]
+        assert len(on) >= 5, ("the click bed runs while the wheel spins", len(on), len(sfx))
+        assert all(s["loops"] == 1 for s in on), ("exactly one bed, never stacked", on[:6])
+        rates = [s["rate"] for s in on]
+        assert max(rates) > 0.9, ("the clicks reach full cadence at speed", max(rates))
+        assert min(rates) < 0.6, ("and thin out as the wheel slows", min(rates))
+        assert rates[-1] < max(rates), ("the bed ends slower than its peak", rates[-1], max(rates))
+        s_sfx = page.evaluate("window.__game.wheelSpinSfx()")
+        assert s_sfx["active"] is False and s_sfx["loops"] == 0, \
+            ("the bed stops with the wheel — no loop left running", s_sfx)
+        assert "wheel_spin" in page.evaluate("window.__game.soundLog()"), \
+            ("the spin cue was actually emitted", page.evaluate("window.__game.soundLog()")[-8:])
 
         # ---- 3. Persistence across a reload --------------------------------
         page.evaluate("window.__game.flushSave()")
@@ -197,6 +216,36 @@ try:
             setday(day)
             seq.append(st()["group"])
         assert seq == [3, 4, 5, 1], ("group order wraps after the last group", seq)
+
+        # ---- 7. The click bed obeys the Sound setting ----------------------
+        # Switching sound off mid-spin cuts the bed there and then (a loop, unlike
+        # a one-shot, would otherwise keep clicking), and a spin started with sound
+        # off never opens one at all.
+        open_w()
+        time.sleep(0.3)
+        force(0)
+        press()
+        end = time.time() + 4
+        while time.time() < end and not page.evaluate("window.__game.wheelSpinSfx()")["active"]:
+            time.sleep(0.03)
+        assert page.evaluate("window.__game.wheelSpinSfx()")["active"] is True, "bed running before the mute"
+        page.evaluate("window.__game.setSound(false)")
+        a = page.evaluate("window.__game.wheelSpinSfx()")
+        assert a["active"] is False and a["loops"] == 0, \
+            ("switching sound off stops the bed immediately", a)
+        wait_spins(1)
+
+        press()                        # a whole spin with sound off
+        muted = []
+        end = time.time() + 6
+        while time.time() < end:
+            muted.append(page.evaluate("window.__game.wheelSpinSfx()"))
+            if not st()["spinning"] and len(muted) > 3:
+                break
+            time.sleep(0.03)
+        assert not any(m["active"] or m["loops"] for m in muted), \
+            ("no click bed while sound is off", [m for m in muted if m["active"]][:3])
+        page.evaluate("window.__game.setSound(true)")
 
         page.screenshot(path=f"{SC}/fortunewheel.png")
         assert not errs, ("no console/page errors", errs)

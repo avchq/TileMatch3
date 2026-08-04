@@ -14,6 +14,7 @@ export class AudioManager {
     this._ctx = null;
     this._bgmName = null;
     this._bgmSource = null;
+    this._loops = new Set();   // live looping SFX handles (see playLoop)
     this._bgSuspended = false; // true only while WE paused a running ctx for a hidden tab
     this.onMusicChange = null; // (on) => void — host persists the preference
     this.onSoundChange = null; // (on) => void
@@ -83,6 +84,49 @@ export class AudioManager {
     return src;
   }
 
+  /**
+   * Start a LOOPING sound effect — a sustained bed that runs for as long as the
+   * thing making it does (the Fortune Wheel's spin clicks), as opposed to the
+   * fire-and-forget one-shots above. Returns a handle:
+   *   handle.setRate(r) — retune playback speed live (1 = as recorded)
+   *   handle.rate       — the current rate
+   *   handle.stop()     — end it
+   *   handle.stopped    — true once it has ended (stop(), or the sound channel
+   *                       being switched off underneath it)
+   * `loopEnd` lets a recording whose tail is a one-off ending (a run of clicks
+   * that slows to a stop) loop only its sustained head. Returns null when the
+   * sound channel is off or Web Audio is unavailable — callers may hold the null
+   * and still call nothing on it, so always guard.
+   */
+  playLoop(name, { loopStart = 0, loopEnd = 0 } = {}) {
+    if (!this.soundOn) return null;
+    const entry = this.buffers[name];
+    if (!entry || !this._ctx) return null;
+    const src = this._source(entry, true);
+    if (loopEnd > loopStart) { src.loopStart = loopStart; src.loopEnd = loopEnd; }
+    src.start(0);
+    if (this.onPlay) this.onPlay(name);
+    const handle = {
+      rate: 1,
+      stopped: false,   // owners hold the handle past the end — see stopLoops()
+      setRate: (r) => {
+        handle.rate = Math.max(0.05, r);
+        try { src.playbackRate.value = handle.rate; } catch (_) {}
+      },
+      stop: () => {
+        handle.stopped = true;
+        if (!this._loops.delete(handle)) return;   // already stopped
+        try { src.stop(); } catch (_) {}
+      },
+    };
+    this._loops.add(handle);
+    return handle;
+  }
+
+  /** Stop every looping SFX currently playing (sound switched off, scene torn
+   *  down) — a loop has no natural end, so it must never outlive its owner. */
+  stopLoops() { for (const h of [...this._loops]) h.stop(); }
+
   // Select the bgm track and start it IF the context is already running. Does
   // NOT call resume() — so calling it on page load never triggers the browser's
   // "AudioContext was not allowed to start" warning. Use unlock() from a gesture
@@ -123,9 +167,12 @@ export class AudioManager {
     if (persist && this.onMusicChange) this.onMusicChange(this.musicOn);
   }
 
-  // Toggle sound effects. Pure gate on play(); no context work needed.
+  // Toggle sound effects. A gate on play() — one-shots are short enough to just
+  // stop starting them — but a running LOOP has to be cut, or it would keep
+  // clicking away after the player switched sound off.
   setSound(on, { persist = true } = {}) {
     this.soundOn = !!on;
+    if (!this.soundOn) this.stopLoops();
     if (persist && this.onSoundChange) this.onSoundChange(this.soundOn);
   }
 

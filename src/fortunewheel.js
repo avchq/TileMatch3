@@ -24,6 +24,16 @@ const DESIGN_H = 1334;
 
 const LAMPS = 16;                    // marquee lamps around the ring (not per-slice)
 
+// The spin-click sound bed. The recording is a complete "clicks fast, then slows
+// to a stop" take (~1.15s), which is both shorter than a spin and already carries
+// a slow-down of its own — so we loop just its FAST head and drive the loop's
+// playback rate from the wheel's live angular speed instead. The clicks then
+// accelerate, hold and slow with the wheel it is actually turning, however long
+// the spin runs, rather than replaying a canned slow-down mid-spin.
+const SPIN_SFX = "wheel_spin";
+const SPIN_SFX_LOOP_END = 0.58;      // s — where the recording starts winding down
+const SPIN_SFX_MIN_RATE = 0.3;       // click cadence with the wheel nearly stopped
+
 // How each config prize `type` is granted in this port. Coins credit the wallet;
 // undo/wand/shuffle grant boosters. There is no Hint or Lightning helper here, so
 // Hint is baked into the config as `wand`, and Lightning grants a coins bonus
@@ -63,6 +73,7 @@ export class FortuneWheelScene extends PIXI.Container {
     this._forceIndex = null;       // pin the next winning slice (deterministic tests)
     this._adResult = "succeed";    // "succeed" | "cancel" | "fail" (ad-path tests)
     this._spinning = false;
+    this._spinSfx = null;          // live handle on the spin-click loop, if any
 
     this.visible = false;
     this.viewW = DESIGN_W; this.viewH = DESIGN_H;
@@ -535,9 +546,14 @@ export class FortuneWheelScene extends PIXI.Container {
     const p2 = p1 + holdDist;
 
     this._refSpeed = S;
-    await this._rotSeg(cur, p1, d1 * 1000, easeInCubic);
-    if (d2 > 0) await this._rotSeg(p1, p2, d2 * 1000, (t) => t);
-    await this._rotSeg(p2, final, d3 * 1000, easeOutCubic);
+    this._startSpinSfx();
+    try {
+      await this._rotSeg(cur, p1, d1 * 1000, easeInCubic);
+      if (d2 > 0) await this._rotSeg(p1, p2, d2 * 1000, (t) => t);
+      await this._rotSeg(p2, final, d3 * 1000, easeOutCubic);
+    } finally {
+      this._stopSpinSfx();             // never leave the loop running on an abort
+    }
     this.wheel.rotation = final;
     this._updatePointer(0);
   }
@@ -552,8 +568,27 @@ export class FortuneWheelScene extends PIXI.Container {
         const speed = (r - prev) / dt; prev = r;   // signed: sign = spin direction
         this.wheel.rotation = r;
         this._updatePointer(speed);
+        this._updateSpinSfx(speed);
       },
     });
+  }
+
+  // ---- spin sound ----------------------------------------------------------
+  _startSpinSfx() {
+    this._stopSpinSfx();               // paranoia: never stack two beds
+    this._spinSfx = this.audio.playLoop(SPIN_SFX, { loopEnd: SPIN_SFX_LOOP_END });
+  }
+
+  // The clicks ride the wheel's live speed: full cadence at peak, thinning out to
+  // a sparse tick as it settles — the same signal the pointer's lean reads.
+  _updateSpinSfx(speed) {
+    if (!this._spinSfx || this._spinSfx.stopped) return;   // sound switched off mid-spin
+    const ratio = Math.min(1, Math.abs(speed) / (this._refSpeed || 12));
+    this._spinSfx.setRate(SPIN_SFX_MIN_RATE + (1 - SPIN_SFX_MIN_RATE) * ratio);
+  }
+
+  _stopSpinSfx() {
+    if (this._spinSfx) { this._spinSfx.stop(); this._spinSfx = null; }
   }
 
   // Pointer deflects hard while the wheel is fast, easing back to centre as it
@@ -663,6 +698,7 @@ export class FortuneWheelScene extends PIXI.Container {
     if (!this.visible) return;
     this.audio.play("btn_01");
     this.visible = false;
+    this._stopSpinSfx();           // the bed must not outlive the closed overlay
     this.app.ticker.remove(this._lampTick);
     if (this.onBack) this.onBack();
   }
