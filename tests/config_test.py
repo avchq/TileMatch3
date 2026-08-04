@@ -22,6 +22,7 @@ EXPECT = {
         "shop": {"unlockLevel": 3},
         "fortuneWheel": {"unlockLevel": 5, "spinsPerCycle": 6, "headlinePrize": "lightning"},
         "dailyBonus": {"unlockLevel": 1},
+        "tasks": {"unlockLevel": 10, "weeklyResetDay": 1},
     },
     "boosters": {
         "kinds": ["undo", "shuffle", "wand"],
@@ -145,6 +146,21 @@ try:
         d = page.evaluate("window.__game.dailyBonusState()")
         assert d["unlocked"] is (wheel_lvl >= C["features"]["dailyBonus"]["unlockLevel"]), d
 
+        # Tasks reads its gate + weekly reset weekday from the config too. Its gate
+        # follows the documented "cleared level N-1" convention (like the shop),
+        # not the wheel's "reached level N" — so drive it with completeLevel.
+        tasks_lvl = C["features"]["tasks"]["unlockLevel"]
+        t = page.evaluate("window.__game.tasksState()")
+        assert t["unlockLevel"] == tasks_lvl, t
+        assert t["resetDay"] == C["features"]["tasks"]["weeklyResetDay"], t
+        print("TASKS BELOW GATE ->", t["unlocked"], t["buttonVisible"])
+        assert t["unlocked"] is False and t["buttonVisible"] is False, t
+        page.evaluate(f"window.__game.completeLevel({tasks_lvl - 1})")
+        time.sleep(0.3)
+        t = page.evaluate("window.__game.tasksState()")
+        print("TASKS AT GATE ->", t["unlocked"], t["buttonVisible"])
+        assert t["unlocked"] is True and t["buttonVisible"] is True, t
+
         # Winning a level pays exactly `economy.coinWinReward`, and Auto Complete
         # is only ever offered inside the configured window.
         auto = C["progression"]["autoComplete"]
@@ -179,13 +195,16 @@ try:
         for key in ("unlockLevel", "spinsPerCycle", "headlinePrize"):
             assert key not in turntable, ("turntable.json must not re-declare " + key)
         assert "unlockLevel" not in daily_cfg, "dailybonus.json must not re-declare unlockLevel"
+        tasks_cfg = json.loads(text("assets/config/tasks.json"))
+        for key in ("unlockLevel", "weeklyResetDay"):
+            assert key not in tasks_cfg, ("tasks.json must not re-declare " + key)
 
         # …and the modules the constants came from must not re-declare them
         # either: a new tunable belongs in config.js, never inline in a module.
         FORBIDDEN = {
             "src/game.js": ["COIN_WIN_REWARD", "AUTO_MIN_LEVEL", "AUTO_MAX_TILES",
                             "TUTORIAL_LEVEL", "TRAY_SLOTS"],
-            "src/user/User.js": ["BOOSTER_UNLOCKS", "SHOP_UNLOCK_LEVEL"],
+            "src/user/User.js": ["BOOSTER_UNLOCKS", "SHOP_UNLOCK_LEVEL", "TASKS_UNLOCK_LEVEL"],
             "src/user/UserStore.js": ["SAVE_DEBOUNCE_MS"],
         }
         for path, names in FORBIDDEN.items():

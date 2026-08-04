@@ -7,15 +7,17 @@ import { tween, easeOutBack } from "./tween.js";
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill } from "./shop.js";
 import { buildColumnBackground, fitTextWidth } from "./layout.js";
-import { FeatureRail, RAIL_LEFT_X } from "./featurerail.js";
+import { FeatureRail, RAIL_LEFT_X, RAIL_RIGHT_X } from "./featurerail.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
-// The corner chrome (settings cog / fortune-wheel / daily-bonus buttons) occupies
-// a column on the left up to ~x155 (button + caption). Keep the centred title and
-// subtitle inside the clear centre band so wide text can never overlap that column,
-// no matter how far the vertically-centred UI block slides on a tall screen.
+// The corner chrome occupies a column down EACH outer edge — the settings cog and
+// the left rail (fortune wheel / daily bonus) on one side, the coin pill and the
+// right rail (Tasks) on the other — each up to ~x155 wide (button + caption). Keep
+// the centred title and subtitle inside the clear centre band so wide text can
+// never overlap either column, no matter how far the vertically-centred UI block
+// slides on a tall screen.
 const CHROME_COL = 175;
 const CENTER_MAX_W = DESIGN_W - 2 * CHROME_COL; // 400
 
@@ -29,11 +31,13 @@ export class LobbyScene extends PIXI.Container {
     this.user = user;       // player profile — for the coin balance pill
     this.fortuneWheel = null; // the FortuneWheelScene (set by the host) — for gating/badges
     this.dailyBonus = null; // the DailyBonusScene (set by the host) — for gating
+    this.tasks = null;      // the TasksScene (set by the host) — for gating + the red dot
     this.onPlay = null;     // (levelNum) => void
     this.onSettings = null; // () => void — open the settings screen
     this.onShop = null;     // () => void — open the shop screen
     this.onFortuneWheel = null; // () => void — open the fortune wheel
     this.onDailyBonus = null; // () => void — open the daily bonus
+    this.onTasks = null;    // () => void — open the tasks screen
 
     // Responsive layout state (updated by layout()); defaults to the base design.
     this.viewW = DESIGN_W; this.viewH = DESIGN_H;
@@ -70,6 +74,7 @@ export class LobbyScene extends PIXI.Container {
       { name: "coinPill", obj: this.coinPill },
       { name: "wheelBtn", obj: this.wheelBtn },
       { name: "dailyBtn", obj: this.dailyBtn },
+      { name: "tasksBtn", obj: this.tasksBtn },
     ];
   }
 
@@ -152,11 +157,26 @@ export class LobbyScene extends PIXI.Container {
     this.rail.add("freeSpin", this.wheelBtn, () => this._freeSpinAvailable());
     this.rail.add("dailyBonus", this.dailyBtn, () => this._dailyBonusAvailable());
 
-    // Keep the rail live: progression unlocks features, a wheel spin / rollover
+    // Tasks — the checklist of goals. It sits on a SECOND rail down the right
+    // edge, under the coin pill, rather than sharing the left one: it is a
+    // permanent destination (once unlocked it never goes away again), whereas
+    // the left rail's entries come and go with the daily cycle. FeatureRail is
+    // edge-agnostic, so this is another instance, not new machinery.
+    this.tasksBtn = this._makeTasksButton();
+    this.tasksBtn.visible = false;
+    this.topHud.addChild(this.tasksBtn);
+
+    this.railRight = new FeatureRail(this.app.ticker, { x: RAIL_RIGHT_X });
+    this.railRight.add("tasks", this.tasksBtn, () => this._tasksAvailable());
+
+    // Keep the rails live: progression unlocks features, a wheel spin / rollover
     // changes the free-spin badge, and a daily claim retires the gift. Progression
     // also unlocks the shop, so the cart can appear the moment a level is cleared.
+    // The `tasks` domain is what lights and clears the Tasks red dot live —
+    // a counter ticking over a target, or a reward being collected.
     this.user.on((domain) => {
-      if (domain === "fortuneWheel" || domain === "dailyBonus" || domain === "progress") {
+      if (domain === "fortuneWheel" || domain === "dailyBonus" ||
+          domain === "progress" || domain === "tasks") {
         this.refreshFeatures();
       }
       if (domain === "progress") this._refreshShopGate();
@@ -300,14 +320,26 @@ export class LobbyScene extends PIXI.Container {
     return !!d && this.user.progress.level >= d.unlockLevel && d.canClaim();
   }
 
+  // Tasks is offered from its unlock level on, and then permanently — unlike the
+  // two daily features there is no "used up for today" state to hide it again.
+  // The gate is the profile's (completedLevel() >= N-1), the same derived rule the
+  // shop and the helpers use, so a QA level jump opens it with nothing to repair.
+  // An empty goal table (a failed config fetch) withholds the button entirely.
+  _tasksAvailable() {
+    const t = this.tasks;
+    return !!t && t.hasTable() && this.user.isTasksUnlocked();
+  }
+
   /**
-   * Re-gate every feature button and re-pack the rail. Pass `animate: false` to
+   * Re-gate every feature button and re-pack BOTH rails. Pass `animate: false` to
    * snap (used on lobby entry, so arriving never plays a slide).
    */
   refreshFeatures({ animate = true } = {}) {
     if (!this.rail) return;
     this._updateWheelBadges();
+    this._updateTasksBadge();
     this.rail.refresh({ animate });
+    if (this.railRight) this.railRight.refresh({ animate });
   }
 
   // Badges the rail knows nothing about: "new" until the wheel is first opened,
@@ -318,12 +350,22 @@ export class LobbyScene extends PIXI.Container {
     this.wheelBtn.freeBadge.visible = this.user.wheelSpinsUsed() === 0;
   }
 
+  // The Tasks red dot: on whenever ANYTHING — achievement or weekly — is finished
+  // and waiting to be collected. It is the feature's entire discovery mechanism;
+  // there is no popup and no other nag.
+  _updateTasksBadge() {
+    if (!this.tasksBtn) return;
+    this.tasksBtn.dot.visible = !!this.tasks && this.tasks.hasClaimable();
+  }
+
   /**
    * Is a feature currently offered? Distinct from `<btn>.visible`, which is also
    * false while an entering button waits out a reflow, or true mid fade-out.
+   * Looks in both rails, so the key is enough — the caller needn't know an edge.
    */
   featureAvailable(key) {
-    return !!this.rail && this.rail.available(key);
+    if (this.rail && this.rail.entries.some((e) => e.key === key)) return this.rail.available(key);
+    return !!this.railRight && this.railRight.available(key);
   }
 
   _makeDailyButton() {
@@ -408,6 +450,52 @@ export class LobbyScene extends PIXI.Container {
     };
     this._dailyAnim = fn;
     this.app.ticker.add(fn);
+  }
+
+  // The Tasks entry button — a clipboard in the same round style as the wheel and
+  // the gift, on the right-edge rail under the coin pill. Unlike those two it does
+  // not animate at rest: it is a permanent destination, not a "claim me today"
+  // prompt, so the RED DOT does all the work of saying there is something waiting.
+  _makeTasksButton() {
+    const c = new PIXI.Container();
+    const bg = new PIXI.Graphics();
+    bg.beginFill(0x2c5a7e).drawCircle(0, 0, 54).endFill();
+    bg.lineStyle(5, 0xffe27a, 0.9).drawCircle(0, 0, 54);
+    c.addChild(bg);
+
+    const board = new PIXI.Text("📋", { fontFamily: "Arial", fontSize: 56 });
+    board.anchor.set(0.5);
+    c.addChild(board);
+
+    const cap = new PIXI.Text("Tasks", {
+      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xffe27a,
+      stroke: 0x5a3a00, strokeThickness: 4,
+    });
+    cap.anchor.set(0.5);
+    cap.position.set(0, 74);
+    c.addChild(cap);
+
+    // The red dot — "something is finished and waiting". Top-right of the button,
+    // in button-local coordinates, exactly like the wheel's badges (and, like
+    // them, deliberately absent from controls(): it is part of its button).
+    const dot = new PIXI.Graphics();
+    dot.beginFill(0xff3b3b).drawCircle(0, 0, 15).endFill();
+    dot.lineStyle(3, 0xffffff, 0.85).drawCircle(0, 0, 15);
+    dot.position.set(40, -40);
+    dot.visible = false;
+    c.addChild(dot);
+    c.dot = dot;
+
+    c.eventMode = "static";
+    c.cursor = "pointer";
+    c.hitArea = new PIXI.Circle(0, 0, 56);
+    c.on("pointertap", () => { this.audio.play("btn_01"); this.onTasks && this.onTasks(); });
+    c.on("pointerover", () => c.scale.set(1.08));
+    c.on("pointerout", () => c.scale.set(1));
+    c.on("pointerdown", () => c.scale.set(0.92));
+    c.on("pointerup", () => c.scale.set(1));
+    c.on("pointerupoutside", () => c.scale.set(1));
+    return c;
   }
 
   _makePlayButton() {

@@ -128,7 +128,9 @@ try:
         prof = page.evaluate("window.__game.user()")
         print("MIGRATED v4 -> version:", prof["version"], "boosters:", prof["boosters"],
               "unlocks:", prof["boosterUnlocks"])
-        assert prof["version"] == 6, prof["version"]
+        # Migrations chain, so a v4 blob lands on whatever the current schema is
+        # (v7 at the time of writing — v6->v7 added the Tasks counters).
+        assert prof["version"] == 7, prof["version"]
         # Cleared level 3 -> Undo (L2) and Wand (L3) are reached, Reshuffle (L5) is not.
         assert unlocked("undo") is True and unlocked("wand") is True, prof
         assert unlocked("shuffle") is False, prof

@@ -430,6 +430,9 @@ export class DailyBonusScene extends PIXI.Container {
     // Commit today's claim the moment a box is opened: the single daily draw is
     // now spent, so the lobby button hides and the boxes can't be re-rolled.
     this.user.recordDailyClaim(this._today());
+    // Counted at the same moment for the same reason — the claim is committed
+    // here, so this is when a Tasks goal watching the daily gift ticks.
+    this.user.bumpStat("dailyBonusClaimed");
     this.audio.play("btn_01");
 
     this._tip.visible = false;

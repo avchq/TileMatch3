@@ -4,6 +4,7 @@ import { SettingsScene } from "./settings.js";
 import { ShopScene } from "./shop.js";
 import { FortuneWheelScene } from "./fortunewheel.js";
 import { DailyBonusScene } from "./dailybonus.js";
+import { TasksScene } from "./tasks.js";
 import { makePayments } from "./user/payments.js";
 import { makeTileTextures, makeSlotTexture } from "./icons.js";
 import { AudioManager } from "./audio.js";
@@ -128,6 +129,13 @@ async function boot() {
   let dailybonus = null;
   try { dailybonus = await fetch("assets/config/dailybonus.json").then((r) => r.json()); }
   catch (_) { /* keep null — DailyBonusScene falls back to safe defaults */ }
+
+  // The Tasks goal table (achievement chains + the weekly list). Same defensive
+  // load — a failure leaves the scene with no goals, which makes hasTable() false
+  // and so the lobby's Tasks button simply stays hidden.
+  let tasksCfg = null;
+  try { tasksCfg = await fetch("assets/config/tasks.json").then((r) => r.json()); }
+  catch (_) { /* keep null — TasksScene falls back to empty lists */ }
   splash.set(P.configs, "Preparing board…");
 
   const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices);
@@ -136,7 +144,8 @@ async function boot() {
   const shop = new ShopScene(app, audio, user, payments);
   const wheel = new FortuneWheelScene(app, audio, user, turntable);
   const daily = new DailyBonusScene(app, audio, user, dailybonus);
-  root.addChild(scene, lobby, settings, shop, wheel, daily); // overlays draw on top of whichever scene is active
+  const tasks = new TasksScene(app, audio, user, tasksCfg);
+  root.addChild(scene, lobby, settings, shop, wheel, daily, tasks); // overlays draw on top of whichever scene is active
 
   // Fit the viewport: size the renderer to the window, scale the stage so the
   // constraining dimension fills exactly, then hand each scene the resulting
@@ -153,6 +162,7 @@ async function boot() {
     shop.layout(DW, DH);
     wheel.layout(DW, DH);
     daily.layout(DW, DH);
+    tasks.layout(DW, DH);
   };
   resize();
   splash.set(P.scenes);
@@ -178,6 +188,13 @@ async function boot() {
   lobby.onDailyBonus = () => daily.open();
   daily.onBack = () => {}; // just hides — the lobby is underneath
 
+  // The Tasks button on the lobby's right-edge rail opens the goals screen; the
+  // lobby reads the scene's goal table + the profile's gate to decide whether to
+  // offer the button at all, and its hasClaimable() to light the red dot.
+  lobby.tasks = tasks;
+  lobby.onTasks = () => tasks.open();
+  tasks.onBack = () => {}; // just hides — the lobby is underneath
+
   // Check the daily rollover continuously while running, so a player left open
   // across midnight gets their new cycle (fresh group + free spin) without a
   // restart. checkRollover emits "fortuneWheel", refreshing the lobby button and an
@@ -188,6 +205,9 @@ async function boot() {
     if (_rollAcc >= 4000) {
       _rollAcc = 0;
       wheel.checkRollover();
+      // Same for the weekly task list: a screen left open across the Monday
+      // boundary rolls the period over and re-arms every weekly goal live.
+      tasks.checkRollover();
       // The daily-bonus button reappears purely because the calendar day changed
       // (no user-state mutation fires), so refresh it here too — a lobby left open
       // across midnight re-shows the gift live, like the wheel's fresh free spin.
@@ -206,6 +226,9 @@ async function boot() {
       if (res && res.ok) {
         if (res.coins) user.credit("coins", res.coins);
         for (const [kind, n] of Object.entries(res.boosters || {})) user.grantBooster(kind, n);
+        // A Tasks goal watches shop purchases (see src/tasks.js) — counted here
+        // with the grant, so only a purchase that really succeeded counts.
+        user.bumpStat("shopPurchases");
       }
       return res;
     } catch (_) { return { ok: false }; } // cancelled / failed — nothing changes
@@ -355,6 +378,7 @@ async function boot() {
       add("shop", shop);
       add("wheel", wheel);
       add("daily", daily);
+      add("tasks", tasks);
       return out;
     },
     // Tray sizing: the per-level slot size, the on-screen board tile size it
@@ -372,7 +396,9 @@ async function boot() {
     // entry, in design units. `moving` is true while a slide/fade is in flight,
     // so a test can assert a reflow is animated without sampling on a stopwatch.
     // -> [{ key, available, slot, x, y, targetY, visible, alpha, moving }]
-    featureRail: () => lobby.rail.slots(),
+    // `side` picks which rail: "left" (default — Free Spin / Daily Bonus) or
+    // "right" (Tasks). Defaulted so existing callers keep meaning the left one.
+    featureRail: (side) => (side === "right" ? lobby.railRight : lobby.rail).slots(),
     startLevel,
     // Leave the level the way the Back button does — through the scene's single
     // exit path, so the guidance hand / booster hint / tutorial popup are torn
@@ -578,6 +604,68 @@ async function boot() {
     forceDailyHop: () => { if (lobby.dailyBtn) lobby.dailyBtn._hopNow = true; },
     // Force the double-it ad outcome: "succeed" | "cancel" | "fail".
     setDailyAdResult: (mode) => { daily._adResult = mode; },
+    // ---- tasks / achievements ----
+    openTasks: () => tasks.open(),
+    closeTasks: () => tasks._close(),
+    tasksVisible: () => tasks.visible,
+    // Press the lobby button the way a player does (a no-op while it's hidden).
+    pressTasksButton: () => lobby.tasksBtn.emit("pointertap"),
+    tasksState: () => ({
+      unlocked: user.isTasksUnlocked(),
+      unlockLevel: CONFIG.features.tasks.unlockLevel,
+      resetDay: CONFIG.features.tasks.weeklyResetDay,
+      completed: user.completedLevel(),
+      // Is the button OFFERED — the gate, not where a fade has got to (see wheelState).
+      buttonVisible: lobby.featureAvailable("tasks"),
+      // The red dot: anything, on either tab, finished and waiting to be collected.
+      badge: lobby.tasksBtn.dot.visible,
+      hasClaimable: tasks.hasClaimable(),
+      overlayOpen: tasks.visible,
+      // True from the moment a Claim is accepted until its reward has flown, been
+      // granted and the row has left the list — so a test can wait on the flow
+      // finishing instead of guessing at a sleep.
+      busy: tasks._claiming,
+      tab: tasks.tab(),
+      week: user.taskWeek(),
+      weekKey: tasks._weekKey(),
+      note: tasks._note.text,
+      emptyVisible: tasks._empty.visible,
+      chains: tasks.achievements.length,
+      weeklyGoals: tasks.weekly.length,
+    }),
+    // The rows currently rendered on a tab (defaults to the open one): what the
+    // player can actually see, after the one-unfinished-tier-per-chain rule and
+    // the claimable-first sort.
+    tasksList: (tab) => tasks.rowsFor(tab || tasks.tab()),
+    // Rows as laid out on screen right now (ids top-to-bottom) — distinct from
+    // tasksList() only while a claimed row is still animating away.
+    tasksRowIds: () => tasks._rows.map((r) => r.id),
+    setTasksTab: (tab) => tasks.setTab(tab),
+    scrollTasks: (y) => { tasks._setScroll(y); return tasks.scrollState(); },
+    tasksScroll: () => tasks.scrollState(),
+    // Claim through the real pointer path, so a row that isn't claimable (or a
+    // drag that ended on the button) is refused exactly as it would be in play.
+    pressTaskClaim: (id) => {
+      const node = tasks._rowNodes.find((n) => n.__row && n.__row.id === id);
+      return node && node.claimBtn ? node.claimBtn.emit("pointertap") : undefined;
+    },
+    // On-screen rect (client px) of a row's Claim button, so a test can drive a
+    // real mouse gesture at it — the only way to prove a DRAG doesn't also claim.
+    taskClaimRect: (id) => {
+      const node = tasks._rowNodes.find((n) => n.__row && n.__row.id === id);
+      if (!node || !node.claimBtn || !node.claimBtn.visible) return null;
+      const b = node.claimBtn.getBounds();
+      return { x: b.x, y: b.y, w: b.width, h: b.height };
+    },
+    // Lifetime counters, and a way to drive one without playing the game out.
+    taskStats: () => ({ ...user.toJSON().tasks.stats }),
+    taskStat: (a) => user.stat(a),
+    weeklyStat: (a) => user.weeklyStat(a),
+    bumpStat: (a, n) => user.bumpStat(a, n),
+    taskClaimed: (id, weekly) => user.isTaskClaimed(id, !!weekly),
+    // Force "now" / the week-key (weekly reset + countdown tests).
+    setTasksNow: (iso) => { tasks._nowOverride = iso; tasks.checkRollover(); lobby.refreshFeatures(); },
+    setTasksWeek: (key) => { tasks._weekOverride = key; tasks.checkRollover(); lobby.refreshFeatures(); },
     // ---- helper (booster) inventory ----
     boosterCount: (kind) => user.boosterCount(kind),
     grantBooster: (kind, n) => user.grantBooster(kind, n),

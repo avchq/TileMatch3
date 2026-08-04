@@ -1080,6 +1080,11 @@ export class GameScene extends PIXI.Container {
           }
           matched = true;
           cleared = true;
+          // "Tiles matched" is a lifetime task counter (src/tasks.js). Counted
+          // here, where a triple actually clears, so every route into a match —
+          // ordinary play, a reshuffle collapsing several at once, the Auto
+          // Complete sweep — is counted exactly once.
+          if (this.user) this.user.bumpStat("tilesMatched", three.length);
         }
       }
       if (!cleared) break;

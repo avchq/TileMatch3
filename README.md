@@ -216,15 +216,29 @@ level 1** — the teaching level is played by hand all the way to the win — so
 first appears on level 2. The **cog** (top-left) opens Settings and the
 **‹ Back** button beside it leaves the level for the lobby with progress kept.
 
-### Feature buttons — the lobby rail
-The lobby's **feature entry buttons** (Fortune Wheel's **Free Spin**, then
-**Daily Bonus**) are not pinned to fixed spots. They are entries on a **feature
-rail** (`src/featurerail.js`): a vertical ladder of **slots** running top-to-bottom
-down an **outer edge** of the game column, filled by whichever buttons are
-currently **available**, in a **fixed priority order**:
+### Feature buttons — the lobby rails
+The lobby's **feature entry buttons** are not pinned to fixed spots. They are
+entries on a **feature rail** (`src/featurerail.js`): a vertical ladder of
+**slots** running top-to-bottom down an **outer edge** of the game column, filled
+by whichever buttons are currently **available**, in a **fixed priority order**.
 
-1. **Free Spin**
-2. **Daily Bonus**
+There are **two rails**, one down each edge, and they are two instances of the
+same class — the rail owns only an `x` and a slot ladder, so a second edge needs
+no new machinery:
+
+- **Left rail** (`RAIL_LEFT_X` 86), under the settings cog — the **daily** features,
+  which come and go with the day's cycle:
+  1. **Free Spin**
+  2. **Daily Bonus**
+- **Right rail** (`RAIL_RIGHT_X` 664), under the coin pill — the **permanent**
+  destinations:
+  1. **Tasks**
+
+The split is by behaviour, not by looks: a left-rail button disappears once the
+day's spin is used or the gift is claimed and returns at the next rollover, so the
+column genuinely reflows. **Tasks** never goes away once unlocked, so it would
+just sit at the bottom of the left rail forever — and putting it opposite keeps
+the reflowing column short.
 
 The rail always packs them into **consecutive slots with no holes**. If #1 is
 unavailable, **#2 takes its place**; the moment #1 becomes available again it
@@ -246,16 +260,17 @@ control.
 Availability is per feature and unchanged by the rail — it decides only *where* an
 available button sits, never *whether* it is offered (Free Spin: unlocked by
 progression and spins left this cycle; Daily Bonus: unlocked by progression and
-today's gift unclaimed). Because the wheel unlocks at level **5** and the gift at
-level **1**, a new player sees the gift alone, in the **first** slot.
+today's gift unclaimed; Tasks: unlocked by progression, and then permanently).
+Because the wheel unlocks at level **5** and the gift at level **1**, a new player
+sees the gift alone, in the **first** slot of the left rail, with the right rail
+empty until level **10**.
 
-The rail is edge-agnostic — it owns only an `x` and the slot ladder (`RAIL_LEFT_X`
-/ `RAIL_RIGHT_X`, `RAIL_Y0` 214, `RAIL_GAP` 182), so a second rail down the
-**right** edge is another instance, not new machinery. Adding a feature button is
-one `rail.add(key, button, isAvailable)` call in the priority order. The always-on
-corner chrome (settings **cog**, **coin pill**) is *not* on the rail: it never
-reflows. The rail sits on the lobby's `topHud` layer, so it tracks the **top
-corner** on tall screens like the cog does.
+The rail owns only an `x` and the slot ladder (`RAIL_LEFT_X` / `RAIL_RIGHT_X`,
+`RAIL_Y0` 214, `RAIL_GAP` 182). Adding a feature button is one
+`rail.add(key, button, isAvailable)` call in the priority order, on whichever
+rail. The always-on corner chrome (settings **cog**, **coin pill**) is *not* on a
+rail: it never reflows. Both rails sit on the lobby's `topHud` layer, so they
+track the **top corners** on tall screens like the cog does.
 
 ### Fortune Wheel — a daily prize wheel
 A **prize wheel** reached from the lobby (not part of a level): a daily-return
@@ -338,6 +353,91 @@ it's available from the start) lives in **`src/config.js`**
 (`features.dailyBonus`). The draw is **weighted**, strongly favouring
 small coin amounts and rarely giving boosters — tune the odds by editing the
 weights, no code change.
+
+### Tasks — achievements and weekly goals
+The game's **checklist of goals**: "Complete 50 levels", "Use 10 props", "Match
+1000 tiles" — each a row with a **progress bar** and a **reward** you tap to
+collect. It is the one long-horizon hook; everything else in the game pays out
+once and forgets. Its **📋 Tasks button** is the only entry on the lobby's
+**right-edge feature rail**, under the coin pill.
+
+- The button is **hidden until level 10** (`features.tasks.unlockLevel`). Below
+  that the feature does not exist as far as the player is concerned — but the
+  **counters behind it run from level 1**, so a player arriving at the gate finds
+  their history already filled in and several tiers waiting to be claimed.
+- It carries a **red dot** whenever *anything* — achievement or weekly — is
+  finished and waiting. That dot is the entire discovery mechanism: no popup, no
+  other nag. Unlike the wheel and the gift, the button itself does **not**
+  animate; it is a permanent destination, not a "claim me today" prompt.
+- Opening picks the tab for you: whichever has something to collect, preferring
+  **Achievements** when both do.
+
+Two lists share the screen, on two tabs:
+
+**Achievements** are permanent and organised into **chains** — one activity broken
+into escalating tiers (complete 1 → 5 → 10 → 25 → 50 → 100 → 250 levels), with
+rewards growing as the tiers get harder.
+- **Only one unfinished tier per chain is ever on screen.** Claim it and the next
+  takes its place — that is what keeps ~10 chains a readable list instead of sixty
+  rows.
+- **Finished-but-unclaimed tiers are always shown**, sorted to the **top**, and
+  the row turns **gold** with a pulsing **Claim** button.
+- **Claimed tiers vanish permanently** — there is no trophy cabinet, only live goals.
+- Progress is measured against **lifetime totals**, not a per-tier counter. So
+  blowing past several tiers at once — or adding a new chain to a live game —
+  leaves the already-earned tiers **stacked up and instantly claimable** rather
+  than needing to be re-earned.
+
+**Weekly Tasks** are a short **flat** list (no tiers) that **all reset at local
+midnight on Monday** (`features.tasks.weeklyResetDay`). Progress returns to zero
+and every task becomes available again, *including ones already claimed*. The tab
+shows a live **"Reset in: 3d 14h"** countdown and a "New Tasks Every Week!"
+banner; a deadline passing while the screen is open resets the list in front of
+you (the same 4 s poller that rolls the wheel's day).
+
+Claiming credits the reward immediately — the item **flies to its top-bar counter**
+on the same Bézier arc the wheel and the gift use, granting **on landing** so the
+number ticks in sync — and the row **slides away and disappears**. There is no
+"watch an ad to double it" anywhere in this feature: tasks pay exactly what they
+say, once. The list **scrolls** (drag or mouse wheel); a drag that ends on a Claim
+button deliberately does *not* claim it.
+
+**What counts as progress.** Ten activities, each with a lifetime counter, and any
+task on either tab watching that activity moves when it moves:
+
+| Activity | What makes it tick | Counted in |
+| --- | --- | --- |
+| `levelsCompleted` | beating a level **for the first time** (a replay counts nothing) | `User.completeLevel` |
+| `tilesMatched` | 3 per triple cleared, however it was cleared | `GameScene._settle` |
+| `undoUsed` / `shuffleUsed` / `wandUsed` | each individual helper use | `User.useBooster` |
+| `propsUsed` | any of the three above — one use ticks both | `User.useBooster` |
+| `coinsSpent` | by the **amount** spent, not one per purchase | `User.debit` |
+| `dailyBonusClaimed` | each Daily Bonus collection | `DailyBonusScene._openBox` |
+| `wheelSpins` | each Fortune Wheel spin | `FortuneWheelScene` |
+| `shopPurchases` | each package bought (on success) | `main.js purchasePackage` |
+
+Note how few call sites that is: helpers all spend through `User.useBooster` and
+coins only ever leave through `User.debit`, so those two counters catch every
+route — including any added later — without a site to forget.
+
+**Weekly progress is derived, not counted separately**: it is `lifetime total −
+base`, where `base` is a snapshot of the counters taken when the week rolled over.
+That is why one counting path serves both tabs and why a reset is a *snapshot*
+rather than a wipe.
+
+The **goal table** lives in `assets/config/tasks.json` — `achievements[]` (chains
+with a `tiers[]` of `{target, reward}`) and `weekly[]` (flat `{activity, target,
+reward}` rows), rewards written as `{type, amount}` with the same
+`coins`/`undo`/`wand`/`shuffle` vocabulary as the wheel and the gift. Adding
+**tiers** to an existing chain is a change to that file alone; adding a genuinely
+**new kind** of task also needs a title template and icon in the `ACTIVITY` map at
+the top of `src/tasks.js` (titles are not in the JSON, mirroring `PRIZE_LABEL` in
+`dailybonus.js`). The feature's **gate and reset weekday** sit in **`src/config.js`**
+(`features.tasks`) with every other key parameter.
+
+**Note:** the shipped `unlockLevel` is **10**, and this port ships 13 levels — so
+it is reachable but late. Lower `features.tasks.unlockLevel` in `src/config.js` to
+demo it sooner.
 
 ## Run it
 Because it uses ES modules and `fetch`, it must be served over HTTP (not
@@ -659,10 +759,11 @@ python3 -m http.server 8099
     the background** — the game is never blown up to the full width. The crisp
     background covers only the centred column; a blurred, cover-fit copy fills the
     sides (`layout.js` `buildColumnBackground`). Corner chrome (settings cog, coin
-    pill) and the feature rail (Free Spin / Daily Bonus) therefore ride the
-    **edges of the column**, not the physical screen edges — the rail's `x` and slot
-    ladder are plain design-space coordinates on the `topHud` layer, so pinning it
-    to an outer edge needs no per-element anchoring logic.
+    pill) and the two feature rails (Free Spin / Daily Bonus on the left, Tasks on
+    the right) therefore ride the **edges of the column**, not the physical screen
+    edges — a rail's `x` and slot ladder are plain design-space coordinates on the
+    `topHud` layer, so pinning one to an outer edge needs no per-element anchoring
+    logic.
   - The **board is sized to the 750 column**, not the viewport
     (`GameScene._layoutBoard` fits it by `min((min(viewW,750)-60)/spanX,
     areaH/spanY)`), so on a wide screen the tiles stay column-sized and the play
@@ -698,7 +799,7 @@ sections are:
 | Section | What's in it |
 | --- | --- |
 | `progression` | `tutorialLevel` (which level opens "How To Play" + the guided opening) and `autoComplete.minLevel` / `.maxTiles` (the window the free Auto Complete button is offered in) |
-| `features` | one gate per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel` |
+| `features` | one gate per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel`, `tasks.unlockLevel` / `.weeklyResetDay` |
 | `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — and `coach` (`enabled`, `undoDelayMs`) for the guided first use |
 | `economy` | `currencies`, the `startingWallet`, and `coinWinReward` (the only free coin faucet) |
 | `board` | `traySlots` — the tray capacity, the core difficulty dial |
@@ -714,8 +815,9 @@ Two kinds of value deliberately stay **out** of it:
 - **Large data tables**, which stay as JSON under `assets/config/` so they can be
   re-tuned without touching source at all: `levels.json` (the level table),
   `prices.json` (coin prices), `turntable.json` (wheel prize groups + odds),
-  `dailybonus.json` (the weighted prize pool). Those files hold **prize/level
-  data only** — the *gates and pacing* around them are in `config.js`.
+  `dailybonus.json` (the weighted prize pool), `tasks.json` (achievement chains +
+  the weekly list). Those files hold **prize/level/goal data only** — the *gates
+  and pacing* around them are in `config.js`.
 
 It is a JS module rather than a fifth JSON file for two reasons: JSON has no
 comments (and these parameters are useless without them), and some values are
@@ -798,9 +900,17 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   via `advanceWheelCycle`/`recordWheelSpin`/`markWheelSeen`, emitting a
   `fortuneWheel` domain), and the **Daily Bonus** claim state (`dailyBonus` —
   just `lastClaimDay`, the day-key of the most recent claim, mutated via
-  `recordDailyClaim`, emitting a `dailyBonus` domain). It emits a domain-tagged
+  `recordDailyClaim`, emitting a `dailyBonus` domain), and the **Tasks** state
+  (`tasks` — `stats`, the lifetime counter per tracked activity, plus `claimed`
+  and `weekly {week, claimed, base}`; read/written via
+  `stat`/`bumpStat`/`weeklyStat`, `isTaskClaimed`/`markTaskClaimed` and
+  `rollTaskWeek`, with the `isTasksUnlocked()` gate alongside `isShopUnlocked()`,
+  emitting a `tasks` domain. The two `claimed` lists are the same idempotent
+  one-time ledger as `boosterUnlocks`; `base` is a snapshot of `stats` taken at
+  the week's start, so weekly progress is a subtraction rather than a second set
+  of counters). It emits a domain-tagged
   change event on every mutation and (de)serializes via `toJSON`/`fromJSON` with a
-  `version` for forward migrations (currently **v6** — v1→v2 added `fortuneWheel`,
+  `version` for forward migrations (currently **v7** — v1→v2 added `fortuneWheel`,
   v2→v3 added `dailyBonus`; both fill from defaults for older blobs, so each step
   just stamps the version. v3→v4 added `progress.completed`, **derived** as
   `level - 1` — levels only ever advanced on a win — so an existing player is never
@@ -812,7 +922,14 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   carrying helpers it should not have. v5→v6 added `boosterCoach` and deliberately
   leaves it **empty**: an existing player is already past some of these gates, so
   seeding it the way v4→v5 seeded `boosterUnlocks` would mean they never meet the
-  coaching at all — empty means every helper they own is still owed its lesson).
+  coaching at all — empty means every helper they own is still owed its lesson.
+  v6→v7 added `tasks`, and unlike v5→v6 it **derives what it honestly can**, in
+  the spirit of v3→v4: `stats.levelsCompleted` is seeded from
+  `progress.completed`, the one counter an old profile really does record. Every
+  other counter starts at 0 — those histories were never written down — and
+  `weekly.base` is seeded to match so the weekly list still starts at zero. The
+  consequence is intended: an existing player opens the screen to find the level
+  tiers they already earned stacked up and ready to claim).
 - **`adapters.js`** — a small **async** storage/identity contract
   (`identify` / `load` / `save` / `clear`). `LocalStorageAdapter` is the working
   default on the open web. `FacebookInstantAdapter` / `TelegramAdapter` /
@@ -866,13 +983,14 @@ JS/
   index.html
   vendor/pixi.min.js
   src/config.js             # KEY PARAMETERS: feature gates, unlocks, economy
-  src/{main,splash,game,lobby,settings,shop,fortunewheel,dailybonus,level,levelConfig,icons,audio,assets,tween}.js
+  src/{main,splash,game,lobby,settings,shop,fortunewheel,dailybonus,tasks,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
     config/levels.json      # the level table: {background,data,types,preload?} per level
     config/prices.json      # coin prices: in-level helper buys + the Out-of-Moves continue
     config/turntable.json   # Fortune Wheel prize groups + odds (gate/pacing: src/config.js)
     config/dailybonus.json  # Daily Bonus weighted prize pool (gate: src/config.js)
+    config/tasks.json       # Tasks: achievement chains + weekly list (gate: src/config.js)
     levels/level{1..13}.json
     bg/*.jpg
     audio/*.mp3

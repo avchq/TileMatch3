@@ -6,7 +6,7 @@
 
 import { CONFIG } from "../config.js";
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 // Every tunable this model reads — the starting wallet and booster inventory,
 // the helper unlock schedule and the shop's gate — lives in src/config.js,
@@ -14,6 +14,7 @@ export const SCHEMA_VERSION = 6;
 // below stays readable; config.js remains the only place to EDIT them.
 const BOOSTER_UNLOCKS = CONFIG.boosters.unlocks;
 const SHOP_UNLOCK_LEVEL = CONFIG.features.shop.unlockLevel;
+const TASKS_UNLOCK_LEVEL = CONFIG.features.tasks.unlockLevel;
 
 // The wallet / inventory a brand-new account starts with (config.js). Copied on
 // every use — CONFIG is frozen, and these become live mutable state.
@@ -54,6 +55,25 @@ const defaults = () => ({
   // (YYYY-MM-DD) of the most recent claim. "Has the calendar date changed since
   // then?" is the whole eligibility check; "" means never claimed.
   dailyBonus: { lastClaimDay: "" },
+  // Tasks / Achievements state (see src/tasks.js).
+  //   stats   — the LIFETIME counter for every tracked activity
+  //             (levelsCompleted, tilesMatched, coinsSpent, …). These are the
+  //             source of truth: every task, weekly or achievement, is scored
+  //             by comparing a target against one of these, so nothing is
+  //             counted twice and a task added later starts already filled in.
+  //   claimed — ids of the achievement tiers whose reward has been collected
+  //             ("levels:25"). Same idempotent one-time ledger as
+  //             boosterUnlocks/boosterCoach above; a claimed tier is gone for
+  //             good and the chain moves on to its next one.
+  //   weekly  — the weekly list's per-period state. `week` is the day-key
+  //             (YYYY-MM-DD) of the Monday the current week began, and a
+  //             change of that key rolls the period over. `claimed` is the
+  //             same ledger as above but wiped on every roll. `base` is a
+  //             SNAPSHOT of `stats` taken at the start of the week: weekly
+  //             progress is simply stats - base, which is why the weekly tab
+  //             needs no counters of its own and a reset is a snapshot rather
+  //             than a wipe.
+  tasks: { stats: {}, claimed: [], weekly: { week: "", claimed: [], base: {} } },
 });
 
 export class User {
@@ -73,11 +93,24 @@ export class User {
     this.settings = { ...d.settings, ...(data.settings || {}) };
     this.fortuneWheel = { ...d.fortuneWheel, ...(data.fortuneWheel || {}) };
     this.dailyBonus = { ...d.dailyBonus, ...(data.dailyBonus || {}) };
+    // Nested maps and arrays can't ride the shallow sub-object merge, so the
+    // counters, the two claim ledgers and the week's baseline are rebuilt here.
+    const t = data.tasks || {};
+    const w = t.weekly || {};
+    this.tasks = {
+      stats: { ...(t.stats || {}) },
+      claimed: (t.claimed || []).slice(),
+      weekly: {
+        week: w.week || "",
+        claimed: (w.claimed || []).slice(),
+        base: { ...(w.base || {}) },
+      },
+    };
     this._listeners = new Set();
   }
 
   // ---- change events -------------------------------------------------------
-  /** Subscribe. Callback is fn(domain, user) where domain ∈ progress|wallet|boosters|settings|fortuneWheel|dailyBonus.
+  /** Subscribe. Callback is fn(domain, user) where domain ∈ progress|wallet|boosters|settings|fortuneWheel|dailyBonus|tasks.
    *  Returns an unsubscribe function. */
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
   off(fn) { this._listeners.delete(fn); }
@@ -101,6 +134,10 @@ export class User {
   completeLevel(n) {
     const v = Math.max(0, Math.floor(n) || 0);
     if (v <= this.completedLevel()) return;
+    // Levels-completed is a LIFETIME task counter, and this early return is
+    // exactly the "first clear only" rule the achievements want: replaying a
+    // level already beaten never reaches here, so it never counts.
+    this.bumpStat("levelsCompleted", v - this.completedLevel());
     this.progress.completed = v;
     this._emit("progress");
     this._grantPendingUnlocks();
@@ -125,6 +162,11 @@ export class User {
     const n = Math.max(0, Math.floor(amount) || 0);
     if (!this.canAfford(cur, n)) return false;
     this.wallet[cur] = this.balance(cur) - n;
+    // "Coins spent" is a task counter measured by AMOUNT, not by number of
+    // purchases. Counting it here — the one place coins ever leave the wallet —
+    // means every spend (a helper buy, the Out-of-Moves continue, anything
+    // added later) is counted without its own call site to forget.
+    if (cur === "coins" && n) this.bumpStat("coinsSpent", n);
     this._emit("wallet");
     return true;
   }
@@ -146,6 +188,12 @@ export class User {
   useBooster(kind) {
     if (!this.hasBooster(kind)) return false;
     this.boosters[kind] = this.boosterCount(kind) - 1;
+    // Every helper is spent through here (GameScene._acquireBooster funnels
+    // stock / buy / ad into this one call), so this is the single place that
+    // has to count them: the helper's own task counter plus the combined
+    // "props used" total that a third set of tasks watches.
+    this.bumpStat(kind + "Used");
+    this.bumpStat("propsUsed");
     this._emit("boosters");
     return true;
   }
@@ -167,6 +215,11 @@ export class User {
    *  The coin pill keeps showing the balance either way — only the cart
    *  affordance (and the tap that opens the shop) waits for this. */
   isShopUnlocked() { return this.completedLevel() >= SHOP_UNLOCK_LEVEL - 1; }
+  /** Is the Tasks screen offered yet? Same derived-from-progress gate as the
+   *  shop, so a QA jump to a later level opens it with nothing to repair. The
+   *  counters behind it tick from level 1 regardless — only the entry point
+   *  waits, so a player arriving at the gate finds their history already there. */
+  isTasksUnlocked() { return this.completedLevel() >= TASKS_UNLOCK_LEVEL - 1; }
 
   /** Pay out the one-time stock for every helper that is unlocked but hasn't
    *  been granted yet. Idempotent — boosterUnlocks records what's been paid. */
@@ -239,6 +292,52 @@ export class User {
     this._emit("dailyBonus");
   }
 
+  // ---- tasks / achievements ------------------------------------------------
+  /** Lifetime total for a tracked activity (0 if it has never happened). */
+  stat(activity) { return this.tasks.stats[activity] || 0; }
+  /** Add to a lifetime counter. Activity codes are open — the model does not
+   *  know (or need to know) which ones the goal table watches, exactly as the
+   *  wallet does not know which currencies exist. */
+  bumpStat(activity, n = 1) {
+    const v = Math.max(0, Math.floor(n) || 0);
+    if (!activity || !v) return this.stat(activity);
+    this.tasks.stats[activity] = this.stat(activity) + v;
+    this._emit("tasks");
+    return this.tasks.stats[activity];
+  }
+  /** Progress on an activity SINCE THE START OF THE CURRENT WEEK — the lifetime
+   *  counter minus the snapshot taken when the week rolled over. This is the
+   *  whole of the weekly list's bookkeeping. */
+  weeklyStat(activity) {
+    return Math.max(0, this.stat(activity) - (this.tasks.weekly.base[activity] || 0));
+  }
+  /** Has this task's reward been collected? `weekly` picks the ledger — the
+   *  weekly one is wiped on every roll, the achievement one never is. */
+  isTaskClaimed(id, weekly = false) {
+    const list = weekly ? this.tasks.weekly.claimed : this.tasks.claimed;
+    return list.includes(id);
+  }
+  /** Record a collection. Idempotent, so a double tap can't pay out twice. */
+  markTaskClaimed(id, weekly = false) {
+    if (!id || this.isTaskClaimed(id, weekly)) return false;
+    (weekly ? this.tasks.weekly.claimed : this.tasks.claimed).push(id);
+    this._emit("tasks");
+    return true;
+  }
+  /** The week-key (the reset weekday's date, YYYY-MM-DD) the weekly list is
+   *  currently on. "" = never rolled. */
+  taskWeek() { return this.tasks.weekly.week || ""; }
+  /** Roll the weekly list into a new period: stamp the new week-key, clear the
+   *  claim ledger so every task is available again, and re-snapshot the
+   *  lifetime counters so progress restarts from zero. Called on the first
+   *  check after the reset weekday passes (and on the very first open). */
+  rollTaskWeek(weekKey) {
+    this.tasks.weekly.week = String(weekKey || "");
+    this.tasks.weekly.claimed = [];
+    this.tasks.weekly.base = { ...this.tasks.stats };
+    this._emit("tasks");
+  }
+
   // ---- settings ------------------------------------------------------------
   get music() { return this.settings.music; }
   get sound() { return this.settings.sound; }
@@ -270,12 +369,14 @@ export class User {
     this.settings = { ...d.settings };
     this.fortuneWheel = { ...d.fortuneWheel };
     this.dailyBonus = { ...d.dailyBonus };
+    this.tasks = { stats: {}, claimed: [], weekly: { week: "", claimed: [], base: {} } };
     this._emit("progress");
     this._emit("wallet");
     this._emit("boosters");
     this._emit("settings");
     this._emit("fortuneWheel");
     this._emit("dailyBonus");
+    this._emit("tasks");
   }
 
   // ---- serialization -------------------------------------------------------
@@ -293,6 +394,15 @@ export class User {
       settings: { ...this.settings },
       fortuneWheel: { ...this.fortuneWheel, won: (this.fortuneWheel.won || []).slice() },
       dailyBonus: { ...this.dailyBonus },
+      tasks: {
+        stats: { ...this.tasks.stats },
+        claimed: this.tasks.claimed.slice(),
+        weekly: {
+          week: this.tasks.weekly.week,
+          claimed: this.tasks.weekly.claimed.slice(),
+          base: { ...this.tasks.weekly.base },
+        },
+      },
     };
   }
 
@@ -344,6 +454,24 @@ export class User {
     // lesson, and gets it on the next level played (one per level, lowest
     // unlock first — see GameScene._maybeCoachBooster).
     if (o.version === 5) o.version = 6;
+    // v6 -> v7: adds `tasks` — the lifetime activity counters plus the claim
+    // ledgers behind the Achievements / Weekly Tasks screen. Unlike v5->v6 this
+    // one derives what it honestly can, in the spirit of v3->v4: levels
+    // completed is the ONE counter reconstructible from an existing profile
+    // (progress.completed IS the lifetime total), so seed it rather than
+    // pretending a veteran has never finished a level. Everything else starts
+    // at 0 — those histories were simply never recorded. The consequence is
+    // intended: an existing player opens the screen to find several tiers of
+    // the levels chain already finished and stacked up ready to claim, which is
+    // how adding tasks to a live game is supposed to feel.
+    if (o.version === 6) {
+      const completed = Math.max(0, Math.floor((o.progress || {}).completed) || 0);
+      const stats = completed ? { levelsCompleted: completed } : {};
+      // The week's baseline is the same snapshot, so the WEEKLY list starts at
+      // zero instead of opening pre-completed off the back of that history.
+      o.tasks = { stats, claimed: [], weekly: { week: "", claimed: [], base: { ...stats } } };
+      o.version = 7;
+    }
     return o;
   }
 }

@@ -31,8 +31,10 @@
 //             assets/config/prices.json      — coin prices (helper buys, continue)
 //             assets/config/turntable.json   — Fortune Wheel prize groups + odds
 //             assets/config/dailybonus.json  — Daily Bonus weighted prize pool
+//             assets/config/tasks.json       — Tasks: achievement chains + weekly list
 //           The *gates and pacing* for those features (unlock level, spins per
-//           cycle) live HERE; the JSON files hold only the prize data.
+//           cycle, weekly reset day) live HERE; the JSON files hold only the
+//           prize/goal data.
 //
 //  ---- Why a JS module and not another JSON file ---------------------------
 //  Two reasons. (1) Comments: JSON has none, and these parameters are useless
@@ -137,6 +139,35 @@ export const CONFIG = deepFreeze({
       // 1 = available from the very start, which is the point: it is the
       // day-one return hook. Raise it only if the first session feels crowded.
       unlockLevel: 1,
+    },
+
+    // TASKS (src/tasks.js) — the checklist of goals reached from the lobby's
+    // RIGHT-edge feature rail. Two lists in one screen: permanent tiered
+    // Achievements and a weekly set that resets every Monday. Both are scored
+    // off the same lifetime activity counters on the profile
+    // (user.tasks.stats), so one match or booster use feeds every task
+    // watching it. The goal table itself — the chains, their tiers, the
+    // targets and the rewards — is a big data table and lives in
+    // assets/config/tasks.json.
+    tasks: {
+      // Below this the lobby's Tasks button does not exist and the screen
+      // cannot be opened. 10 is late on purpose: the feature is a
+      // long-horizon hook, and offering it to a player who has not yet met
+      // boosters, the shop and the wheel just crowds the lobby. Counters tick
+      // from the very first level either way, so a player arriving at the gate
+      // finds their history already filled in (and usually a few tiers
+      // stacked up, ready to claim). NOTE: this port currently ships 13
+      // levels, so 10 is reachable but late — drop it to demo the screen sooner.
+      unlockLevel: 10,
+
+      // The weekday the WEEKLY list resets on, at local midnight:
+      // 0 = Sunday, 1 = Monday (shipped), … 6 = Saturday. On reset every
+      // weekly task's progress returns to zero and every one becomes
+      // claimable again, including ones already claimed. Achievements are
+      // permanent and ignore this entirely. Changing it moves the deadline
+      // (and the "Reset in: 3d-14h" countdown) to a different weekday; the
+      // current week ends early or runs long exactly once, then settles.
+      weeklyResetDay: 1,
     },
   },
 

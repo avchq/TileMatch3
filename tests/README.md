@@ -94,7 +94,9 @@ the first-run flow before they can drive the ordinary game:
   → `window.__game.completeLevel(1)` + `flushSave()`, then reload;
 - needing **unlocked helpers** or an unguided level 1 (`booster`, `boosterbuy`,
   `undo`, `wand`, `reshuffle`, `continue`, `coins`, `auto`, `resize_overlap`,
-  `config`) → `completeLevel(5)`, past every helper's unlock level. Without it the
+  `config`) → `completeLevel(5)`, past every helper's unlock level; a test that
+  needs the **Tasks** screen goes further, to `completeLevel(9)` (the level-10
+  gate reads "cleared level 9"). Without it the
   guided level 1 plays two moves of its own and every helper refuses to act.
   **Follow it with `markBoosterCoached('all')`.** Clearing those levels leaves
   every helper unlocked but never *taught*, and an untaught helper opens its
@@ -306,6 +308,33 @@ Only `howtoplay_test.py` leaves it open.
   (`dailyBonusState`, `openDailyBonus`, `pickDailyBox`, `takeDailyBonus`,
   `doubleDailyBonus`, `forceDailyPrize`, `setDailyAdResult`, `setDailyToday`).
 
+### Tasks / Achievements
+
+- **`tasks_test.py`** — the goals checklist (`src/tasks.js`). Covers the **level-10
+  gate** on the lobby's **right-edge rail** (hidden and un-openable below it, then
+  appearing live — while the counters behind it tick from level 1 regardless);
+  every **activity counter** ticking at the place the activity really happens,
+  including the two rules that are easy to get wrong (`levelsCompleted` counts a
+  **first clear only**, so a replay adds nothing; `coinsSpent` counts the
+  **amount**, and a refused debit counts nothing); the **one-unfinished-tier-per-
+  chain** rule with finished tiers stacked above it and claimables sorted to the
+  top; **claiming** (exact payout to wallet *or* inventory, the row leaving the
+  list, never claimable twice, persisted across a reload); the **weekly** list
+  scoring against a week baseline rather than the lifetime total, and a reset
+  re-arming even already-claimed tasks while achievements are untouched; the
+  **red dot** lighting and going out while the button itself stays; the **tab
+  auto-select**; the **scrolling** list clamping at both ends, and a short drag
+  that ends on a Claim button scrolling **without** claiming (a plain tap on the
+  same button still does); and the **v6→v7 migration** deriving
+  `stats.levelsCompleted` from `progress.completed` with a matching week baseline.
+  Drives it via the `window.__game` task hooks (`tasksState`, `tasksList`,
+  `openTasks`/`closeTasks`, `setTasksTab`, `pressTaskClaim`, `taskClaimRect`,
+  `tasksScroll`/`scrollTasks`, `taskStats`/`bumpStat`, `setTasksWeek`).
+  **Waiting:** claims are asynchronous (a reward flies for ~540 ms and the row then
+  animates away), so wait on `tasksState().busy` going false rather than sleeping —
+  a *refused* claim never sets it, so the double-claim and drag cases fall straight
+  through instead of hanging.
+
 ### Key parameters
 
 - **`config_test.py`** — the central tuning config (`src/config.js`, exposed as
@@ -314,7 +343,9 @@ Only `howtoplay_test.py` leaves it open.
   both, on purpose) and is deeply **frozen**; that the **live game** reads them
   rather than a copy that drifted (a new profile's wallet/inventory equal the
   configured starting values, each helper's unlock level and one-time grant match
-  the schedule, the shop/wheel/daily gates open exactly at their `unlockLevel`,
+  the schedule, the shop/wheel/daily/tasks gates open exactly at their
+  `unlockLevel` — note Tasks follows the documented "cleared level N-1"
+  convention, like the shop, so it is driven with `completeLevel` not `setLevel` —
   the wheel offers `spinsPerCycle` spins, the tray lays out `traySlots` slots,
   Auto Complete is never offered outside its `minLevel`/`maxTiles` window, and a
   win pays exactly `coinWinReward`); and that there is **no second source** — the

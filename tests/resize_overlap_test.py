@@ -10,7 +10,7 @@ time.sleep(1.5)
 
 # Resize / orientation robustness: across a spread of common device shapes
 # (phones portrait+landscape, tablets, desktop) and in EVERY scene (lobby, level,
-# and the settings/shop/fortune-wheel/daily-bonus overlays), every interface
+# and the settings/shop/fortune-wheel/daily-bonus/tasks overlays), every interface
 # control — buttons, text labels, tags, badges, the play board, the tray — must:
 #   * stay fully INSIDE the visible design area (nothing clipped off-screen), and
 #   * NOT OVERLAP any other independent control in the same scene (nothing covers
@@ -144,6 +144,16 @@ try:
             page.evaluate("window.__game.setLevel(1)")
             time.sleep(0.15)
 
+            # Lobby with Tasks unlocked as well. That button rides the RIGHT-edge
+            # rail, under the coin pill, so this is what guards the second rail's
+            # column — against the coin pill above it and the centred title beside
+            # it. (Persisted, so every later size starts with it already on.)
+            page.evaluate("window.__game.completeLevel(9); window.__game.flushSave();")
+            time.sleep(0.25)
+            _, ctrls_t = check(page, f"{tag} lobby-tasks", {"lobby"})
+            assert by_name(ctrls_t, "lobby", "tasksBtn"), (tag, "tasks button expected visible")
+            page.screenshot(path=f"{SC}/overlap_lobby_tasks_{tag}.png")
+
             # ---- Level -----------------------------------------------------
             page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
             time.sleep(0.6)
@@ -175,6 +185,10 @@ try:
             page.evaluate("window.__game.openDailyBonus()")
             time.sleep(0.4)
             check(page, f"{tag} daily", {"daily"})
+
+            page.evaluate("window.__game.openTasks()")
+            time.sleep(0.5)
+            check(page, f"{tag} tasks", {"tasks"})
 
             print(f"[{tag}] OK — design {round(DW)}x{round(DH)}")
 

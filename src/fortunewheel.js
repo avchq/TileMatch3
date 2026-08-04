@@ -481,6 +481,9 @@ export class FortuneWheelScene extends PIXI.Container {
     // Record BEFORE the wheel turns: spend the spin + mark the slice won, so a
     // rapid double-tap can't spend two spins and this prize can't repeat.
     this.user.recordWheelSpin(idx);
+    // A Tasks goal watches wheel spins; count it with the spend, not with the
+    // landing, so an interrupted animation can't lose it.
+    this.user.bumpStat("wheelSpins");
     this._reportSpin(this.user.wheelSpinsUsed(), prize);
     this._refreshPips();
     this._refreshSpinBtn();
