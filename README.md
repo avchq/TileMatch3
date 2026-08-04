@@ -408,7 +408,7 @@ task on either tab watching that activity moves when it moves:
 | Activity | What makes it tick | Counted in |
 | --- | --- | --- |
 | `levelsCompleted` | beating a level **for the first time** (a replay counts nothing) | `User.completeLevel` |
-| `tilesMatched` | 3 per triple cleared, however it was cleared | `GameScene._settle` |
+| `tilesMatched` | a **completed** level's whole tile count, credited on the win | `GameScene._win` |
 | `undoUsed` / `shuffleUsed` / `wandUsed` | each individual helper use | `User.useBooster` |
 | `propsUsed` | any of the three above — one use ticks both | `User.useBooster` |
 | `coinsSpent` | by the **amount** spent, not one per purchase | `User.debit` |
@@ -419,6 +419,17 @@ task on either tab watching that activity moves when it moves:
 Note how few call sites that is: helpers all spend through `User.useBooster` and
 coins only ever leave through `User.debit`, so those two counters catch every
 route — including any added later — without a site to forget.
+
+**Tiles are counted per completed level, not per match.** Clearing a level means
+every one of its tiles was matched, so `_win()` credits the level's own tile
+count — a fixed number set once in `loadLevel` and never added to. Tallying
+triples as they cleared would have got two cases wrong: an attempt that is
+**abandoned** (Back) or **lost** (Out of Moves → Home/Replay) would still have
+counted, when it should count nothing; and the **Auto Complete** sweep would have
+been missed entirely, since it clears its tiles directly and declares the win
+without ever passing through the matching path. Replaying a cleared level *does*
+count again — unlike `levelsCompleted`, a tile-matching goal is meant to be
+grindable.
 
 **Weekly progress is derived, not counted separately**: it is `lifetime total −
 base`, where `base` is a snapshot of the counters taken when the week rolled over.

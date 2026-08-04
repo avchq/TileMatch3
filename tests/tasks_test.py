@@ -179,8 +179,23 @@ try:
         assert stat("shuffleUsed") == sh0 + 1, ("a reshuffle counts", stat("shuffleUsed"))
         assert stat("propsUsed") == pr0 + 1, ("…and also counts as a prop used", stat("propsUsed"))
 
-        # Matching tiles counts three per triple, at the moment the triple clears.
+        # Tiles matched are credited as the level's WHOLE tile count, and only when
+        # the level is actually completed. We are standing in level 2 (started for
+        # the reshuffle check above), so its board count is that known total.
         tm0 = stat("tilesMatched")
+        total2 = page.evaluate("window.__game.state()")["boardCount"]
+        assert total2 > 0 and total2 % 3 == 0, ("a level is a whole number of triples", total2)
+        # Matching mid-level must move nothing: an attempt in progress has not been
+        # completed yet, and might still be abandoned or lost.
+        for _ in range(6):
+            if page.evaluate("window.__game.solveTap()") < 0:
+                break
+            time.sleep(0.05)
+        time.sleep(0.6)
+        assert page.evaluate("window.__game.state()")["boardCount"] < total2, "some tiles were collected"
+        assert stat("tilesMatched") == tm0, (
+            "matching mid-level counts nothing until the level is finished", tm0, stat("tilesMatched"))
+        # Finishing it credits the level total, exactly once and exactly in full.
         for _ in range(400):
             if page.evaluate("window.__game.solveTap()") < 0:
                 break
@@ -188,8 +203,58 @@ try:
         page.wait_for_function("window.__game.state().boardCount === 0", timeout=15000)
         time.sleep(1.2)
         tm = stat("tilesMatched")
-        print("TILES MATCHED ->", tm0, "->", tm)
-        assert tm > tm0 and (tm - tm0) % 3 == 0, ("tiles are counted three per match", tm0, tm)
+        print("TILES MATCHED -> level 2 total", total2, ":", tm0, "->", tm)
+        assert tm - tm0 == total2, ("completing a level credits its whole tile count", tm0, tm, total2)
+
+        # Winning level 2 is a REPLAY (9 levels were already cleared), so it must
+        # not count — "levels completed" is first clears only.
+        lc = stat("levelsCompleted")
+        assert lc == 10, ("replaying a cleared level counts nothing", lc)
+
+        # ABANDONING a level credits nothing, however much was matched in it.
+        page.evaluate("async () => { await window.__game.startLevel(3); window.__game.closeTutorial(); }")
+        time.sleep(1.0)
+        tm0 = stat("tilesMatched")
+        for _ in range(6):
+            if page.evaluate("window.__game.solveTap()") < 0:
+                break
+            time.sleep(0.05)
+        time.sleep(0.6)
+        page.evaluate("window.__game.exitLevel()")
+        time.sleep(0.6)
+        print("AFTER ABANDON ->", tm0, "->", stat("tilesMatched"))
+        assert stat("tilesMatched") == tm0, (
+            "walking out of a level credits none of its tiles", tm0, stat("tilesMatched"))
+
+        # AUTO COMPLETE credits the full total too. The sweep never goes through the
+        # matching path — it marks the remaining tiles cleared and declares the win
+        # directly — so this is the case a per-match tally silently under-counts.
+        page.evaluate("async () => { await window.__game.startLevel(3); window.__game.closeTutorial(); }")
+        time.sleep(1.0)
+        tm0 = stat("tilesMatched")
+        total3 = page.evaluate("window.__game.state()")["boardCount"]
+        swept = 0
+        for _ in range(400):
+            a = page.evaluate("window.__game.autoState()")
+            if a["available"]:
+                swept = a["total"]
+                page.evaluate("window.__game.autoComplete()")
+                break
+            if page.evaluate("window.__game.solveTap()") < 0:
+                break
+            time.sleep(0.02)
+        assert swept > 0, "the level-3 descent should pass through the Auto Complete window"
+        page.wait_for_function("window.__game.state().boardCount === 0", timeout=20000)
+        time.sleep(1.5)
+        tm = stat("tilesMatched")
+        print("AFTER AUTO COMPLETE -> level 3 total", total3, "swept", swept, ":", tm0, "->", tm)
+        assert tm - tm0 == total3, (
+            "an auto-completed level credits its whole tile count, sweep included",
+            tm0, tm, total3, swept)
+        # Leave through the win overlay's own Continue, back to the lobby.
+        page.evaluate("window.__game.pressWinContinue()")
+        page.wait_for_function("window.__game.inLobby() === true", timeout=15000)
+        time.sleep(0.4)
 
         # Winning level 2 is a REPLAY (9 levels were already cleared), so it must
         # not count — "levels completed" is first clears only.

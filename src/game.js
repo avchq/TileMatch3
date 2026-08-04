@@ -1080,11 +1080,6 @@ export class GameScene extends PIXI.Container {
           }
           matched = true;
           cleared = true;
-          // "Tiles matched" is a lifetime task counter (src/tasks.js). Counted
-          // here, where a triple actually clears, so every route into a match —
-          // ordinary play, a reshuffle collapsing several at once, the Auto
-          // Complete sweep — is counted exactly once.
-          if (this.user) this.user.bumpStat("tilesMatched", three.length);
         }
       }
       if (!cleared) break;
@@ -1569,6 +1564,16 @@ export class GameScene extends PIXI.Container {
     this.audio.play("win");
     // Award coins for clearing the level (the free source that seeds the shop).
     if (this.user) this.user.credit("coins", COIN_WIN_REWARD);
+    // "Tiles matched" is a lifetime task counter (src/tasks.js), and only tiles
+    // from a level the player actually FINISHES count towards it. Clearing the
+    // level means every one of its tiles was matched, so the level's own tile
+    // count IS the amount to credit — a fixed number, set once in loadLevel and
+    // never added to. Crediting it here rather than tallying triples as they
+    // clear gets two things right at once: an attempt that is abandoned or lost
+    // never reaches this line and so counts nothing, and the Auto Complete sweep
+    // (which clears its tiles directly and lands here without ever passing
+    // through _settle) is counted in full instead of being missed.
+    if (this.user) this.user.bumpStat("tilesMatched", this.tiles.length);
     const last = this.levelNum >= 3;
     this._showOverlay(
       last ? "🏆 You Win!" : "Level Complete!",

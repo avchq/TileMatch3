@@ -314,9 +314,12 @@ Only `howtoplay_test.py` leaves it open.
   gate** on the lobby's **right-edge rail** (hidden and un-openable below it, then
   appearing live — while the counters behind it tick from level 1 regardless);
   every **activity counter** ticking at the place the activity really happens,
-  including the two rules that are easy to get wrong (`levelsCompleted` counts a
+  including the rules that are easy to get wrong (`levelsCompleted` counts a
   **first clear only**, so a replay adds nothing; `coinsSpent` counts the
-  **amount**, and a refused debit counts nothing); the **one-unfinished-tier-per-
+  **amount**, and a refused debit counts nothing; `tilesMatched` credits a
+  **completed** level's whole tile count — nothing moves mid-level, an abandoned
+  level counts nothing, and an **Auto Complete**d one still counts in full even
+  though its sweep never goes through the matching path); the **one-unfinished-tier-per-
   chain** rule with finished tiers stacked above it and claimables sorted to the
   top; **claiming** (exact payout to wallet *or* inventory, the row leaving the
   list, never claimable twice, persisted across a reload); the **weekly** list
