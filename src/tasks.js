@@ -48,7 +48,7 @@ const DESIGN_H = 1334;
 const ACTIVITY = {
   levelsCompleted:   { icon: "🏁", title: "Complete %n levels", one: "Complete 1 level" },
   tilesMatched:      { icon: "🍉", title: "Match %n tiles", one: "Match 1 tile" },
-  propsUsed:         { icon: "🧰", title: "Use %n props", one: "Use 1 prop" },
+  boostersUsed:      { icon: "🧰", title: "Use %n boosters", one: "Use 1 booster" },
   undoUsed:          { icon: "⤺",  title: "Use Undo %n times", one: "Use Undo once" },
   shuffleUsed:       { icon: "🔀", title: "Use Reshuffle %n times", one: "Use Reshuffle once" },
   wandUsed:          { icon: "🪄", title: "Use the Wand %n times", one: "Use the Wand once" },

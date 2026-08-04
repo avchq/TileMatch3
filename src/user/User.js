@@ -191,9 +191,9 @@ export class User {
     // Every helper is spent through here (GameScene._acquireBooster funnels
     // stock / buy / ad into this one call), so this is the single place that
     // has to count them: the helper's own task counter plus the combined
-    // "props used" total that a third set of tasks watches.
+    // "boosters used" total that a third set of tasks watches.
     this.bumpStat(kind + "Used");
-    this.bumpStat("propsUsed");
+    this.bumpStat("boostersUsed");
     this._emit("boosters");
     return true;
   }

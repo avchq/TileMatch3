@@ -355,7 +355,7 @@ small coin amounts and rarely giving boosters — tune the odds by editing the
 weights, no code change.
 
 ### Tasks — achievements and weekly goals
-The game's **checklist of goals**: "Complete 50 levels", "Use 10 props", "Match
+The game's **checklist of goals**: "Complete 50 levels", "Use 10 boosters", "Match
 1000 tiles" — each a row with a **progress bar** and a **reward** you tap to
 collect. It is the one long-horizon hook; everything else in the game pays out
 once and forgets. Its **📋 Tasks button** is the only entry on the lobby's
@@ -410,7 +410,7 @@ task on either tab watching that activity moves when it moves:
 | `levelsCompleted` | beating a level **for the first time** (a replay counts nothing) | `User.completeLevel` |
 | `tilesMatched` | a **completed** level's whole tile count, credited on the win | `GameScene._win` |
 | `undoUsed` / `shuffleUsed` / `wandUsed` | each individual helper use | `User.useBooster` |
-| `propsUsed` | any of the three above — one use ticks both | `User.useBooster` |
+| `boostersUsed` | any of the three above — one use ticks both | `User.useBooster` |
 | `coinsSpent` | by the **amount** spent, not one per purchase | `User.debit` |
 | `dailyBonusClaimed` | each Daily Bonus collection | `DailyBonusScene._openBox` |
 | `wheelSpins` | each Fortune Wheel spin | `FortuneWheelScene` |

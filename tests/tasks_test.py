@@ -169,15 +169,15 @@ try:
         page.evaluate("window.__game.debit('coins', 999999)")
         assert stat("coinsSpent") == spent0 + 120, ("a refused spend counts nothing", stat("coinsSpent"))
 
-        # Helper uses tick both the helper's own counter and the combined props total.
+        # Helper uses tick both the helper's own counter and the combined boosters total.
         page.evaluate("window.__game.grantBooster('shuffle', 3)")
-        sh0, pr0 = stat("shuffleUsed"), stat("propsUsed")
+        sh0, bo0 = stat("shuffleUsed"), stat("boostersUsed")
         page.evaluate("async () => { await window.__game.startLevel(2); window.__game.closeTutorial(); }")
         time.sleep(1.0)
         page.evaluate("window.__game.reshuffle()")
         time.sleep(0.8)
         assert stat("shuffleUsed") == sh0 + 1, ("a reshuffle counts", stat("shuffleUsed"))
-        assert stat("propsUsed") == pr0 + 1, ("…and also counts as a prop used", stat("propsUsed"))
+        assert stat("boostersUsed") == bo0 + 1, ("…and also counts as a booster used", stat("boostersUsed"))
 
         # Tiles matched are credited as the level's WHOLE tile count, and only when
         # the level is actually completed. We are standing in level 2 (started for
