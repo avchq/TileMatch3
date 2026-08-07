@@ -143,8 +143,11 @@ Only `howtoplay_test.py` leaves it open.
   every interface control stays **fully inside** the design area and **no two
   independent controls overlap** (buttons, text labels, tags, badges, the play
   board, the tray), with the HUD anchored near the top and the tray/helpers near
-  the bottom. Reads control bounds in design-space via the `window.__game.controls()`
-  hook (each scene exposes a `controls()` list). Regression guard: the lobby title
+  the bottom. It also checks the anchoring of the lobby's own bands: the cog stays
+  near the top edge and the **"Level N" play button hugs the bottom edge** (within
+  200 design units of it) on every shape. Reads control bounds in design-space via
+  the `window.__game.controls()` hook (each scene exposes a `controls()` list).
+  Regression guard: the lobby title
   used to clip the top-left Daily-Bonus / wheel button column on tall screens — now
   centred text is width-capped to the safe centre band (`layout.js` `fitTextWidth`).
 - **`featurerail_test.py`** — the lobby's **feature-button rail**

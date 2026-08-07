@@ -131,6 +131,11 @@ try:
             # per the Cocos SHOW_ALL spec) — the cog must sit near the top.
             cog = by_name(ctrls, "lobby", "cog")
             assert cog and cog["y"] < 160, ("lobby cog not near top", tag, cog)
+            # The play button is the bottom-anchored call to action: it must hug the
+            # bottom edge on every shape, not float with the vertically-centred block.
+            play = by_name(ctrls, "lobby", "playBtn")
+            assert play and play["y"] + play["h"] > DH - 200, (
+                "lobby play button not near bottom", tag, play, DH)
             # The daily-gift button is shown on a fresh profile (unclaimed) — the
             # regression this test guards: its column must not clip the title.
             assert by_name(ctrls, "lobby", "dailyBtn"), (tag, "daily button expected visible")

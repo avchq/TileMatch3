@@ -13,9 +13,10 @@ from the very first frame, before `vendor/pixi.min.js` and the ES modules have
 even been fetched, and covers the whole of boot rather than only the part after
 Pixi starts. See the boot section below for what fills the bar.
 
-After it fades you land on the **lobby** screen, which shows a big centred
-**"Level &lt;n&gt;"** button for the level you're on (progress is saved in
-`localStorage`, so it's remembered between visits). Tap it to start.
+After it fades you land on the **lobby** screen, which shows a big
+**"Level &lt;n&gt;"** button for the level you're on, anchored to the **bottom edge**
+of the screen under the centred title block (progress is saved in `localStorage`,
+so it's remembered between visits). Tap it to start.
 
 **Except on a player's very first run.** A **brand-new user** — one who has never
 played, has no progress and has never completed level 1 — skips the lobby entirely
@@ -623,8 +624,14 @@ python3 -m http.server 8099
   tween, restore coverage/`boardCount`, reparent to the board); the tile then tweens
   from its tray slot to its home cell (`_layoutBoard` supplies the target). Input
   stays **locked** for the whole fly-back and unlocks when the last tile lands.
-- `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred
-  **"Level &lt;n&gt;"** play button and title. It also owns the **feature buttons**
+- `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred title
+  block and the **"Level &lt;n&gt;"** play button. Like the level, it splits its
+  layers by anchor: the title/subtitle/fruit row ride the vertically-centred
+  `uiLayer`, the corner chrome and both rails ride `topHud` (pinned to the top
+  edge), and the play button plus its "Tap to start" hint ride `botHud` (pinned to
+  the bottom edge, `y = DH - 1334`, the same trick as `GameScene`'s `hudBottom`) —
+  so the call to action keeps a fixed margin above the bottom of the screen on
+  every device shape. It also owns the **feature buttons**
   (Free Spin / Daily Bonus) and hands their arrangement to a `FeatureRail`.
 - `src/featurerail.js` is the `FeatureRail` — the ordered, self-arranging column of
   lobby feature buttons (see the Gameplay section). `add(key, display, isAvailable)`

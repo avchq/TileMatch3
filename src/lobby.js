@@ -45,17 +45,21 @@ export class LobbyScene extends PIXI.Container {
     this.bgLayer = new PIXI.Container();
     this.uiLayer = new PIXI.Container();
     this.topHud  = new PIXI.Container(); // pinned to the screen's top edge
-    this.addChild(this.bgLayer, this.uiLayer, this.topHud);
+    this.botHud  = new PIXI.Container(); // pinned to the screen's bottom edge
+    this.addChild(this.bgLayer, this.uiLayer, this.botHud, this.topHud);
 
     this._buildStatic();
   }
 
-  // Reflow into a DW×DH design area: centre the UI block in the safe area and
-  // extend the background to cover the whole view (see GameScene.layout).
+  // Reflow into a DW×DH design area: centre the title block in the safe area,
+  // keep the corner chrome on the top edge and the play cluster on the bottom
+  // one, and extend the background to cover the whole view (see GameScene.layout,
+  // which splits its HUD into the same top/bottom anchored bands).
   layout(DW, DH) {
     this.viewW = DW; this.viewH = DH;
     this.uiLayer.position.set((DW - DESIGN_W) / 2, (DH - DESIGN_H) / 2);
     this.topHud.position.set((DW - DESIGN_W) / 2, 0);
+    this.botHud.position.set((DW - DESIGN_W) / 2, DH - DESIGN_H);
     if (this.visible) this._buildBackground(this._level);
   }
 
@@ -105,17 +109,20 @@ export class LobbyScene extends PIXI.Container {
     this.uiLayer.addChild(fruits);
     this.fruits = fruits;
 
-    // Big centred play button
-    this.playBtn = this._makePlayButton();
-    this.playBtn.position.set(DESIGN_W / 2, 820);
-    this.uiLayer.addChild(this.playBtn);
-
+    // Big play button — the primary call to action, so it lives on the BOTTOM
+    // band (botHud) rather than the vertically-centred block: it keeps a fixed
+    // margin above the screen's bottom edge on every shape, tall screens
+    // included, and is the last thing before that edge. Its hint sits above it.
     this.hint = new PIXI.Text("Tap to start", {
       fontFamily: "Arial", fontSize: 26, fontWeight: "700", fill: 0xaebfe0,
     });
     this.hint.anchor.set(0.5);
-    this.hint.position.set(DESIGN_W / 2, 960);
-    this.uiLayer.addChild(this.hint);
+    this.hint.position.set(DESIGN_W / 2, 1040);
+    this.botHud.addChild(this.hint);
+
+    this.playBtn = this._makePlayButton();
+    this.playBtn.position.set(DESIGN_W / 2, 1160);
+    this.botHud.addChild(this.playBtn);
 
     // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
