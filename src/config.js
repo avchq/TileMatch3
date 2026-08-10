@@ -267,10 +267,56 @@ export const CONFIG = deepFreeze({
     // Slots in the bottom tray — the core difficulty dial. Collect a tile and it
     // goes here; fill every slot with no triple completed and the round is lost
     // (the Out-of-Moves overlay). Fewer slots = far harder; more = nearly
-    // impossible to lose. 7 matches the original game. The tray's on-screen slot
-    // size is derived from this so the row always fits the 750-wide column,
-    // meaning a big change here also visibly resizes the tray.
+    // impossible to lose. 7 matches the original game. This is the BASE capacity
+    // every level starts with; `extraSlot` below can raise it by one for the rest
+    // of a level. The tray's on-screen slot size is derived from the number of
+    // cells drawn so the row always fits the 750-wide column, meaning a big change
+    // here also visibly resizes the tray.
     traySlots: 7,
+
+    // THE 8th SLOT — an ad-funded, ONE-PER-LEVEL capacity boost. Not a permanent
+    // upgrade, not bought with coins, and not persisted: an extra cell at the
+    // right-hand end of the tray, covered by a "📺 +1" button, that a completed
+    // rewarded video turns into an ordinary empty slot for the remainder of the
+    // level being played. Capacity returns to `traySlots` on every board build
+    // (next level, Replay, retry after a loss) and with it the offer, so each
+    // attempt is a fresh one. A revive keeps whatever capacity the tray has,
+    // because it does not rebuild the board.
+    extraSlot: {
+      // The campaign level from which the extra cell is DRAWN and the offer made
+      // at all — the usual "available from level N onward" convention, i.e. once
+      // level N-1 has been cleared. Below it the tray is a plain row of
+      // `traySlots` cells, centred with no gap where the extra one would be; there
+      // is no lock icon, no announcement and nothing to claim — the cell simply
+      // starts being there. The gate reads CAMPAIGN progress, not the level of the
+      // board you happen to be on, and is re-checked every time a board is built.
+      // 9 keeps the base tray as the whole difficulty story for the first eight
+      // levels; drop it to offer the boost (and its ad) sooner.
+      unlockLevel: 9,
+
+      // Slots the video adds. Exactly one, and the offer is only shown while
+      // capacity is still at the base value — so the button disappears the moment
+      // it is taken and there is no way to stack this to 9 slots. Raising it makes
+      // a single video worth more, not the offer repeatable.
+      grant: 1,
+    },
+
+    // TRAY PRESSURE WARNINGS — how much room is left before the tray is full,
+    // counted in FREE slots against the LIVE capacity rather than a fixed tile
+    // count. That is what makes taking the 8th slot shift both cues up by exactly
+    // one tile (the pulse from 5-of-7 to 6-of-8, the bubble from 6-of-7 to 7-of-8)
+    // instead of firing early on a boosted tray.
+    warnings: {
+      // Free slots at which the whole tray starts pulsing. 2 = "two tiles from
+      // full". Raise it to warn earlier (and more often); 0 switches the pulse off.
+      pulseAtFree: 2,
+
+      // Free slots at which an "Insufficient space!" bubble pops above the tray.
+      // 1 = the last-chance warning, one tile from a loss. It fires once per
+      // crossing, not on every tap while the tray sits at the threshold. Must be
+      // at or below `pulseAtFree` to read as an escalation; 0 switches it off.
+      bubbleAtFree: 1,
+    },
   },
 
   // --------------------------------------------------------------------------

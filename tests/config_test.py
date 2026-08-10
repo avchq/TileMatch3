@@ -35,7 +35,9 @@ EXPECT = {
     "economy": {"currencies": ["coins", "gems"],
                 "startingWallet": {"coins": 0, "gems": 0},
                 "coinWinReward": 25},
-    "board": {"traySlots": 7},
+    "board": {"traySlots": 7,
+              "extraSlot": {"unlockLevel": 9, "grant": 1},
+              "warnings": {"pulseAtFree": 2, "bubbleAtFree": 1}},
     "persistence": {"saveDebounceMs": 400},
 }
 
@@ -113,6 +115,15 @@ try:
         slots = page.evaluate("window.__game.traySize()")["slotXs"]
         assert len(slots) == C["board"]["traySlots"], (len(slots), C["board"]["traySlots"])
 
+        # …because the 8th slot's own gate is still shut. Below it the extra cell
+        # does not exist at all and the capacity is the configured base.
+        xslot = C["board"]["extraSlot"]
+        e = page.evaluate("window.__game.extraSlotState()")
+        print("EXTRA SLOT BELOW GATE ->", e["unlocked"], e["drawn"], e["capacity"])
+        assert e["unlockLevel"] == xslot["unlockLevel"], e
+        assert e["unlocked"] is False and e["drawn"] is False, e
+        assert e["capacity"] == C["board"]["traySlots"], e
+
         # Clearing enough levels pays out each helper's scheduled grant, exactly.
         page.evaluate("window.__game.completeLevel(5)")
         page.evaluate("window.__game.flushSave()")
@@ -169,6 +180,19 @@ try:
         page.evaluate("async () => { await window.__game.startLevel(2); "
                       "window.__game.closeTutorial(); }")
         time.sleep(0.8)
+
+        # The Tasks gate above cleared level 9, which is past the 8th slot's gate
+        # too — so the extra cell is now DRAWN (traySlots + grant cells) while the
+        # capacity is still the base: the "+1" video is what raises it, and the
+        # gate reads campaign progress, not the level 2 board on screen.
+        e = page.evaluate("window.__game.extraSlotState()")
+        t = page.evaluate("window.__game.traySize()")
+        print("EXTRA SLOT AT GATE ->", e["unlocked"], e["drawn"], e["capacity"],
+              "cells:", len(t["slotXs"]))
+        assert e["unlocked"] is True and e["drawn"] is True, e
+        assert e["capacity"] == C["board"]["traySlots"], ("still the base capacity", e)
+        assert len(t["slotXs"]) == C["board"]["traySlots"] + xslot["grant"], t
+
         seen_auto = False
         for _ in range(400):
             a = page.evaluate("window.__game.autoState()")
@@ -204,7 +228,8 @@ try:
         FORBIDDEN = {
             "src/game.js": ["COIN_WIN_REWARD", "AUTO_MIN_LEVEL", "AUTO_MAX_TILES",
                             "TUTORIAL_LEVEL", "TRAY_SLOTS"],
-            "src/user/User.js": ["BOOSTER_UNLOCKS", "SHOP_UNLOCK_LEVEL", "TASKS_UNLOCK_LEVEL"],
+            "src/user/User.js": ["BOOSTER_UNLOCKS", "SHOP_UNLOCK_LEVEL", "TASKS_UNLOCK_LEVEL",
+                                 "EXTRA_SLOT_UNLOCK_LEVEL"],
             "src/user/UserStore.js": ["SAVE_DEBOUNCE_MS"],
         }
         for path, names in FORBIDDEN.items():

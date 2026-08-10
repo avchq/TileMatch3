@@ -15,6 +15,7 @@ export const SCHEMA_VERSION = 7;
 const BOOSTER_UNLOCKS = CONFIG.boosters.unlocks;
 const SHOP_UNLOCK_LEVEL = CONFIG.features.shop.unlockLevel;
 const TASKS_UNLOCK_LEVEL = CONFIG.features.tasks.unlockLevel;
+const EXTRA_SLOT_UNLOCK_LEVEL = CONFIG.board.extraSlot.unlockLevel;
 
 // The wallet / inventory a brand-new account starts with (config.js). Copied on
 // every use — CONFIG is frozen, and these become live mutable state.
@@ -220,6 +221,14 @@ export class User {
    *  counters behind it tick from level 1 regardless — only the entry point
    *  waits, so a player arriving at the gate finds their history already there. */
   isTasksUnlocked() { return this.completedLevel() >= TASKS_UNLOCK_LEVEL - 1; }
+  /** Is the tray's 8th cell drawn (and its "+1" video offered) yet? The same
+   *  derived-from-progress gate again, which is what makes it read the CAMPAIGN
+   *  level rather than the level of the board being played — so a replay of an
+   *  early level still gets the offer once progress is past the gate. Nothing is
+   *  earned, claimed or persisted by this: it only decides whether the cell and
+   *  its offer exist. Whether the extra slot is USABLE is per-level scene state
+   *  (GameScene.traySlots), reset on every board build. */
+  isExtraSlotUnlocked() { return this.completedLevel() >= EXTRA_SLOT_UNLOCK_LEVEL - 1; }
 
   /** Pay out the one-time stock for every helper that is unlocked but hasn't
    *  been granted yet. Idempotent — boosterUnlocks records what's been paid. */

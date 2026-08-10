@@ -171,10 +171,12 @@ Only `howtoplay_test.py` leaves it open.
   plus the live `lobby.wheelBtn`/`lobby.dailyBtn` display objects.
 - **`tray_size_test.py`** — the bottom tray is sized to the **current level's tile
   size**, not a fixed 84px slot: the slot equals `clamp(TILE_DRAW*boardScale,
-  SLOT_MIN, SLOT_MAX)` across levels, the 7 slots stay evenly spaced and the panel
+  slotMin, slotMax)` across levels, the 7 slots stay evenly spaced and the panel
   fits the 750-wide safe band, and a collected tile renders at the slot size. Since
-  the board fills the screen (large tiles) the slot clamps at `SLOT_MAX` on normal
-  screens. Drives it via the `window.__game.traySize()` hook.
+  the board fills the screen (large tiles) the slot clamps at `slotMax` on normal
+  screens. Runs on a fresh profile, so the **8th slot**'s gate is shut and the row
+  is the base 7 cells throughout (`eighthslot_test.py` owns the 8-cell geometry).
+  Drives it via the `window.__game.traySize()` hook.
 - **`scaling_test.py`** — the board **scales to fill the fixed 750-wide game
   column**, not a fixed size and not the whole viewport. On a roomy portrait screen
   `boardScale` grows past **1** (the old code capped it at 1.0, leaving big
@@ -260,6 +262,22 @@ Only `howtoplay_test.py` leaves it open.
   empties, the board count is restored, and play resumes. **Replay** restarts the
   level in place; **Home** returns to the lobby without advancing. The continue price
   comes from `assets/config/prices.json`.
+- **`eighthslot_test.py`** — the **8th tray slot**, the ad-funded one-per-level
+  capacity boost. Keeps the two numbers apart throughout: below
+  `board.extraSlot.unlockLevel` the extra cell does not exist (a plain 7-cell row,
+  no button); at the gate **8 cells are drawn** — evenly spaced, panel still inside
+  the 750 band, row **re-centred** — while the capacity is **still 7**, with the
+  "+1" offer sitting on the last cell (a 7th tile still loses the level). A
+  **failed** video says *"Ad not ready, please try again later!"* and a **cancelled**
+  one says nothing; neither consumes anything and both leave the offer up. A
+  **completed** one raises the capacity to 8 and removes the button — and a second
+  press grants nothing, so 9 slots is unreachable. It can't be taken while the
+  Out-of-Moves overlay is up (live play only). Both warnings then **shift up by
+  exactly one tile** (the pulse from 5 to 6, the bubble from 6 to 7) and 7 tiles is
+  no longer a loss while 8 is. **Replay** and the next level reset it to 7 with a
+  fresh offer; a **revive** keeps it, since Continue does not rebuild the board.
+  Drives it via `extraSlotState` / `pressExtraSlot` / `setExtraSlotAdResult` /
+  `trayWarning`, plus `traySize().slots` and `.capacity`.
 - **`auto_test.py`** — the free Auto Complete button appears (replacing the three
   helpers) exactly when the endgame is trivial (≤12 tiles left, none covered)
   **and the level is 2 or later**. A full level-1 descent reaches that endgame yet
@@ -358,7 +376,9 @@ Only `howtoplay_test.py` leaves it open.
   the schedule, the shop/wheel/daily/tasks gates open exactly at their
   `unlockLevel` — note Tasks follows the documented "cleared level N-1"
   convention, like the shop, so it is driven with `completeLevel` not `setLevel` —
-  the wheel offers `spinsPerCycle` spins, the tray lays out `traySlots` slots,
+  the wheel offers `spinsPerCycle` spins, the tray lays out `traySlots` slots
+  below the 8th slot's gate and `traySlots + extraSlot.grant` cells at it (with
+  the capacity still at the base until the video is watched),
   Auto Complete is never offered outside its `minLevel`/`maxTiles` window, and a
   win pays exactly `coinWinReward`); and that there is **no second source** — the
   JSON prize tables no longer carry the gates, and the modules the constants came

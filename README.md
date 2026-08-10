@@ -78,9 +78,14 @@ Tap any **fully-uncovered** tile to move it to the tray at the bottom. The tray
 keeps **matching types grouped**: a collected tile drops in next to others of its
 kind, or onto the end (top) of the row if its type isn't there yet. Collect
 **3 of the same fruit** to clear them. Clear the whole board to win — you're
-returned to the lobby, now advanced to the next level. If the 7-slot tray fills
-up with no match, you're **out of moves** — a modal **"Out of Moves"** overlay
-gives you a second chance instead of a dead end (see below). In-game
+returned to the lobby, now advanced to the next level. If the tray fills up with
+no match — **7 tiles**, or **8** once the ad-funded [8th slot](#the-8th-slot--an-ad-funded-extra-cell)
+has been taken — you're **out of moves** — a modal **"Out of Moves"** overlay
+gives you a second chance instead of a dead end (see below). Space running out is
+signalled before it happens: **two tiles from full** the whole tray starts
+**pulsing**, and **one tile from full** an **"Insufficient space!"** bubble pops
+above it. Both are measured against the tray's *current* capacity, so taking the
+8th slot shifts each of them up by one tile. In-game
 **helpers** (boosters), a row of three below the tray: **Reshuffle** (left),
 **Wand** (middle), **Undo** (right).
 - **Undo** — return the last-added tile (the most recent one, wherever grouping
@@ -173,8 +178,57 @@ the next level played, one helper per level, lowest unlock level first. The
 feature can be switched off wholesale with `boosters.coach.enabled` in
 **`src/config.js`**.
 
+### The 8th slot — an ad-funded extra cell
+The tray normally holds **7 tiles**, and filling all 7 without completing a match
+is how you lose — so tray space *is* the difficulty. The **8th slot** is an extra
+cell at the right-hand end of the row. It is **not** a permanent upgrade and **not**
+bought with coins: it is an **ad-funded, one-per-level capacity boost**.
+
+- **It is hidden entirely before level 9.** Up to and including level 8 the tray is
+  a plain row of 7 cells, centred with no gap where the extra one would be. From
+  level 9 (`board.extraSlot.unlockLevel` in **`src/config.js`**) the tray is drawn
+  with 8 cells and the whole row **re-centres** to make room. Nothing is earned,
+  claimed or persisted — no lock icon, no announcement, no popup; the slot simply
+  starts being there. The check is re-run every time a board is built, so it
+  appears on the very next level you start after crossing the threshold, and it
+  reads your **campaign progress**, not the level of the board you're on (so a
+  replay of an early level still gets it).
+- **The cell being visible does not mean it is usable.** It arrives covered by a
+  button showing a **📺 video-ad icon and "+1"**, and the tray's real capacity is
+  still 7 — a 7th tile still loses you the level. **Tap "+1" and watch a rewarded
+  video** *(stubbed — no ad network is wired up yet)* and the capacity goes 7 → 8,
+  the button disappears, and the cell becomes an ordinary empty slot.
+- **Once per level.** The button is only shown while capacity is at the base value,
+  so the moment it is raised the offer is gone — there is no way to reach 9 slots.
+- **During live play only.** The button does nothing while the level isn't running
+  or the board is busy: a match resolving, an Auto Complete sweep, a revive, the
+  tutorial popup, a coached first use, or the end-of-level overlay.
+- **The offer is shown whether or not an ad is loaded.** Unlike the fail screen,
+  which swaps its ad button for a coin button when no video is available, this
+  button is always present. If no video is ready you get **"Ad not ready, please
+  try again later!"**, nothing is consumed, and the button stays for another
+  attempt. Cancelling or failing simply leaves the tray at 7.
+- **It shifts both warnings up by one**, since they are measured against capacity:
+  the tray pulses at 6 tiles instead of 5, and the "Insufficient space!" bubble
+  pops at 7 instead of 6.
+- **It lasts one level.** Capacity is reset to 7 every time a board is **built** —
+  starting the next level, replaying, retrying after a loss — and the "+1" button
+  comes back with it, so each attempt is a fresh offer. A **revive** (Out of Moves
+  → Continue) does *not* rebuild the board, so it **keeps** whatever capacity the
+  tray has.
+- **It is not persisted.** The original saves the boost alongside a mid-level save
+  so a resumed level keeps the expanded tray; this port has **no mid-level save at
+  all** — leaving a level always rebuilds the board on return — so there is nothing
+  to restore into, and the boost ends with the attempt exactly as a rebuild would
+  end it. No new profile state, no schema migration.
+
+The revive on the loss screen addresses the same problem from the other end and is
+a separate offer with its own rules (once per level, coins or a video, hands most
+of your collected tiles back to the board). The 8th slot is **preventative**, the
+revive is **corrective**; taking one does not affect the other.
+
 ### Out of Moves — a paid second chance
-When the 7-slot tray fills with no match left, a strictly **modal "Out of Moves"**
+When the tray fills with no match left, a strictly **modal "Out of Moves"**
 overlay appears (the dim swallows all taps — there's **no way to close it** except
 its three buttons):
 - **Home** — leave to the lobby with progress kept.
@@ -624,6 +678,50 @@ python3 -m http.server 8099
   tween, restore coverage/`boardCount`, reparent to the board); the tile then tweens
   from its tray slot to its home cell (`_layoutBoard` supplies the target). Input
   stays **locked** for the whole fly-back and unlocks when the last tile lands.
+  The **8th slot** splits the tray's one old number into **two**, which is the whole
+  trick: `traySlots` is what the tray can **hold** — the loss condition
+  (`_checkEnd`), the full-tray tap rejection (`_onTapTile`), the reshuffle's
+  feasibility bound and both warning thresholds all read it — while
+  `traySlotsDrawn` is how many cells are **painted**. Only the second crosses to 8
+  at the gate (`user.isExtraSlotUnlocked()`, derived from `progress.completed` like
+  `isShopUnlocked`, so nothing is stored and a QA jump is honoured); the first
+  waits for the video. Both are re-derived in `loadLevel`, which is what scopes the
+  boost to one board build. Because the cell count changes, `SLOT_MAX` became the
+  function `slotMaxFor(n)` (90 at 7 cells, 78 at 8) and `_layoutBoard`'s
+  "did the slot size change?" guard also fires on a changed count — crossing the
+  gate usually leaves the clamped size untouched, and a size-only guard would leave
+  the old row drawn. `_layoutTraySlots` sizes the row from `traySlotsDrawn`, so it
+  **re-centres** on its own. The `_makeExtraSlotButton()` "+1" pill sits on
+  `hudBottom` (above the slot sprites, same `(ox, oy)` and 0..750 space as
+  `trayGroup`, so a slot position places it exactly) and `_placeExtraSlotButton()`
+  re-sizes it onto the last cell on every tray reflow. Three questions are kept
+  apart: `_extraSlotDrawn()` (does the cell exist), `_extraSlotOffered()` (is the
+  button on it — only while capacity is base, which is what makes it once-per-level
+  with no route to 9), and `_extraSlotTakeable()` (live play only). `takeExtraSlot()`
+  is the single entry point for both the tap and the debug hook, so a scripted call
+  is refused on the same terms; it consults `_watchExtraSlotAd()`, a stub with the
+  same `"succeed"|"cancel"|"fail"` contract and `_extraSlotAdResult` test seam as
+  `fortunewheel.js` / `dailybonus.js` (rather than the boosters' always-succeed
+  `_watchAd`, because this offer has to be able to say **"Ad not ready"**).
+  It is deliberately **absent from `controls()`**: it sits inside the tray panel's
+  footprint by design, so listing it would trip `resize_overlap_test.py` for an
+  overlap that is the point — the same reason the helper count badges aren't listed.
+  The **tray warnings** hang off `_updateTrayWarning()`, called from `_layoutTray()`
+  (which already covers collect / settle / undo / reshuffle / reflow) plus
+  `loadLevel` and `takeExtraSlot`. It counts **free slots** against the live
+  capacity: at or below `warnings.pulseAtFree` it runs `_startTrayPulse()`, a ticker
+  loop breathing `trayGlow` — a `Graphics` tracing the panel's own rounded rect with
+  an **inner** stroke (`alignment: 0`) so the panel's bounds, and therefore the
+  overlap test, are untouched. At or below `warnings.bubbleAtFree` it floats
+  **"Insufficient space!"**, fired **once per crossing** (`_trayWarnFree`) rather
+  than as a state, or it would pop on every tap while the tray sits at the
+  threshold. Both that bubble and the "Ad not ready" refusal go through
+  `_showTrayMessage`, which keeps its own field so it and the helper row's
+  "Unlocks at Level N" can be up independently, but shares their fade
+  (`_floatPill` / `_clearPill`) and their look: the dark-glass pill itself moved
+  to **`layout.js`** as `makeHintPill(text)`, so `boostercoach.js`'s caption —
+  which used to carry a hand-copied twin of it — now draws from the same builder
+  (statically, at alpha 1, since it holds until the lesson closes).
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred title
   block and the **"Level &lt;n&gt;"** play button. Like the level, it splits its
   layers by anchor: the title/subtitle/fruit row ride the vertically-centred
@@ -796,17 +894,21 @@ python3 -m http.server 8099
     or resize just re-lays-out in place. The **bottom tray is sized to the current
     level's tile size**, not a fixed slot: a board tile is drawn at `TILE_DRAW(96) *
     boardScale`, so `_layoutBoard` sizes each tray slot to match (a collected tile
-    keeps its size flying into the tray), **clamped** to `[SLOT_MIN, SLOT_MAX]` so
-    the 7-slot row always fits the 750-wide column (`_layoutTraySlots` redraws the
-    panel + slots on any change).
+    keeps its size flying into the tray), **clamped** to
+    `[SLOT_MIN, slotMaxFor(cells)]` so the row always fits the 750-wide column —
+    the upper bound depends on how many cells are drawn (90 for the base 7-cell
+    row, 78 once the **8th slot** joins it), which is what lets the wider row
+    re-centre and still fit (`_layoutTraySlots` redraws the panel + slots on any
+    change of size **or** count).
   - Because `resize()` uses the **min** scale, the design area is always **≥
     750×1334 in both axes** — content is never compressed, only given extra margin —
     which is the property that keeps controls from overlapping across
     resizes/rotations. The shared reflow helpers live in **`src/layout.js`**
     (`DESIGN_W/H`, `coverBackground` / `buildColumnBackground` for the
     column-plus-blur background, `fitTextWidth` to keep centred text inside the safe
-    centre band, and `fitPanel` — a defensive clamp that scales a centred overlay
-    panel down if its content would ever outgrow the view). Every scene exposes a
+    centre band, `fitPanel` — a defensive clamp that scales a centred overlay
+    panel down if its content would ever outgrow the view — and `makeHintPill`, the
+    dark-glass one-line label every short in-level message is made of). Every scene exposes a
     `controls()` list of its independent controls, aggregated by
     `window.__game.controls()` (design-space rects) and asserted overlap-free by
     `tests/resize_overlap_test.py`.
@@ -825,7 +927,7 @@ sections are:
 | `features` | one gate per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel`, `tasks.unlockLevel` / `.weeklyResetDay` |
 | `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — and `coach` (`enabled`, `undoDelayMs`) for the guided first use |
 | `economy` | `currencies`, the `startingWallet`, and `coinWinReward` (the only free coin faucet) |
-| `board` | `traySlots` — the tray capacity, the core difficulty dial |
+| `board` | `traySlots` — the base tray capacity, the core difficulty dial — plus `extraSlot` (`unlockLevel` / `grant`, the ad-funded 8th slot) and `warnings` (`pulseAtFree` / `bubbleAtFree`, the two near-full cues, counted against the *live* capacity) |
 | `persistence` | `saveDebounceMs` — the autosave debounce |
 
 Every `unlockLevel` reads **"available from level N onward"**, i.e. it opens once

@@ -3,7 +3,7 @@ import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill, makeCoinIcon } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
-import { buildColumnBackground } from "./layout.js";
+import { buildColumnBackground, makeHintPill } from "./layout.js";
 import { HowToPlayPopup } from "./tutorial.js";
 import { BoosterCoach } from "./boostercoach.js";
 import { CONFIG } from "./config.js";
@@ -18,7 +18,9 @@ const COIN_WIN_REWARD = CONFIG.economy.coinWinReward;   // coins paid for a win
 const AUTO_MIN_LEVEL = CONFIG.progression.autoComplete.minLevel;  // no Auto Complete below this level
 const AUTO_MAX_TILES = CONFIG.progression.autoComplete.maxTiles;  // …nor above this many tiles left
 const TUTORIAL_LEVEL = CONFIG.progression.tutorialLevel; // level that opens "How To Play" + the guide
-const TRAY_SLOTS = CONFIG.board.traySlots;               // tray capacity — fill it with no match and you lose
+const TRAY_SLOTS = CONFIG.board.traySlots;               // BASE tray capacity — fill it with no match and you lose
+const EXTRA_SLOT = CONFIG.board.extraSlot;               // the ad-funded 8th slot: { unlockLevel, grant }
+const TRAY_WARNINGS = CONFIG.board.warnings;             // free-slot thresholds for the pulse + bubble
 const BOOSTER_UNLOCKS = CONFIG.boosters.unlocks;         // helper -> { level, grant }
 const COACH = CONFIG.boosters.coach;                     // the guided first use of each helper
 
@@ -31,10 +33,13 @@ const SLOT_GAP = 6;       // horizontal gap between tray slots
 const SLOT_PAD = 18;      // padding between the slot row and the tray panel edge
 const SLOT_MARGIN = 24;   // min gap from the tray panel to the 750-wide safe band edge
 const SLOT_MIN = 56;      // floor so a very dense level's tray tiles stay tappable
-// Largest slot that keeps the 7-slot tray (with its gaps + panel padding + margin)
-// inside the 750-wide safe band. Used to clamp the per-level slot size below.
-const SLOT_MAX =
-  (DESIGN_W - 2 * SLOT_MARGIN - 2 * SLOT_PAD - (TRAY_SLOTS - 1) * SLOT_GAP) / TRAY_SLOTS;
+// Largest slot that keeps an n-cell tray (with its gaps + panel padding + margin)
+// inside the 750-wide safe band. Used to clamp the per-level slot size below. It
+// is a function of the CELL COUNT because the 8th slot changes that count: 90 for
+// the base 7-cell row, 78 once the extra cell is drawn — which is how the wider
+// row re-centres and still fits the column.
+const slotMaxFor = (n) =>
+  (DESIGN_W - 2 * SLOT_MARGIN - 2 * SLOT_PAD - (n - 1) * SLOT_GAP) / n;
 
 const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1140;
@@ -103,6 +108,20 @@ export class GameScene extends PIXI.Container {
     this._guideRun = 0;     // generation token: invalidates an in-flight guided opening
     this._tutorial = null;  // the "How To Play" popup, while it is up
     this._boosterHint = null; // the floating "Unlocks at Level N" label, when shown
+    // ---- tray capacity (the 8th slot) --------------------------------------
+    // Two numbers, deliberately not the same one. `traySlots` is what the tray
+    // can HOLD — the loss condition and both warning thresholds are measured
+    // against it, and the ad raises it by EXTRA_SLOT.grant for the rest of the
+    // level. `traySlotsDrawn` is how many cells are PAINTED, which crosses to 8
+    // at the progression gate whether or not the video has been watched: the
+    // extra cell appears first, covered by the "+1" offer, and only becomes
+    // usable when capacity catches up. Both are re-derived in loadLevel.
+    this.traySlots = TRAY_SLOTS;
+    this.traySlotsDrawn = TRAY_SLOTS;
+    this._extraSlotAdResult = "succeed"; // "succeed" | "cancel" | "fail" (test seam)
+    this._trayMessage = null; // the floating tray bubble ("Insufficient space!"), when shown
+    this._trayPulse = null;   // the tray-glow ticker loop, while the warning is up
+    this._trayWarnFree = Infinity; // free slots at the last check (bubble fires on a crossing)
     this._coach = null;       // the coached first use of a helper, while it is up
     this._coachPending = null; // a helper owed its coaching, waiting for the first collect
     this.onLevelComplete = null; // (levelNum) => void — set by the host (main.js)
@@ -215,42 +234,201 @@ export class GameScene extends PIXI.Container {
     return true;
   }
 
+  // Fade a pill in, hold it, fade it out, then clear it — provided it is still the
+  // one the field points at (a later message replaces an earlier one mid-flight).
+  _floatPill(c, field) {
+    const ticker = this.app.ticker;
+    tween(ticker, { duration: 160, onUpdate: (v) => { c.alpha = v; } })
+      .then(() => delay(ticker, 1000))
+      .then(() => tween(ticker, { duration: 260, onUpdate: (v) => { c.alpha = 1 - v; } }))
+      .then(() => { if (this[field] === c) this._clearPill(field); })
+      .catch(() => {});
+  }
+
+  _clearPill(field) {
+    const c = this[field];
+    this[field] = null;
+    if (c && !c.destroyed) { c.parent && c.parent.removeChild(c); c.destroy({ children: true }); }
+  }
+
   // Float a short "Unlocks at Level N" pill above a locked helper: fades in, holds,
   // fades out. Only one is ever alive — a second tap replaces it.
   _showBoosterHint(btn, kind) {
     this._clearBoosterHint();
     if (!btn || !this.user) return;
-    const text = `Unlocks at Level ${this.user.boosterUnlockLevel(kind)}`;
-    const c = new PIXI.Container();
-    c.__text = text; // test seam (window.__game.boosterHint)
-    const label = new PIXI.Text(text, {
-      fontFamily: "Arial", fontSize: 26, fontWeight: "700", fill: 0xffffff,
-    });
-    label.anchor.set(0.5);
-    const w = label.width + 40, h = 52;
-    const g = new PIXI.Graphics();
-    g.beginFill(0x0a1226, 0.88).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2).endFill();
-    g.lineStyle(3, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2);
-    c.addChild(g, label);
+    const c = makeHintPill(`Unlocks at Level ${this.user.boosterUnlockLevel(kind)}`);
     // Above the button, clamped so a hint on an edge helper can't run off the
     // 750-wide safe band (the band, not the view — hudBottom is centred in it).
-    const half = w / 2 + 8;
+    const half = c.__w / 2 + 8;
     c.position.set(Math.min(DESIGN_W - half, Math.max(half, btn.x)), btn.y - 96);
-    c.alpha = 0;
     this.hudBottom.addChild(c);
     this._boosterHint = c;
-    const ticker = this.app.ticker;
-    tween(ticker, { duration: 160, onUpdate: (v) => { c.alpha = v; } })
-      .then(() => delay(ticker, 1000))
-      .then(() => tween(ticker, { duration: 260, onUpdate: (v) => { c.alpha = 1 - v; } }))
-      .then(() => { if (this._boosterHint === c) this._clearBoosterHint(); })
-      .catch(() => {});
+    this._floatPill(c, "_boosterHint");
   }
 
-  _clearBoosterHint() {
-    const c = this._boosterHint;
-    this._boosterHint = null;
-    if (c && !c.destroyed) { c.parent && c.parent.removeChild(c); c.destroy({ children: true }); }
+  _clearBoosterHint() { this._clearPill("_boosterHint"); }
+
+  // Float a message above the TRAY — "Insufficient space!" when the tray is one
+  // tile from full, and the "Ad not ready" refusal from the +1 offer. Kept in its
+  // own field so it never fights the helper row's hint: the two sit at different
+  // heights and either can be up on its own.
+  _showTrayMessage(text) {
+    this._clearTrayMessage();
+    const c = makeHintPill(text);
+    const half = c.__w / 2 + 8;
+    c.position.set(Math.min(DESIGN_W - half, Math.max(half, DESIGN_W / 2)),
+      TRAY_Y - this.slot / 2 - SLOT_PAD - 46);
+    this.hudBottom.addChild(c);
+    this._trayMessage = c;
+    this._floatPill(c, "_trayMessage");
+  }
+
+  _clearTrayMessage() { this._clearPill("_trayMessage"); }
+
+  // ---- the 8th tray slot ---------------------------------------------------
+  //  An ad-funded, ONE-PER-LEVEL capacity boost, not a booster and not a purchase.
+  //  Three separate questions, deliberately kept apart:
+  //    drawn     — does the extra CELL exist? A pure progression check.
+  //    offered   — is the "+1" button on it? Only while capacity is still base.
+  //    takeable  — can it be pressed right now? Only during live play.
+
+  // Is the extra cell drawn at all? Reads CAMPAIGN progress (not the level of the
+  // board being played) and is re-asked on every board build, so it appears on the
+  // very next level started after the gate is crossed. Nothing is claimed or
+  // persisted — the cell simply starts being there.
+  _extraSlotDrawn() { return !!this.user && this.user.isExtraSlotUnlocked(); }
+
+  // Is the "+1" offer on the table? The cell must be drawn AND the capacity still
+  // at the base value — so the button goes the moment the boost is taken, and
+  // there is no way to stack it to 9 slots.
+  _extraSlotOffered() { return this._extraSlotDrawn() && this.traySlots === TRAY_SLOTS; }
+
+  // …and can it be TAKEN right now? Only when the player is in a state where they
+  // could tap a tile: not while the board is locked (a match resolving, a revive,
+  // the end-of-level sequence), not mid Auto Complete sweep, and not behind the
+  // tutorial popup, a coached first use or a win/lose overlay.
+  _extraSlotTakeable() {
+    return this._extraSlotOffered() && !this.locked && !this._autoRunning
+      && !this._coach && !this._tutorial && !this.overlayLayer.children.length;
+  }
+
+  // The button that covers the extra cell until it is paid for: a slot-sized
+  // rounded square carrying the video-ad glyph over "+1". Built once; sized and
+  // positioned onto the last cell by _placeExtraSlotButton on every tray reflow.
+  _makeExtraSlotButton() {
+    const c = new PIXI.Container();
+    c.__g = new PIXI.Graphics();
+    c.__icon = new PIXI.Text("📺", { fontFamily: "Arial", fontSize: 30 });
+    c.__icon.anchor.set(0.5);
+    c.__label = new PIXI.Text("+1", {
+      fontFamily: "Arial", fontSize: 26, fontWeight: "900", fill: 0xffffff,
+    });
+    c.__label.anchor.set(0.5);
+    c.addChild(c.__g, c.__icon, c.__label);
+    c.visible = false;
+    c.eventMode = "static";
+    c.cursor = "pointer";
+    // The tap goes through takeExtraSlot() like the debug hook does, so a scripted
+    // call is refused on exactly the same terms as a real press.
+    c.on("pointertap", () => { this.audio.play("btn_01"); this.takeExtraSlot(); });
+    c.on("pointerdown", () => c.scale.set(0.94));
+    c.on("pointerup", () => c.scale.set(1));
+    c.on("pointerupoutside", () => c.scale.set(1));
+    return c;
+  }
+
+  _placeExtraSlotButton() {
+    const btn = this.extraBtn;
+    if (!btn || btn.destroyed || !this.slotPositions.length) return;
+    const pos = this.slotPositions[this.slotPositions.length - 1];
+    const SZ = this.slot, r = SZ * 0.24;
+    btn.position.set(pos.x, pos.y);
+    btn.hitArea = new PIXI.Rectangle(-SZ / 2, -SZ / 2, SZ, SZ);
+    btn.__g.clear();
+    btn.__g.beginFill(0x4d8dff).drawRoundedRect(-SZ / 2, -SZ / 2, SZ, SZ, r).endFill();
+    btn.__g.lineStyle(4, 0xffffff, 0.5).drawRoundedRect(-SZ / 2, -SZ / 2, SZ, SZ, r);
+    btn.__icon.style.fontSize = Math.round(SZ * 0.36);
+    btn.__icon.position.set(0, -SZ * 0.15);
+    btn.__label.style.fontSize = Math.round(SZ * 0.30);
+    btn.__label.position.set(0, SZ * 0.24);
+    this._updateExtraSlot();
+  }
+
+  _updateExtraSlot() {
+    if (!this.extraBtn || this.extraBtn.destroyed) return;
+    // The Auto Complete sweep owns the bottom of the screen while it runs, the
+    // same reason the helper row hides.
+    this.extraBtn.visible = this._extraSlotOffered() && !this._autoRunning;
+  }
+
+  // Rewarded video for the extra slot. No ad network is wired up yet, so this stub
+  // reports whatever the test seam says — matching the wheel's and the daily
+  // bonus's three-valued contract rather than the boosters' always-succeed one,
+  // because the spec requires a visible "not ready" refusal here.
+  // TODO(SDK): show a real rewarded video and resolve on the completed view
+  //   (FBInstant.getRewardedVideoAsync / Telegram / Devvit ad units).
+  _watchExtraSlotAd() { return this._extraSlotAdResult || "succeed"; }
+
+  // Take the offer: watch the video and, on a completed view, raise the tray's
+  // capacity by one for the rest of THIS level. Nothing is charged and nothing is
+  // refunded — a cancel leaves the tray as it was, and a failure says so and
+  // leaves the offer up for another attempt. Unlike the fail screen's Continue
+  // there is no coin alternative: the video is the only route.
+  takeExtraSlot() {
+    if (!this._extraSlotTakeable()) return false;
+    const res = this._watchExtraSlotAd();
+    if (res === "fail") {
+      this.audio.play("fail");
+      this._showTrayMessage("Ad not ready, please try again later!");
+      return false;
+    }
+    if (res !== "succeed") return false; // cancelled — spend nothing, keep the offer
+    this.traySlots = TRAY_SLOTS + EXTRA_SLOT.grant;
+    this.audio.play("merge_click");
+    this._updateExtraSlot();
+    // Both warning thresholds just moved up a tile; re-arm the bubble so a tray
+    // sitting on the old threshold doesn't count as having crossed the new one.
+    this._trayWarnFree = Infinity;
+    this._updateTrayWarning();
+    return true;
+  }
+
+  // ---- tray pressure warnings ----------------------------------------------
+
+  // Both cues are measured in FREE slots against the LIVE capacity, which is what
+  // makes taking the 8th slot shift each of them up by exactly one tile.
+  _updateTrayWarning() {
+    if (!this.trayGlow || this.trayGlow.destroyed) return;
+    const free = Math.max(0, this.traySlots - this.tray.length);
+    if (free > 0 && free <= TRAY_WARNINGS.pulseAtFree) this._startTrayPulse();
+    else this._stopTrayPulse();
+    // The bubble fires on CROSSING the threshold, not while sitting on it — as a
+    // state it would pop again on every tap once the tray is pinned there.
+    if (free > 0 && free <= TRAY_WARNINGS.bubbleAtFree
+      && this._trayWarnFree > TRAY_WARNINGS.bubbleAtFree) {
+      this._showTrayMessage("Insufficient space!");
+    }
+    this._trayWarnFree = free;
+  }
+
+  _startTrayPulse() {
+    if (this._trayPulse) return;
+    let beat = 0;
+    const glow = this.trayGlow;
+    const fn = () => {
+      if (glow.destroyed) { this._stopTrayPulse(); return; }
+      beat = (beat + this.app.ticker.deltaMS) % 900;
+      // A slow breathe rather than a blink — it has to read as pressure without
+      // competing with the tiles for attention.
+      glow.alpha = 0.3 + 0.55 * (0.5 - 0.5 * Math.cos((beat / 900) * Math.PI * 2));
+    };
+    this._trayPulse = fn;
+    this.app.ticker.add(fn);
+  }
+
+  _stopTrayPulse() {
+    if (this._trayPulse) { this.app.ticker.remove(this._trayPulse); this._trayPulse = null; }
+    if (this.trayGlow && !this.trayGlow.destroyed) this.trayGlow.alpha = 0;
   }
 
   // ---- the coached first use of a helper -----------------------------------
@@ -471,8 +649,9 @@ export class GameScene extends PIXI.Container {
     this.hudTop.addChild(this.coinPill);
 
     // buttons row — round, icon-only. Placed BELOW the tray panel (whose bottom
-    // edge sits at TRAY_Y + slot/2 + SLOT_PAD, at most TRAY_Y + SLOT_MAX/2 + SLOT_PAD)
-    // so the two never overlap even at the widest per-level slot size.
+    // edge sits at TRAY_Y + slot/2 + SLOT_PAD, at most TRAY_Y + slotMaxFor(cells)/2
+    // + SLOT_PAD) so the two never overlap even at the widest per-level slot size —
+    // and an 8-cell row clamps narrower still, so the extra slot only adds room.
     // Helper (booster) buttons. Each carries a count bubble showing how many
     // uses remain in the player's inventory; both are disabled when empty
     // (see _updateBoosters).
@@ -493,6 +672,13 @@ export class GameScene extends PIXI.Container {
       () => this.autoComplete());
     this.autoBtn.visible = false;
     this.hudBottom.addChild(this.autoBtn);
+
+    // The "+1" offer covering the extra tray cell. It lives on hudBottom rather
+    // than in trayGroup so it paints ABOVE the slot sprites, and because both
+    // share the same (ox, oy) offset and 0..750 coordinate space a tray slot
+    // position places it exactly (see _placeExtraSlotButton).
+    this.extraBtn = this._makeExtraSlotButton();
+    this.hudBottom.addChild(this.extraBtn);
 
     // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
@@ -632,31 +818,47 @@ export class GameScene extends PIXI.Container {
     return c;
   }
 
+  // The clamp bounds _layoutBoard sizes the tray slot within. Exposed so the debug
+  // API can report them without re-deriving the formula — the upper one depends on
+  // how many cells are currently drawn.
+  slotMin() { return SLOT_MIN; }
+  slotMax() { return slotMaxFor(this.traySlotsDrawn); }
+
   _buildTraySlots() {
     // The panel + slot sprites are (re)drawn by _layoutTraySlots() whenever the
-    // per-level slot size changes; create the containers once, in back-to-front
-    // order (panel behind slots), then let the reflow fill them in.
+    // per-level slot size or cell count changes; create the containers once, in
+    // back-to-front order (panel, then its warning glow, then slots), and let the
+    // reflow fill them in.
     this.trayPanel = new PIXI.Graphics();
+    this.trayGlow = new PIXI.Graphics();  // the near-full pulse, drawn on the panel rect
+    this.trayGlow.alpha = 0;
     this.slotContainer = new PIXI.Container();
-    this.trayGroup.addChild(this.trayPanel, this.slotContainer);
+    this.trayGroup.addChild(this.trayPanel, this.trayGlow, this.slotContainer);
     this._layoutTraySlots();
   }
 
-  // (Re)build the tray panel + slot sprites at the current slot size (this.slot).
-  // Keeps the row centred in the 750-wide safe band; collected tiles (added to
-  // trayGroup on top of these) are untouched and re-placed by _layoutTray().
+  // (Re)build the tray panel + slot sprites at the current slot size (this.slot)
+  // and cell count (this.traySlotsDrawn). Keeps the row centred in the 750-wide
+  // safe band — which is what re-centres the whole tray when the 8th cell joins
+  // it; collected tiles (added to trayGroup on top of these) are untouched and
+  // re-placed by _layoutTray().
   _layoutTraySlots() {
     const SZ = this.slot;
-    const totalW = TRAY_SLOTS * SZ + (TRAY_SLOTS - 1) * SLOT_GAP;
+    const n = this.traySlotsDrawn;
+    const totalW = n * SZ + (n - 1) * SLOT_GAP;
     const startX = DESIGN_W / 2 - totalW / 2 + SZ / 2;
+    const rect = [DESIGN_W / 2 - totalW / 2 - SLOT_PAD, TRAY_Y - SZ / 2 - SLOT_PAD,
+      totalW + 2 * SLOT_PAD, SZ + 2 * SLOT_PAD];
     this.slotPositions = [];
     this.trayPanel.clear();
-    this.trayPanel.beginFill(0x0a1226, 0.4)
-      .drawRoundedRect(DESIGN_W / 2 - totalW / 2 - SLOT_PAD, TRAY_Y - SZ / 2 - SLOT_PAD,
-        totalW + 2 * SLOT_PAD, SZ + 2 * SLOT_PAD, 26)
-      .endFill();
+    this.trayPanel.beginFill(0x0a1226, 0.4).drawRoundedRect(...rect, 26).endFill();
+    // The warning glow traces the same rounded rect with an INNER stroke, so it
+    // never grows the panel's bounds (and so can't upset resize_overlap_test).
+    this.trayGlow.clear();
+    this.trayGlow.lineStyle({ width: 6, color: 0xff8a3d, alpha: 1, alignment: 0 });
+    this.trayGlow.drawRoundedRect(...rect, 26);
     this.slotContainer.removeChildren();
-    for (let i = 0; i < TRAY_SLOTS; i++) {
+    for (let i = 0; i < n; i++) {
       const x = startX + i * (SZ + SLOT_GAP);
       this.slotPositions.push({ x, y: TRAY_Y });
       const s = new PIXI.Sprite(this.slotTexture);
@@ -665,6 +867,7 @@ export class GameScene extends PIXI.Container {
       s.position.set(x, TRAY_Y);
       this.slotContainer.addChild(s);
     }
+    this._placeExtraSlotButton();
   }
 
   // ---- level setup ---------------------------------------------------------
@@ -681,6 +884,8 @@ export class GameScene extends PIXI.Container {
     this._hideHand();
     this._closeTutorial(); // a popup from a previous load belongs to the old board
     this._clearBoosterHint();
+    this._clearTrayMessage();
+    this._stopTrayPulse();
     // Any coaching from the previous board goes too, and stays owed — reloading
     // out of a lesson is not the same as having had it.
     this._closeCoach();
@@ -694,6 +899,15 @@ export class GameScene extends PIXI.Container {
     this.locked = false;
     this._autoRunning = false; // clear in case a prior level ended via Auto Complete
     this._loseBtns = null;     // drop any stale Out-of-Moves overlay refs
+    // The 8th slot is scoped to a single level: capacity returns to the base on
+    // EVERY board build — next level, Replay, retry after a loss — and the "+1"
+    // offer comes back with it, so each attempt is a fresh one. (A revive does not
+    // come through here, which is why it keeps the capacity it has.) Whether the
+    // extra CELL is drawn is a pure progression check, re-asked here so it shows
+    // up on the very next level started after the gate is crossed.
+    this.traySlots = TRAY_SLOTS;
+    this.traySlotsDrawn = TRAY_SLOTS + (this._extraSlotDrawn() ? EXTRA_SLOT.grant : 0);
+    this._trayWarnFree = Infinity;
 
     const positions = parseLevel(rawArr);
     const { coverers, covered } = computeCoverers(positions);
@@ -710,9 +924,11 @@ export class GameScene extends PIXI.Container {
     this.tiles = positions.map((p, i) => this._createTile(p, i, coverers[i], covered[i]));
     this.boardCount = this.tiles.length;
 
-    this._layoutBoard();
+    this._layoutBoard();   // also rebuilds the tray row if the cell count changed
     this._refreshFreeStates();
     this._updateBoosters();
+    this._updateExtraSlot();
+    this._updateTrayWarning();
 
     // The board is fully built and interactive the moment the calls above return
     // (_layoutBoard places tiles outright — there's no build-in animation), so
@@ -873,6 +1089,8 @@ export class GameScene extends PIXI.Container {
     this._hideHand();
     this._closeTutorial();
     this._clearBoosterHint();
+    this._clearTrayMessage();
+    this._stopTrayPulse();
     this._closeCoach();
     if (this.onExit) this.onExit();
   }
@@ -928,11 +1146,15 @@ export class GameScene extends PIXI.Container {
 
     // Size the bottom tray to the current level's on-screen tile size: a board
     // tile is drawn at TILE_DRAW * boardScale, so match that so a collected tile
-    // keeps its size as it flies into the tray. Clamp to [SLOT_MIN, SLOT_MAX] so
-    // the 7-slot tray always fits the safe band (dense boards, whose tiles are
-    // small, shrink the tray to match; roomy boards cap it at the widest that fits).
-    const slot = Math.max(SLOT_MIN, Math.min(SLOT_MAX, TILE_DRAW * s));
-    if (slot !== this.slot) {
+    // keeps its size as it flies into the tray. Clamp to [SLOT_MIN, slotMaxFor(n)]
+    // so the row always fits the safe band (dense boards, whose tiles are small,
+    // shrink the tray to match; roomy boards cap it at the widest that fits) — the
+    // upper bound depends on the CELL COUNT, so an 8-cell tray caps narrower.
+    const slot = Math.max(SLOT_MIN, Math.min(slotMaxFor(this.traySlotsDrawn), TILE_DRAW * s));
+    // Rebuild on a change of size OR of cell count: crossing the 8th slot's gate
+    // usually leaves the clamped size untouched (both clamp to their own max), and
+    // a size-only guard would then leave the old row drawn.
+    if (slot !== this.slot || this.slotPositions.length !== this.traySlotsDrawn) {
       this.slot = slot;
       this._layoutTraySlots();
       if (this.tray.length) this._layoutTray();
@@ -984,7 +1206,13 @@ export class GameScene extends PIXI.Container {
       this._shake(t.container);
       return;
     }
-    if (this.tray.length >= TRAY_SLOTS) return;
+    // Once the tray is full further taps are rejected outright — the tile just
+    // bounces back. Capacity is the LIVE one, so the 8th slot (when taken) buys
+    // one more tap here as well as one more before the loss.
+    if (this.tray.length >= this.traySlots) {
+      this._shake(t.container);
+      return;
+    }
     this._collect(t);
   }
 
@@ -1047,13 +1275,14 @@ export class GameScene extends PIXI.Container {
 
   _layoutTray() {
     this.tray.forEach((t, i) => {
-      // Normal play never exceeds TRAY_SLOTS, but the Wand can momentarily bring
-      // the tray over capacity before the completed triple clears in the same
-      // beat — clamp to the last slot so we never index past slotPositions.
-      const pos = this.slotPositions[Math.min(i, TRAY_SLOTS - 1)];
+      // Normal play never exceeds the capacity, but the Wand can momentarily bring
+      // the tray over it before the completed triple clears in the same beat —
+      // clamp to the last DRAWN slot so we never index past slotPositions.
+      const pos = this.slotPositions[Math.min(i, this.slotPositions.length - 1)];
       this._animateTo(t.container, pos.x, pos.y, 200, easeOutCubic);
       this._animateScale(t.container, this.slot / TILE_DRAW, 200);
     });
+    this._updateTrayWarning();
   }
 
   _settle() {
@@ -1098,7 +1327,7 @@ export class GameScene extends PIXI.Container {
       this._win();
     } else if (this.boardCount === 0 && this.tray.length > 0) {
       this._lose(); // stranded tiles
-    } else if (this.tray.length >= TRAY_SLOTS) {
+    } else if (this.tray.length >= this.traySlots) {
       this._lose();
     }
   }
@@ -1375,7 +1604,8 @@ export class GameScene extends PIXI.Container {
 
     // The animation owns the HUD row — hide every helper node and the button.
     for (const n of [this.shuffleBtn, this.wandBtn, this.undoBtn,
-      this.shuffleBadge, this.wandBadge, this.undoBadge, this.autoBtn]) n.visible = false;
+      this.shuffleBadge, this.wandBadge, this.undoBadge, this.autoBtn,
+      this.extraBtn]) n.visible = false;
 
     const ticker = this.app.ticker;
     const remaining = [
@@ -1487,12 +1717,14 @@ export class GameScene extends PIXI.Container {
       else if (c % 3 === 1) singles.push(ty);
     }
 
-    // Order matters for the 7-slot limit: completing pairs frees slots fastest,
-    // so do those first, then singles. Following this sequence keeps the tray at
-    // ≤7 as long as the deck isn't 6 lone singletons (an already-lost state the
-    // board can't rescue without touching the deck — then we just fall back to a
-    // self-contained board so the reshuffle is still a fresh, valid board).
-    const feasible = singles.length <= 5;
+    // Order matters for the tray limit: completing pairs frees slots fastest, so
+    // do those first, then singles. Following this sequence keeps the tray within
+    // capacity as long as the deck isn't capacity-2 lone singletons (an
+    // already-lost state the board can't rescue without touching the deck — then
+    // we just fall back to a self-contained board so the reshuffle is still a
+    // fresh, valid board). Measured against the LIVE capacity, so the 8th slot
+    // widens what a reshuffle can rescue.
+    const feasible = singles.length <= this.traySlots - 2;
     const typeSeq = [];
     if (feasible) {
       for (const ty of pairs) typeSeq.push(ty);

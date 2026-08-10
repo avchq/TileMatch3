@@ -58,6 +58,32 @@ export function fitTextWidth(text, maxWidth) {
   if (text.width > maxWidth) text.scale.set(maxWidth / text.width);
 }
 
+// The game's floating "pill" label — a dark-glass rounded capsule with a single
+// line of white text, drawn around its own centre so the caller only has to
+// position it. Used for every short in-level message: the helper row's "Unlocks
+// at Level N" refusal, the tray's "Insufficient space!" warning and the 8th
+// slot's "Ad not ready" refusal (all in GameScene, which fades them in and out),
+// and the coached first use's caption (BoosterCoach, which holds it until the
+// lesson closes). It carries its own `__text` as a test seam and `__w` so the
+// caller can clamp it inside the safe band, and starts at alpha 0 — a static user
+// sets alpha 1, a fading one animates from there.
+export function makeHintPill(text) {
+  const c = new PIXI.Container();
+  c.__text = text;
+  const label = new PIXI.Text(text, {
+    fontFamily: "Arial", fontSize: 26, fontWeight: "700", fill: 0xffffff,
+  });
+  label.anchor.set(0.5);
+  const w = label.width + 40, h = 52;
+  const g = new PIXI.Graphics();
+  g.beginFill(0x0a1226, 0.88).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2).endFill();
+  g.lineStyle(3, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+  c.addChild(g, label);
+  c.__w = w;
+  c.alpha = 0;
+  return c;
+}
+
 // Defensive fit for a centred overlay panel: if the panel's natural (unscaled)
 // size would exceed the visible DW×DH area minus a margin, scale it down
 // uniformly so it always stays fully on-screen. With the min-scale invariant

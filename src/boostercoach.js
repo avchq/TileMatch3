@@ -15,7 +15,7 @@
 // intro has played). Using the helper is the only way out, which is the point:
 // the lesson is the use.
 
-import { DESIGN_W, DESIGN_H } from "./layout.js";
+import { DESIGN_W, DESIGN_H, makeHintPill } from "./layout.js";
 
 // The one line of copy per helper. Presentation, so it lives here rather than in
 // config.js — the SCHEDULE (which level, how much stock) is the tunable, and
@@ -68,21 +68,14 @@ export class BoosterCoach extends PIXI.Container {
 
   // ---- construction --------------------------------------------------------
 
-  // The same dark-glass pill as the "Unlocks at Level N" hint (GameScene
-  // ._showBoosterHint), but static: it holds until the coaching closes instead
-  // of fading itself out after a beat.
+  // The shared dark-glass pill (layout.js `makeHintPill`, the same one GameScene
+  // floats for "Unlocks at Level N" / "Insufficient space!"), but STATIC: it is
+  // opaque from the start and holds until the coaching closes instead of fading
+  // itself out after a beat.
   _buildCaption() {
-    const c = new PIXI.Container();
-    const label = new PIXI.Text(this.caption, {
-      fontFamily: "Arial", fontSize: 26, fontWeight: "700", fill: 0xffffff,
-    });
-    label.anchor.set(0.5);
-    const w = label.width + 40, h = 52;
-    const g = new PIXI.Graphics();
-    g.beginFill(0x0a1226, 0.88).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2).endFill();
-    g.lineStyle(3, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2);
-    c.addChild(g, label);
-    c.__halfW = w / 2 + 8; // clamp margin, so a pill on an edge helper stays in the band
+    const c = makeHintPill(this.caption);
+    c.alpha = 1;
+    c.__halfW = c.__w / 2 + 8; // clamp margin, so a pill on an edge helper stays in the band
     this.captionPill = c;
     this.addChild(c);
   }

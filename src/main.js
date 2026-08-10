@@ -382,14 +382,57 @@ async function boot() {
       return out;
     },
     // Tray sizing: the per-level slot size, the on-screen board tile size it
-    // tracks (TILE_DRAW * boardScale), and the clamp bounds (used by tray_size test).
+    // tracks (TILE_DRAW * boardScale), and the clamp bounds (used by tray_size
+    // test). `slots` is how many cells are DRAWN and `capacity` how many the tray
+    // can hold — the two differ while the 8th slot's "+1" offer is still up. The
+    // clamp bounds come off the scene rather than being re-derived here, since the
+    // upper one depends on the cell count.
     traySize: () => ({
       slot: scene.slot,
       tileOnScreen: 96 * scene.boardScale, // TILE_DRAW * boardScale
       boardScale: scene.boardScale,
-      slotMin: 56, slotMax: (750 - 2 * 24 - 2 * 18 - 6 * 6) / 7,
+      slotMin: scene.slotMin(), slotMax: scene.slotMax(),
       panelW: scene.trayPanel.width,
+      slots: scene.traySlotsDrawn,
+      capacity: scene.traySlots,
       slotXs: scene.slotPositions.map((p) => p.x),
+    }),
+    // ---- the 8th tray slot (ad-funded, one per level) ----
+    // `drawn` is whether the extra CELL exists (a campaign-progress gate),
+    // `offered` whether the "+1" button is on it (only while capacity is still
+    // base), and `capacity` what the tray can actually hold right now — the three
+    // are deliberately distinct, since the cell appears before it is usable.
+    extraSlotState: () => {
+      if (!scene) return { unlockLevel: 0, unlocked: false, drawn: false, offered: false,
+        capacity: 0, baseCapacity: 0, taken: false, btnVisible: false, btnX: 0, btnY: 0 };
+      return {
+        unlockLevel: CONFIG.board.extraSlot.unlockLevel,
+        unlocked: user.isExtraSlotUnlocked(),
+        drawn: scene.traySlotsDrawn > CONFIG.board.traySlots,
+        offered: scene._extraSlotOffered(),
+        takeable: scene._extraSlotTakeable(),
+        capacity: scene.traySlots,
+        baseCapacity: CONFIG.board.traySlots,
+        taken: scene.traySlots > CONFIG.board.traySlots,
+        btnVisible: scene.extraBtn.visible,
+        btnX: scene.extraBtn.x,
+        btnY: scene.extraBtn.y,
+      };
+    },
+    // Press the "+1" the way a finger does, so the live-play guard is exercised
+    // rather than bypassed.
+    pressExtraSlot: () => scene.extraBtn.emit("pointertap"),
+    // Force the outcome of the extra slot's rewarded video: "succeed" | "cancel"
+    // | "fail" (parallels setWheelAdResult / setDailyAdResult).
+    setExtraSlotAdResult: (mode) => { scene._extraSlotAdResult = mode; },
+    // The tray's pressure warnings, both measured against the LIVE capacity: how
+    // many slots are free, whether the tray is pulsing, and the floating message
+    // currently up ("Insufficient space!" / the ad refusal), "" when none.
+    trayWarning: () => ({
+      free: Math.max(0, scene.traySlots - scene.tray.length),
+      capacity: scene.traySlots,
+      pulsing: !!scene._trayPulse,
+      message: scene._trayMessage ? scene._trayMessage.__text : "",
     }),
     lobbyButtonText: () => lobby.playBtn.label.text,
     // The lobby's feature-button rail: slot assignment + live geometry of every
