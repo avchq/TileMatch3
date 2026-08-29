@@ -6,7 +6,7 @@ import { FortuneWheelScene } from "./fortunewheel.js";
 import { DailyBonusScene } from "./dailybonus.js";
 import { TasksScene } from "./tasks.js";
 import { makePayments } from "./user/payments.js";
-import { makeTileTextures, makeSlotTexture } from "./icons.js";
+import { makeTileTextures, makeSlotTexture, tilesFontReady, emojiPaints, TILE_EMOJIS } from "./icons.js";
 import { AudioManager } from "./audio.js";
 import { AssetManager, PRELOAD_GROUPS, MANIFEST, buildLevelGroups } from "./assets.js";
 import { loadLevels } from "./levelConfig.js";
@@ -60,7 +60,7 @@ async function boot() {
 
   // ---- assets --------------------------------------------------------------
   // Procedural (no network): tile faces + tray slot are drawn at runtime.
-  const tileTextures = makeTileTextures(128);
+  const tileTextures = await makeTileTextures(app.renderer, 128);
   const slotTexture = makeSlotTexture(120);
 
   // Network assets flow through the AssetManager: PRELOAD the essential minimum
@@ -480,6 +480,17 @@ async function boot() {
     clearSoundLog: () => { sfxLog.length = 0; },
     manifest: MANIFEST,
     loadedGroups: () => [...assets._loaded],
+    // Tile-face readiness (regression guard for the iOS "white tiles, no fruit"
+    // bug): whether the emoji font was confirmed warm before the faces were
+    // rasterized (`fontsReady`), and, per tile type, whether its fruit emoji
+    // actually painted (`painted[i]`) — sampled from each texture's 2D source
+    // canvas. NB the raw iOS timing failure can't be reproduced in headless
+    // Chromium; this asserts the fix's ordering invariant and non-blank content.
+    tileFaces: () => ({
+      fontsReady: tilesFontReady(),
+      types: tileTextures.length,
+      painted: TILE_EMOJIS.map((e) => emojiPaints(app.renderer, e, 128)),
+    }),
     audioState: () => ({
       music: audio.musicOn,
       sound: audio.soundOn,

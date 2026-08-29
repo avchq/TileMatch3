@@ -528,8 +528,19 @@ python3 -m http.server 8099
   Wheel's spin clicks (`wheel-spin-click-slow-down-fast-101154.mp3`), which are
   an added stock sound the original had no equivalent of.
 - **Tile faces** are regenerated at runtime (`src/icons.js`) as emoji on white
-  tiles — the original per-theme icon atlas was not among the downloaded
-  native files, so an equivalent 20-icon food set is drawn instead.
+  tiles — the original per-theme icon atlas was not among the downloaded native
+  files, so an equivalent 20-icon food set is drawn instead. Each face is the
+  white rounded **tile body** (drawn to a 2D canvas) with the fruit **emoji**
+  composited on top **via `PIXI.Text`**, and the pair is baked into one texture
+  with `renderer.generateTexture`. This is deliberate: on iOS/WebKit,
+  `ctx.fillText` of a colour emoji straight onto a 2D canvas paints **nothing**
+  (the tile body drew but the fruit was missing — the "white tiles" bug), whereas
+  `PIXI.Text` emoji render correctly there (the on-screen 👆 hand and helper icons
+  are `PIXI.Text` and always showed). `makeTileTextures` is therefore **async**
+  and takes the app renderer: it first `await`s `document.fonts.ready` and
+  verifies a probe emoji actually rasterizes through the pipeline
+  (`emojiPaints`, retried across a few frames) before baking the set. `main.js`
+  `await`s it during boot (under the splash). `tiles_render_test.py` guards it.
 
 ## Design notes
 - `src/level.js` assigns tile types with a **guaranteed-solvable** generator: it

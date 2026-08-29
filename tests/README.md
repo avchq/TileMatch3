@@ -425,6 +425,18 @@ Only `howtoplay_test.py` leaves it open.
   message shown, rather than fading onto a blank canvas.
 - **`assets_test.py`** — the preload fetches and decodes all 7 audio files exactly
   once, and starting play triggers no asset re-fetch.
+- **`tiles_render_test.py`** — the runtime-drawn **tile faces** carry their fruit.
+  Regression guard for the iOS "white tiles, no fruit" bug: on iOS/WebKit
+  `ctx.fillText` of a colour emoji straight onto a 2D canvas paints nothing, so
+  the fix composites the fruit with **`PIXI.Text`** and bakes it over the tile
+  body with `renderer.generateTexture` (`src/icons.js`), after awaiting
+  `document.fonts.ready`. Drives it via the `window.__game.tileFaces()` hook,
+  which renders each fruit emoji through the pipeline (`emojiPaints`, using
+  `renderer.extract`): **`fontsReady` true** (the warm-up ran before generation)
+  and every **`painted[i]` true** (each emoji rasterizes to colour, not a blank
+  glyph). **Note:** the raw iOS failure can't be reproduced in headless Chromium
+  (it rasterizes emoji on a 2D canvas fine); the test asserts the fix's mechanism
+  and the content invariant, not the device repro.
 - **`lazy_test.py`** — levels beyond the preload set are registered but not loaded
   until `ensureLevel` fetches their JSON on demand (and only once).
 - **`levels_config_test.py`** — the level table is a JSON config
