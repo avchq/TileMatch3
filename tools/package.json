@@ -1,0 +1,11 @@
+{
+  "name": "tile-match-3-build-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Build-only toolchain for tools/build.py. The game itself has no dependencies and no build step in development — index.html loads the ES modules in src/ directly. These packages exist solely to bundle, minify and obfuscate the production artifact.",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "javascript-obfuscator": "^5.6.0"
+  }
+}

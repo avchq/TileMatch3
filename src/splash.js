@@ -88,7 +88,10 @@ export function createSplash() {
     },
   };
 
-  // Test seam only — nothing in the game reads this back.
-  window.__splash = splash;
+  // Test seam only — nothing in the game reads this back. Dropped from a
+  // production bundle by esbuild's --drop-labels=DEBUG (see src/main.js).
+  DEBUG: {
+    window.__splash = splash;
+  }
   return splash;
 }

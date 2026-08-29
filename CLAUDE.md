@@ -1,7 +1,16 @@
 # Tile Match 3 — Pixi.js port
 
-A vanilla-JS / Pixi.js game. No build step: `index.html` loads ES modules from
-`src/` and the vendored `vendor/pixi.min.js`.
+A vanilla-JS / Pixi.js game. No build step **in development**: `index.html` loads
+ES modules from `src/` and the vendored `vendor/pixi.min.js`. Keep it that way —
+do not add a bundler, a framework, or an npm dependency to the game itself.
+
+Production is a separate artifact, not a different source tree: `tools/build.py`
+bundles, minifies and obfuscates `src/` into one file, strips the `window.__game`
+debug API, and uploads it to S3 under the commit hash. Its toolchain lives in
+`tools/package.json` and is never imported by the game. See the README's
+*Deploying* section, and note the `DEBUG:` labelled blocks in `src/main.js` and
+`src/splash.js` — esbuild drops them from a production bundle, so **any new debug
+or test seam hung off `window` belongs inside one**.
 
 ## Read the docs before changing code
 

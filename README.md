@@ -800,60 +800,115 @@ errors the module graph throws before `boot()` exists and paints them into the
 splash's error state, instead of leaving a frozen bar.
 
 ## Deploying — `tools/build.py`
-There is no bundler: `index.html` loads plain ES modules. So a *build* here is a
-staged, versioned, verified copy of exactly the files that ship, and the **build
-number is the commit hash it was built from**:
+In development the game has **no build step**: `index.html` loads the ES modules
+in `src/` directly, which is why you can edit a file and reload. Production is a
+different artifact. `tools/build.py` bundles those 28 modules into one file,
+minifies it, obfuscates it, strips the debug API, verifies the result, and
+uploads it to S3 under the **commit hash it was built from**:
 
 ```
 build/<commit>/index.html
-build/<commit>/src/…
+build/<commit>/src/main.js       one obfuscated bundle — the other 28 modules are gone
 build/<commit>/vendor/pixi.min.js
 build/<commit>/assets/…          audio, bg, config, lang, all 1000 level files
-build/<commit>/build-info.json   commit, branch, subject, timestamp, file count, size
+build/<commit>/build-info.json   commit, toolchain, and what was done to the code
 ```
 
-Nothing else in the repo goes in — no `tests/`, `tools/`, `.venv/`, READMEs.
+Nothing else in the repo ships — no `tests/`, `tools/`, `.venv/`, READMEs.
 
 ```bash
-python3 tools/build.py --no-upload                   # stage locally only
-python3 tools/build.py --bucket my-bucket            # stage, verify and upload
+npm --prefix tools install                           # once: esbuild + obfuscator
+
+python3 tools/build.py --no-upload                   # build locally
+python3 tools/build.py --bucket my-bucket            # build, verify and upload
 python3 tools/build.py --bucket my-bucket --dry-run  # show the upload plan
 python3 tools/build.py --bucket my-bucket --prefix game --latest
 ```
 
 `build/` is gitignored. Uploading needs `boto3` (`.venv/bin/python -m pip install
 boto3`) and credentials from the usual chain — env vars, `~/.aws/credentials`, an
-instance role, or `--profile`. The bucket and prefix can also come from
+instance role, or `--profile`. Bucket and prefix can also come from
 `GAME_S3_BUCKET` / `GAME_S3_PREFIX`.
+
+### The code pipeline
+1. **Bundle and minify** with esbuild — one IIFE, transpiled to es2019 so older
+   mobile Safari is fine, names shortened, comments and whitespace gone.
+2. **Strip the debug API.** The `window.__game` block in `src/main.js` and the
+   `window.__splash` seam in `src/splash.js` sit inside `DEBUG:` labelled blocks,
+   and esbuild is passed `--drop-labels=DEBUG`, which deletes them from the
+   bundle. This is not cosmetic: `__game` is a **cheat console** — `setLevel`,
+   `completeLevel`, `config`, `completeLevel`, direct handles on every scene —
+   and obfuscating the code while shipping that would be pointless. In raw source
+   a label is inert, so dev and the whole test suite are unaffected.
+   `--keep-debug-api` opts back in for a staging build you want to drive from a
+   test.
+3. **Obfuscate** with javascript-obfuscator — identifier mangling, string-array
+   extraction and encoding, numbers rewritten as expressions.
+
+The obfuscator seed is derived from the commit, so the same commit always
+produces the same bytes: builds stay reproducible and the S3 ETag skip keeps
+working.
+
+`vendor/pixi.min.js` is already minified and is copied untouched. Assets are
+copied verbatim — they are the game's content, fetched at runtime.
+
+### What each level costs
+`--obfuscate-level` picks how far to go. Measured on this game (JS only; the
+`assets/` tree is another 3 MB either way):
+
+| | bytes | gzipped |
+|---|---:|---:|
+| raw modules (`--no-bundle`) | 476,601 | 145,051 |
+| bundled only (`--no-minify --no-obfuscate`) | 379,999 | 97,576 |
+| bundled + minified (`--no-obfuscate`) | 167,208 | 44,590 |
+| `--obfuscate-level low` | 212,453 | 49,163 |
+| `--obfuscate-level medium` *(default)* | 322,413 | 118,346 |
+| `--obfuscate-level high` | 680,260 | 285,168 |
+
+- **low** — identifier mangling only. Readable structure, unreadable names.
+- **medium** *(default)* — adds base64-encoded string arrays, split strings and
+  number-to-expression rewriting. Roughly 2.7× the gzipped size of plain
+  minification, with no measurable frame-time cost.
+- **high** — adds control-flow flattening, dead-code injection, RC4 string
+  encoding, object-key transformation and self-defending code. It is 6× the
+  gzipped payload of medium **and the two flattening options cost real frame
+  time**, which matters in a 60 fps game whose hot loop runs over every tile
+  every frame. Only reach for it if the logic genuinely needs protecting, and
+  measure the result on a mid-range phone.
+
+`renameGlobals` is off at every level, because `PIXI` arrives as a global from
+the separately-loaded vendor bundle and must keep its name.
 
 ### Why the commit hash is the directory
 Every deploy is immutable and addressable: `…/<commit>/index.html` can only ever
 mean one tree, two releases can sit side by side, and a rollback is a pointer
 change rather than a re-upload. It also makes the stale-module-graph failure
-described above *impossible in production* — a given URL's bytes never change, so
-a browser can never hold a fresh `i18n.js` against a cached `config.js`.
+described above *impossible in production* — a given URL's bytes never change,
+and after bundling there is only one script that could be stale anyway.
 
 That is what lets the uploader cache aggressively: everything under the commit
 prefix goes up as `public, max-age=31536000, immutable`, and only `index.html`
-and `build-info.json` are sent `no-cache, must-revalidate` so a re-upload of the
+and `build-info.json` are sent `no-cache, must-revalidate`, so re-uploading the
 same commit is still picked up.
 
 ### What the script does that S3 will not do for you
 - **Content-Type per extension.** S3 guesses nothing; an object uploaded without
-  one is stored as `binary/octet-stream`, and a browser *refuses to execute an ES
-  module* that is not served as JavaScript. Every extension is mapped explicitly.
-- **Skips unchanged bytes.** A build is 1065 objects. Any whose ETag already
-  matches the local MD5 is left alone, so re-deploying a commit costs a few
-  hundred HEADs instead of 6 MB. `--force` overrides.
-- **Uploads in parallel** (`-j`, default 16) — 1000 of those files are tiny level
+  one is stored as `binary/octet-stream`, and a browser *refuses to execute
+  JavaScript* that is not served as JavaScript.
+- **Skips unchanged bytes.** Objects whose ETag already matches the local MD5 are
+  left alone, so re-deploying a commit costs a few hundred HEADs instead of the
+  whole tree. `--force` overrides.
+- **Uploads in parallel** (`-j`, default 16) — 1000 of the files are tiny level
   JSONs.
 
 ### The gate before anything is uploaded
 The staged tree is verified first, and a failure **deletes the artifact and
 uploads nothing**:
 
-- `index.html`, `src/main.js`, `src/config.js` and `vendor/pixi.min.js` exist;
+- `index.html`, `src/main.js` and `vendor/pixi.min.js` exist;
 - every local path `index.html` references is present in the build;
+- the bundle has no relative imports left, and no unbundled module survived
+  next to it;
 - all five asset groups are present and non-empty;
 - the 13 language tables are all there and at full key parity with `en.json`;
 - all 1019 JSON files parse.
@@ -862,8 +917,8 @@ A **dirty working tree is refused** — a build named after a commit must contai
 that commit. `--allow-dirty` overrides and tags the build `<commit>-dirty`, which
 is deliberately not reproducible.
 
-`tests/build_test.py` covers all of this, and boots the game out of the staged
-build to prove the artifact really runs.
+`tests/build_test.py` covers all of this: it builds twice, boots the game out of
+the obfuscated artifact, and asserts the cheat console is really gone.
 
 ## How it maps to the original
 - **Levels** (`assets/levels/level{1,2,3}.json`) are the *decrypted* original

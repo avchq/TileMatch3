@@ -1,48 +1,78 @@
 #!/usr/bin/env python3
 """Build a production copy of the game and upload it to S3.
 
-There is no bundler here — `index.html` loads plain ES modules — so a "build" is
-a *staged, versioned, verified copy* of exactly the files that ship:
+The game runs from plain ES modules in development — `index.html` loads `src/`
+directly, no build step. Production is different: the 29 modules are bundled into
+one file, minified, and obfuscated, and the debug API is stripped out.
 
     build/<commit>/index.html
-    build/<commit>/src/…
+    build/<commit>/src/main.js       one obfuscated bundle; the other 28 modules are gone
     build/<commit>/vendor/pixi.min.js
-    build/<commit>/assets/…          (audio, bg, config, lang, all 1000 levels)
-    build/<commit>/build-info.json   (what this is and where it came from)
+    build/<commit>/assets/…          audio, bg, config, lang, all 1000 levels
+    build/<commit>/build-info.json   commit, toolchain, and what was done to the code
 
 The build number IS the commit hash, and it is the directory name both locally
-and in the bucket. That makes every deploy immutable and addressable: the URL
-`…/<commit>/index.html` can only ever mean one tree, so two releases can sit side
-by side and a rollback is a pointer change, not a re-upload.
+and in the bucket. Every deploy is therefore immutable and addressable: the URL
+`…/<commit>/index.html` can only ever mean one tree, two releases can sit side by
+side, and a rollback is a pointer change, not a re-upload.
 
-It also fixes the failure this project has already hit once. `index.html` pulls
-`src/main.js`, which imports the rest of the graph; a browser holding a *stale
-half* of that graph — a fresh `i18n.js` against a cached `config.js` — throws at
-module scope, kills the graph before `boot()` runs, and freezes the splash at
-"Starting up… 0%". Under a commit-addressed prefix that mix cannot happen: a
-given URL's bytes never change, so everything under it is uploaded
-`immutable, max-age=1y` and only the HTML entry point revalidates.
+It also fixes the failure this project has already hit once. A browser holding a
+*stale half* of the module graph — a fresh `i18n.js` against a cached
+`config.js` — throws at module scope, kills the graph before `boot()` runs, and
+freezes the splash at "Starting up… 0%". Under a commit-addressed prefix that
+cannot happen: a given URL's bytes never change, so everything under it is
+uploaded `immutable, max-age=1y` and only the HTML entry point revalidates.
+Bundling removes the possibility entirely — there is only one script to be stale.
 
-Two other things S3 will get wrong unless told:
+The code pipeline
+-----------------
+1. **Bundle + minify** with esbuild: `src/main.js` and everything it imports
+   become one IIFE, transpiled to es2019 (so older mobile Safari is fine),
+   names shortened, comments and whitespace gone.
+2. **Strip the debug API.** The `window.__game` block in `src/main.js` and the
+   `window.__splash` seam in `src/splash.js` sit inside `DEBUG:` labelled
+   blocks, and esbuild is passed `--drop-labels=DEBUG`, which deletes them.
+   That block is a *cheat console* — `setLevel`, `completeLevel`, `config`,
+   direct scene handles — so obfuscating the code while shipping it would be
+   pointless. `--keep-debug-api` opts back in, for a staging build you want to
+   drive from a test. In raw source the label is inert, so dev and the test
+   suite are completely unaffected.
+3. **Obfuscate** with javascript-obfuscator: identifier mangling, string-array
+   extraction and encoding, number-to-expression rewriting. `--obfuscate-level`
+   picks how far to go; the default deliberately stops short of control-flow
+   flattening and dead-code injection, which are the two options that cost real
+   frame time in a 60 fps Pixi game.
+
+The obfuscator seed is derived from the commit, so the same commit obfuscates to
+the same bytes — builds stay reproducible and the S3 ETag skip keeps working.
+
+`vendor/pixi.min.js` is already minified and is copied untouched. Assets are
+copied verbatim: they are the game's content, and the level/language JSON is
+loaded by `fetch` at runtime.
+
+Two things S3 will get wrong unless told:
 
   * **Content-Type.** S3 does not guess; `PutObject` without one stores
-    `binary/octet-stream`, and a browser refuses to execute an ES module that is
+    `binary/octet-stream`, and a browser refuses to execute JavaScript that is
     not served as JavaScript. Every extension is mapped explicitly below.
-  * **Re-uploading unchanged bytes.** 1064 files per build. Objects whose ETag
-    already matches the local MD5 are skipped, so re-deploying a commit costs a
-    few HEADs instead of 6 MB.
+  * **Re-uploading unchanged bytes.** Objects whose ETag already matches the
+    local MD5 are skipped, so re-deploying a commit costs a few HEADs.
 
 Usage
 -----
     python3 tools/build.py --bucket my-bucket                  # build + upload
-    python3 tools/build.py --no-upload                          # stage locally only
-    python3 tools/build.py --bucket my-bucket --dry-run         # show the plan
-    python3 tools/build.py --bucket my-bucket --prefix game --latest
+    python3 tools/build.py --no-upload                          # build locally
+    python3 tools/build.py --no-upload --no-obfuscate           # readable bundle
+    python3 tools/build.py --no-upload --no-bundle              # raw modules
+    python3 tools/build.py --bucket my-bucket --obfuscate-level high
 
-Credentials come from the usual boto3 chain (env vars, `~/.aws/credentials`,
-instance role); `--profile` picks a named profile. Requires `boto3`:
+Requires the build toolchain (esbuild + javascript-obfuscator), which lives under
+tools/ and is not a dependency of the game:
 
-    .venv/bin/python -m pip install boto3
+    npm --prefix tools install
+
+Uploading additionally needs boto3 (`.venv/bin/python -m pip install boto3`);
+credentials come from the usual chain, or `--profile`.
 """
 import argparse
 import concurrent.futures
@@ -56,7 +86,14 @@ import sys
 import time
 from datetime import datetime, timezone
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+NODE_BIN = os.path.join(HERE, "node_modules", ".bin")
+
+# The entry point esbuild walks. Everything reachable from it ends up in the
+# bundle; nothing else in src/ ships.
+ENTRY = "src/main.js"
+BUNDLE = "src/main.js"   # deliberately the same path, so index.html is unchanged
 
 # What ships. Everything else in the repo — tests/, tools/, .venv/, .git/,
 # .claude/, the READMEs, CLAUDE.md — is deliberately absent from the artifact.
@@ -167,7 +204,146 @@ def stage(dest, files):
     return total
 
 
-def verify(dest):
+def node_tool(name):
+    """Path to a build-toolchain binary, or a one-line install instruction."""
+    exe = os.path.join(NODE_BIN, name)
+    if not os.path.isfile(exe):
+        die(f"{name} is not installed — the production pipeline needs it.\n"
+            f"       install the build toolchain:  npm --prefix tools install\n"
+            f"       or skip the code pipeline:    python3 tools/build.py --no-bundle")
+    return exe
+
+
+def obfuscator_options(level, seed):
+    """javascript-obfuscator settings, by how far you want to go.
+
+    Two options are kept OFF at every level below `high` on purpose:
+    `controlFlowFlattening` and `deadCodeInjection` are the ones that cost real
+    frame time, and this is a 60 fps game whose hot loop runs over every tile
+    every frame. `renameGlobals` stays off everywhere because PIXI arrives as a
+    global from the separately-loaded vendor bundle and must keep its name.
+    """
+    base = {
+        "compact": True,
+        "simplify": True,
+        "target": "browser",
+        "seed": seed,                       # same commit -> same bytes
+        "renameGlobals": False,
+        "reservedNames": ["^PIXI$"],
+        "identifierNamesGenerator": "mangled",
+        "numbersToExpressions": False,
+        "stringArray": False,
+        "controlFlowFlattening": False,
+        "deadCodeInjection": False,
+        "selfDefending": False,
+        "debugProtection": False,
+        "transformObjectKeys": False,
+        "unicodeEscapeSequence": False,
+    }
+    if level == "low":
+        # Identifier mangling only — readable structure, unreadable names.
+        return base
+    medium = {
+        **base,
+        "numbersToExpressions": True,
+        "stringArray": True,
+        "stringArrayThreshold": 0.75,
+        "stringArrayEncoding": ["base64"],
+        "stringArrayIndexShift": True,
+        "stringArrayRotate": True,
+        "stringArrayShuffle": True,
+        "stringArrayWrappersCount": 2,
+        "stringArrayWrappersType": "variable",
+        "splitStrings": True,
+        "splitStringsChunkLength": 12,
+    }
+    if level == "medium":
+        return medium
+    # high: everything, at a measurable runtime cost. `transformObjectKeys` and
+    # `selfDefending` are the risky pair — verify the build boots before shipping.
+    return {
+        **medium,
+        "stringArrayEncoding": ["rc4"],
+        "controlFlowFlattening": True,
+        "controlFlowFlatteningThreshold": 0.5,
+        "deadCodeInjection": True,
+        "deadCodeInjectionThreshold": 0.2,
+        "transformObjectKeys": True,
+        "selfDefending": True,
+    }
+
+
+def build_code(dest, info, minify, obfuscate, level, keep_debug):
+    """Bundle src/ into one file, then minify and obfuscate it in place.
+
+    Returns a dict describing what happened, for build-info.json.
+    """
+    out = os.path.join(dest, BUNDLE)
+    raw_bytes = sum(os.path.getsize(os.path.join(dest, "src", f))
+                    for f in os.listdir(os.path.join(dest, "src"))
+                    if f.endswith(".js"))
+
+    cmd = [node_tool("esbuild"), os.path.join(ROOT, ENTRY),
+           "--bundle", "--format=iife", "--target=es2019",
+           "--legal-comments=none", "--log-level=warning",
+           f"--outfile={out}"]
+    if minify:
+        cmd.append("--minify")
+    if not keep_debug:
+        # Deletes the `DEBUG:` labelled blocks in src/main.js and src/splash.js
+        # outright — the window.__game cheat console and the __splash seam. A
+        # label is used rather than a folded flag because esbuild drops it
+        # unconditionally, with no reliance on constant propagation.
+        cmd.append("--drop-labels=DEBUG")
+
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        die(f"esbuild failed:\n{r.stderr.strip()}")
+    if r.stderr.strip():
+        print(f"  esbuild: {r.stderr.strip()}")
+
+    # The bundle is self-contained, so every other module in the staged copy is
+    # now dead weight — and shipping readable sources next to an obfuscated
+    # bundle would defeat the point.
+    src_dir = os.path.join(dest, "src")
+    kept = os.path.abspath(out)
+    for dirpath, dirnames, filenames in os.walk(src_dir, topdown=False):
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            if os.path.abspath(full) != kept:
+                os.remove(full)
+        if dirpath != src_dir and not os.listdir(dirpath):
+            os.rmdir(dirpath)
+
+    bundled_bytes = os.path.getsize(out)
+    obf_bytes = None
+
+    if obfuscate:
+        opts = obfuscator_options(level, int(info["commit"][:8], 16))
+        cfg = os.path.join(dest, ".obfuscator.json")
+        with open(cfg, "w", encoding="utf-8") as f:
+            json.dump(opts, f)
+        r = subprocess.run(
+            [node_tool("javascript-obfuscator"), out, "--output", out, "--config", cfg],
+            capture_output=True, text=True)
+        os.remove(cfg)
+        if r.returncode != 0:
+            die(f"javascript-obfuscator failed:\n{(r.stderr or r.stdout).strip()}")
+        obf_bytes = os.path.getsize(out)
+
+    return {
+        "bundled": True,
+        "minified": bool(minify),
+        "obfuscated": bool(obfuscate),
+        "obfuscate_level": level if obfuscate else None,
+        "debug_api": bool(keep_debug),
+        "src_bytes_raw": raw_bytes,
+        "bundle_bytes": bundled_bytes,
+        "bundle_bytes_obfuscated": obf_bytes,
+    }
+
+
+def verify(dest, bundled=True):
     """Gate the artifact before it can reach a bucket.
 
     Cheap checks for the failures that are invisible until the game is live: a
@@ -177,10 +353,22 @@ def verify(dest):
     """
     problems = []
 
-    for required in ("index.html", "src/main.js", "src/config.js",
-                     "vendor/pixi.min.js"):
-        if not os.path.isfile(os.path.join(dest, required)):
-            problems.append(f"missing {required}")
+    required = ["index.html", BUNDLE, "vendor/pixi.min.js"]
+    if not bundled:
+        required += ["src/config.js", "src/game.js"]
+    for rel in required:
+        if not os.path.isfile(os.path.join(dest, rel)):
+            problems.append(f"missing {rel}")
+
+    if bundled:
+        # A bundle that still contains an import statement did not bundle.
+        code = open(os.path.join(dest, BUNDLE), encoding="utf-8", errors="replace").read()
+        if 'from"./' in code or 'from "./' in code:
+            problems.append(f"{BUNDLE} still has relative imports — bundling did not happen")
+        leftovers = [f for f in os.listdir(os.path.join(dest, "src"))
+                     if f.endswith(".js") and f != os.path.basename(BUNDLE)]
+        if leftovers:
+            problems.append(f"unbundled sources still in the artifact: {leftovers}")
 
     # Everything index.html pulls directly must have come along.
     index = os.path.join(dest, "index.html")
@@ -371,6 +559,22 @@ def main():
     ap.add_argument("--allow-dirty", action="store_true",
                     help="build from a dirty working tree; the build is then "
                          "tagged <commit>-dirty and is NOT reproducible")
+    ap.add_argument("--no-bundle", dest="bundle", action="store_false",
+                    help="ship src/ as raw ES modules instead of one bundle "
+                         "(no minify, no obfuscate, debug API intact)")
+    ap.add_argument("--no-minify", dest="minify", action="store_false",
+                    help="bundle without minifying")
+    ap.add_argument("--no-obfuscate", dest="obfuscate", action="store_false",
+                    help="bundle and minify, but skip obfuscation")
+    ap.add_argument("--obfuscate-level", choices=("low", "medium", "high"),
+                    default="medium",
+                    help="how far to obfuscate. low = identifier mangling only; "
+                         "medium (default) adds encoded string arrays; high adds "
+                         "control-flow flattening and dead-code injection, which "
+                         "cost real frame time in a 60fps game")
+    ap.add_argument("--keep-debug-api", action="store_true",
+                    help="do NOT strip window.__game — for a staging build you "
+                         "want to drive from the test suite")
     ap.add_argument("--no-upload", action="store_true", help="stage locally, do not upload")
     ap.add_argument("--dry-run", action="store_true", help="show what would be uploaded")
     ap.add_argument("--latest", action="store_true",
@@ -395,9 +599,33 @@ def main():
     print(f"building {build_id}  ({info['branch']}: {info['subject']})")
 
     files = walk_ship(ROOT)
-    total = stage(dest, files)
+    stage(dest, files)
 
-    problems = verify(dest)
+    if args.bundle:
+        code = build_code(dest, info, args.minify, args.obfuscate,
+                          args.obfuscate_level, args.keep_debug_api)
+        shrink = code["src_bytes_raw"] / max(1, code["bundle_bytes_obfuscated"]
+                                             or code["bundle_bytes"])
+        print(f"  bundled src/ ({code['src_bytes_raw'] / 1e3:.0f} kB across "
+              f"{sum(1 for f in files if f.startswith('src/'))} modules) → "
+              f"{(code['bundle_bytes_obfuscated'] or code['bundle_bytes']) / 1e3:.0f} kB "
+              f"({shrink:.1f}× smaller)"
+              + (f", obfuscated [{args.obfuscate_level}]" if args.obfuscate else "")
+              + ("" if args.keep_debug_api else ", debug API stripped"))
+        if args.keep_debug_api:
+            print("  WARNING: window.__game is in this build — it is a cheat "
+                  "console (setLevel, completeLevel, config). Do not ship it.")
+    else:
+        code = {"bundled": False, "minified": False, "obfuscated": False,
+                "obfuscate_level": None, "debug_api": True}
+        print("  NOT bundled: shipping raw ES modules, debug API intact")
+
+    # Recount after the pipeline — bundling removes 28 files from the artifact.
+    shipped = [os.path.relpath(os.path.join(dp, f), dest)
+               for dp, _, fs in os.walk(dest) for f in fs]
+    total = sum(os.path.getsize(os.path.join(dest, f)) for f in shipped)
+
+    problems = verify(dest, bundled=args.bundle)
     if problems:
         print("\nbuild verification FAILED:", file=sys.stderr)
         for p in problems:
@@ -407,19 +635,20 @@ def main():
 
     manifest = {
         **info,
+        **code,
         "build": build_id,
         "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "files": len(files),
+        "files": len(shipped),
         "bytes": total,
     }
     with open(os.path.join(dest, "build-info.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
         f.write("\n")
 
-    print(f"  staged {len(files)} files, {total / 1e6:.1f} MB → "
+    print(f"  staged {len(shipped)} files, {total / 1e6:.1f} MB → "
           f"{os.path.relpath(dest, ROOT)}/")
     print(f"  verified: entry points, asset groups, 13 language tables, "
-          f"{sum(1 for f in files if f.endswith('.json'))} JSON files parse")
+          f"{sum(1 for f in shipped if f.endswith('.json'))} JSON files parse")
 
     if args.no_upload:
         print(f"\ndone in {time.time() - started:.1f}s (not uploaded)")

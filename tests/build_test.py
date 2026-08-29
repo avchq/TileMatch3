@@ -1,26 +1,27 @@
 import importlib.util, json, os, shutil, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
 
-# THE PRODUCTION ARTIFACT MUST BOOT.
+# THE PRODUCTION ARTIFACT MUST BE MINIFIED, OBFUSCATED, STRIPPED — AND STILL BOOT.
 #
-# `tools/build.py` stages a shipping copy of the game into build/<commit>/ and
-# uploads it to S3. Nothing else in the suite looks at that copy: every other
-# test serves the repo root, so a build that quietly drops `assets/levels/` or
-# `vendor/pixi.min.js` would pass all 39 of them and fail only in production, as
-# a splash frozen at "Starting up… 0%".
+# `tools/build.py` bundles the 28 ES modules into one file, minifies it,
+# obfuscates it, drops the `window.__game` cheat console, and uploads the result
+# to S3 under the commit hash. Every other test in this suite serves the *repo
+# root* and drives the game through `__game`, so not one of them would notice if
+# the shipped bundle were broken, readable, or still carrying the debug API. This
+# test is the only thing standing between an obfuscator setting and a dead game.
 #
-# So this test builds for real, then serves *the build directory* — not the repo
-# — and boots the game out of it. What it proves:
+# It builds twice, into a temp directory so ./build is never disturbed:
 #
-#   1. the artifact is complete: entry points, all five asset groups, the 13
-#      language tables, 1000+ level files, and no dev files (tests/, tools/,
-#      .venv, READMEs) leaked into it;
-#   2. build-info.json records the commit the build is named after;
-#   3. the game actually loads and runs from the staged tree, with zero page
-#      errors — the check that catches a missing module or asset;
-#   4. the verify gate really rejects a damaged artifact instead of shipping it.
+#   A. the real production build — asserts the sources are gone, the bundle is
+#      genuinely obfuscated, `__game` and `__splash` do not exist, and the game
+#      still renders with zero page errors and zero failed requests;
+#   B. the same pipeline with --keep-debug-api — bundled, minified and obfuscated
+#      exactly as A, but with the debug API left in, so the deep assertions
+#      (state, config, language tables, a level from the far end of
+#      assets/levels/) can prove obfuscation did not change BEHAVIOUR.
 #
-# The build is staged in a temp directory, so running this never disturbs ./build.
+# Then it calls verify() directly on a damaged artifact to prove the pre-upload
+# gate rejects it rather than shipping it.
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
@@ -34,54 +35,24 @@ def check(cond, msg):
     else:
         print(f"  ok   {msg}")
 
-tmp = tempfile.mkdtemp(prefix="tm3-build-")
-try:
-    # ---- 1. build ----------------------------------------------------------
-    # --allow-dirty so the test works from a work-in-progress tree; the gate
-    # itself is asserted separately below.
+
+def build(tmp, *flags):
     r = subprocess.run([sys.executable, BUILD_PY, "--no-upload", "--allow-dirty",
-                        "--build-dir", tmp],
+                        "--build-dir", tmp, *flags],
                        capture_output=True, text=True)
-    print(r.stdout.strip())
-    check(r.returncode == 0, f"build exits 0 (got {r.returncode}: {r.stderr.strip()[:200]})")
+    if r.returncode != 0:
+        print(r.stdout)
+        print(r.stderr, file=sys.stderr)
+        raise SystemExit(f"build {flags} failed with {r.returncode}")
+    names = os.listdir(tmp)
+    assert len(names) == 1, names
+    return os.path.join(tmp, names[0]), r.stdout
 
-    builds = os.listdir(tmp)
-    check(len(builds) == 1, f"exactly one build directory (got {builds})")
-    dest = os.path.join(tmp, builds[0])
 
-    # ---- 2. named after the commit ----------------------------------------
-    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
-                          text=True).stdout.strip()
-    check(builds[0].startswith(head[:12]), f"build dir '{builds[0]}' is named after HEAD {head[:12]}")
-
-    info = json.load(open(os.path.join(dest, "build-info.json")))
-    check(info["commit"] == head, "build-info.json records the full commit hash")
-    check(info["files"] > 1000, f"build-info.json counts the files ({info['files']})")
-    check(info["bytes"] > 1_000_000, f"build-info.json records the size ({info['bytes']} B)")
-
-    # ---- 3. complete, and nothing extra ------------------------------------
-    for required in ("index.html", "src/main.js", "src/config.js", "src/game.js",
-                     "src/i18n.js", "vendor/pixi.min.js"):
-        check(os.path.isfile(os.path.join(dest, required)), f"ships {required}")
-
-    for group, least in (("assets/audio", 10), ("assets/bg", 1), ("assets/config", 6),
-                         ("assets/lang", 13), ("assets/levels", 1000)):
-        n = len(os.listdir(os.path.join(dest, group))) if os.path.isdir(os.path.join(dest, group)) else 0
-        check(n >= least, f"ships {group} ({n} files, need >= {least})")
-
-    leaked = []
-    for dirpath, dirnames, filenames in os.walk(dest):
-        dirnames[:] = [d for d in dirnames]
-        for name in dirnames + filenames:
-            if name in ("tests", "tools", ".venv", ".git", ".claude", "CLAUDE.md",
-                        "README.md", "__pycache__") or name.endswith(".py"):
-                leaked.append(os.path.relpath(os.path.join(dirpath, name), dest))
-    check(not leaked, f"no dev files in the artifact (leaked: {leaked[:5]})")
-
-    # ---- 4. the artifact boots ---------------------------------------------
-    # Serve the BUILD, not the repo, on the suite's usual port.
-    srv = subprocess.Popen([sys.executable, "-m", "http.server", "8099"],
-                           cwd=dest, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def boot(dest, then):
+    """Serve THE BUILD (not the repo) on 8099 and run `then(page)` against it."""
+    srv = subprocess.Popen([sys.executable, "-m", "http.server", "8099"], cwd=dest,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1.5)
     try:
         with sync_playwright() as p:
@@ -89,50 +60,140 @@ try:
                 "--use-gl=angle", "--use-angle=swiftshader",
                 "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"])
             page = browser.new_page(viewport={"width": 750, "height": 1334})
-            errors, failed_requests = [], []
+            errors, failed = [], []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.on("requestfailed", lambda r: failed_requests.append(r.url))
+            page.on("requestfailed", lambda r: failed.append(r.url))
             page.goto("http://localhost:8099/index.html")
-            page.wait_for_function("window.__game !== undefined", timeout=30000)
-            page.wait_for_timeout(1500)
-
-            state = page.evaluate("() => window.__game.state()")
-            lang = page.evaluate("() => window.__game.language()")
-            cfg = page.evaluate("() => !!window.__game.config()")
-            missing = page.evaluate("() => window.__game.missingKeys()")
-            page.screenshot(path=os.path.join(ROOT, "tests", "output", "build_boot.png"))
-
-            print(f"  built artifact booted: {state}, language={lang}")
-            check(not errors, f"no page errors booting the build ({errors[:2]})")
-            check(not failed_requests, f"no failed requests ({failed_requests[:3]})")
-            check(cfg, "src/config.js loaded in the built artifact")
-            check(not missing, f"no missing language keys in the build ({missing[:5]})")
-
-            # The level tree really came along. `setLevel` clamps to maxLevel
-            # (the 20 entries in assets/config/levels.json), so asking the game
-            # for level 1000 proves nothing — fetch the file from the served
-            # build instead, which is exactly what a browser would do.
-            deep = page.evaluate("""async () => {
-              const r = await fetch('assets/levels/level1000.json');
-              return { ok: r.ok, status: r.status,
-                       tiles: r.ok ? JSON.stringify(await r.json()).length : 0 };
-            }""")
-            check(deep["ok"] and deep["tiles"] > 100,
-                  f"a level from deep in assets/levels/ is served by the build ({deep})")
-
-            last = page.evaluate("() => { window.__game.setLevel(999); return window.__game.currentLevel(); }")
-            check(last == 20, f"setLevel clamps to the 20 levels in levels.json (got {last})")
+            then(page, errors, failed)
             browser.close()
     finally:
         srv.terminate()
         srv.wait()
 
-    # ---- 5. the verify gate actually rejects a damaged artifact ------------
+
+tmp_a = tempfile.mkdtemp(prefix="tm3-prod-")
+tmp_b = tempfile.mkdtemp(prefix="tm3-debug-")
+try:
+    # ======== A. the real production build ==================================
+    dest, out = build(tmp_a)
+    print(out.strip())
+
+    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
+                          text=True).stdout.strip()
+    check(os.path.basename(dest).startswith(head[:12]),
+          f"build dir '{os.path.basename(dest)}' is named after HEAD {head[:12]}")
+
+    info = json.load(open(os.path.join(dest, "build-info.json")))
+    check(info["commit"] == head, "build-info.json records the full commit hash")
+    check(info["bundled"] and info["minified"] and info["obfuscated"],
+          f"build-info.json records the pipeline ({info['bundled']}/{info['minified']}/{info['obfuscated']})")
+    check(info["debug_api"] is False, "build-info.json records that the debug API was stripped")
+
+    # ---- the sources are gone, one bundle remains --------------------------
+    src_files = sorted(os.listdir(os.path.join(dest, "src")))
+    check(src_files == ["main.js"],
+          f"src/ is one bundle, not 28 readable modules (got {src_files})")
+    check(not os.path.isdir(os.path.join(dest, "src", "user")),
+          "src/user/ is bundled away, not shipped")
+
+    bundle = open(os.path.join(dest, "src", "main.js"), encoding="utf-8").read()
+    check('from "./' not in bundle and "from'./" not in bundle,
+          "the bundle has no relative imports left")
+
+    # ---- it is actually obfuscated, not merely minified --------------------
+    # Exported class names and debug-API method names are unmissable in the
+    # source and must not survive. Note these are all *identifiers*: lowercase
+    # module names like "dailybonus" are deliberately NOT asserted, because they
+    # also occur inside asset URLs ("assets/config/dailybonus.json") which have
+    # to survive in some decodable form for the game to fetch anything.
+    for token in ("__game", "__splash", "solveTap", "clearSoundLog",
+                  "FortuneWheelScene", "LobbyScene", "DailyBonusScene",
+                  "TasksScene", "LanguagePickerScene"):
+        check(token not in bundle, f"'{token}' does not appear in the shipped bundle")
+    check("_0x" in bundle or "a0_" in bundle or bundle.count("0x") > 200,
+          "the bundle carries obfuscator-style identifiers/literals")
+
+    for required in ("index.html", "src/main.js", "vendor/pixi.min.js"):
+        check(os.path.isfile(os.path.join(dest, required)), f"ships {required}")
+
+    # ---- assets ship verbatim: they are the game's content -----------------
+    for group, least in (("assets/audio", 10), ("assets/bg", 1), ("assets/config", 6),
+                         ("assets/lang", 13), ("assets/levels", 1000)):
+        n = len(os.listdir(os.path.join(dest, group))) if os.path.isdir(os.path.join(dest, group)) else 0
+        check(n >= least, f"ships {group} ({n} files, need >= {least})")
+
+    leaked = []
+    for dirpath, dirnames, filenames in os.walk(dest):
+        for name in dirnames + filenames:
+            if name in ("tests", "tools", ".venv", ".git", ".claude", "CLAUDE.md",
+                        "README.md", "node_modules", "__pycache__") or name.endswith(".py"):
+                leaked.append(os.path.relpath(os.path.join(dirpath, name), dest))
+    check(not leaked, f"no dev files in the artifact (leaked: {leaked[:5]})")
+
+    # ---- and it still runs -------------------------------------------------
+    def check_prod(page, errors, failed):
+        page.wait_for_timeout(6000)
+        seen = page.evaluate("""() => {
+          const c = document.querySelector('canvas');
+          const s = document.getElementById('splash');
+          return { canvas: !!c, w: c ? c.width : 0, h: c ? c.height : 0,
+                   splashHidden: !s || getComputedStyle(s).display === 'none',
+                   game: typeof window.__game, splash: typeof window.__splash,
+                   pixi: typeof window.PIXI };
+        }""")
+        page.screenshot(path=os.path.join(ROOT, "tests", "output", "build_production.png"))
+        print(f"  production build booted: {seen}")
+        check(not errors, f"no page errors booting the production build ({errors[:2]})")
+        check(not failed, f"no failed requests ({failed[:3]})")
+        check(seen["canvas"] and seen["w"] == 750, "the game canvas is up at design width")
+        check(seen["splashHidden"], "the splash handed over — boot() completed")
+        check(seen["game"] == "undefined",
+              "window.__game is NOT in the production build (it is a cheat console)")
+        check(seen["splash"] == "undefined", "window.__splash is NOT in the production build")
+    boot(dest, check_prod)
+
+    # ======== B. same pipeline, debug API kept: prove behaviour survived =====
+    dest_b, _ = build(tmp_b, "--keep-debug-api")
+    info_b = json.load(open(os.path.join(dest_b, "build-info.json")))
+    check(info_b["obfuscated"] and info_b["debug_api"] is True,
+          "the staging build is obfuscated but keeps the debug API")
+
+    def check_debug(page, errors, failed):
+        page.wait_for_function("window.__game !== undefined", timeout=30000)
+        page.wait_for_timeout(1500)
+        state = page.evaluate("() => window.__game.state()")
+        lang = page.evaluate("() => window.__game.language()")
+        cfg = page.evaluate("() => window.__game.config()")
+        missing = page.evaluate("() => window.__game.missingKeys()")
+        deep = page.evaluate("""async () => {
+          const r = await fetch('assets/levels/level1000.json');
+          return { ok: r.ok, size: r.ok ? JSON.stringify(await r.json()).length : 0 };
+        }""")
+        page.screenshot(path=os.path.join(ROOT, "tests", "output", "build_staging.png"))
+        print(f"  obfuscated build behaves: {state}, language={lang}")
+        check(not errors, f"no page errors in the obfuscated build ({errors[:2]})")
+        check(state["level"] == 1 and state["boardCount"] > 0,
+              f"a real level is built after obfuscation ({state})")
+        check(lang == "en", f"localization still resolves after obfuscation (got {lang})")
+        check(isinstance(cfg, dict) and "board" in cfg,
+              "src/config.js survived bundling and is readable through the API")
+        check(not missing, f"no missing language keys in the obfuscated build ({missing[:5]})")
+        check(deep["ok"] and deep["size"] > 100,
+              f"a level from deep in assets/levels/ is served ({deep})")
+    boot(dest_b, check_debug)
+
+    # ======== the pre-upload gate ===========================================
     spec = importlib.util.spec_from_file_location("gamebuild", BUILD_PY)
     gamebuild = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gamebuild)
 
     check(not gamebuild.verify(dest), "verify() passes a good artifact")
+
+    shutil.copy(os.path.join(ROOT, "src", "config.js"),
+                os.path.join(dest, "src", "config.js"))
+    check(any("unbundled" in p for p in gamebuild.verify(dest)),
+          "verify() rejects an artifact with unbundled sources left in it")
+    os.remove(os.path.join(dest, "src", "config.js"))
 
     os.remove(os.path.join(dest, "vendor", "pixi.min.js"))
     check(any("pixi" in p for p in gamebuild.verify(dest)),
@@ -147,16 +208,31 @@ try:
     check(any("malformed JSON" in p for p in gamebuild.verify(dest)),
           "verify() rejects a build containing malformed JSON")
 
-    # ---- 6. content types are set for the files a browser is strict about --
+    # ======== upload metadata a browser is strict about =====================
     check(gamebuild.content_type("src/main.js").startswith("text/javascript"),
-          "ES modules upload as text/javascript (a browser refuses anything else)")
+          "the bundle uploads as text/javascript (a browser refuses anything else)")
     check(gamebuild.content_type("a.json").startswith("application/json"), "JSON content type")
     check(gamebuild.content_type("a.mp3") == "audio/mpeg", "mp3 content type")
     check(gamebuild.CACHE_IMMUTABLE.startswith("public, max-age=31536000"),
           "commit-addressed objects are cached immutably")
 
+    # The obfuscator seed is derived from the commit, so a rebuild of the same
+    # commit is byte-identical — which is what keeps the S3 ETag skip working.
+    tmp_c = tempfile.mkdtemp(prefix="tm3-repeat-")
+    try:
+        dest_c, _ = build(tmp_c)
+        a = open(os.path.join(tmp_a, os.listdir(tmp_a)[0], "src", "main.js"), "rb").read() \
+            if False else None
+        rebuilt = open(os.path.join(dest_c, "src", "main.js"), "rb").read()
+        check(len(rebuilt) == len(bundle.encode("utf-8")) and
+              rebuilt == bundle.encode("utf-8"),
+              "rebuilding the same commit produces a byte-identical bundle")
+    finally:
+        shutil.rmtree(tmp_c, ignore_errors=True)
+
 finally:
-    shutil.rmtree(tmp, ignore_errors=True)
+    shutil.rmtree(tmp_a, ignore_errors=True)
+    shutil.rmtree(tmp_b, ignore_errors=True)
 
 if failures:
     print(f"\nBUILD TEST FAILED — {len(failures)} check(s):")

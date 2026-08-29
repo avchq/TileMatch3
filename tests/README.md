@@ -555,17 +555,29 @@ Only `howtoplay_test.py` leaves it open.
 
 ### Production build
 
-- **`build_test.py`** — the artifact `tools/build.py` stages must be complete and
-  must boot. Builds into a temp directory (never disturbing `./build`), then
-  asserts the directory is named after `HEAD` and `build-info.json` records the
-  full commit; that every entry point, all five asset groups, the 13 language
-  tables and the 1000 level files shipped, and that no dev file (`tests/`,
-  `tools/`, `.venv/`, the READMEs, any `.py`) leaked in. It then serves **the
-  build** on 8099 and boots the game out of it — zero page errors, zero failed
-  requests, no missing language keys, and a level from deep in `assets/levels/`
-  actually served — which is the check no other test can make, since every other
-  test serves the repo root. Finally it exercises the pre-upload gate directly:
-  `verify()` must reject a build missing `vendor/pixi.min.js`, one with no
-  levels, and one containing malformed JSON; and the Content-Type map must send
-  ES modules as `text/javascript`, since a browser refuses to execute anything
-  else.
+- **`build_test.py`** — the artifact `tools/build.py` produces must be bundled,
+  minified, obfuscated, stripped of the debug API, and still boot. No other test
+  can catch a broken one: they all serve the **repo root** and drive the game
+  through `window.__game`, so none of them would notice if the shipped bundle
+  were dead, readable, or still carrying the cheat console. Builds twice into a
+  temp directory (never disturbing `./build`): **(A)** the real production build
+  — asserts `src/` is one bundle rather than 28 readable modules, that exported
+  class names and debug-API method names (`FortuneWheelScene`, `solveTap`,
+  `__game`, `__splash`, …) are absent from it, that all five asset groups and the
+  1000 level files shipped, that no dev file leaked in, and then serves **the
+  build** and boots it: canvas up at design width, splash handed over, zero page
+  errors, zero failed requests, and `window.__game`/`window.__splash` genuinely
+  `undefined`. **(B)** the same pipeline with `--keep-debug-api`, so the deep
+  assertions (level built, config readable, language keys resolved, a level from
+  the far end of `assets/levels/` served) can prove obfuscation did not change
+  *behaviour*. It then calls `verify()` directly to prove the pre-upload gate
+  rejects a damaged artifact — unbundled sources left behind, missing
+  `vendor/pixi.min.js`, no levels, malformed JSON — checks the Content-Type map
+  sends the bundle as `text/javascript` (a browser refuses anything else), and
+  rebuilds the same commit to confirm the output is byte-identical, which is what
+  keeps the S3 ETag skip honest.
+
+  Note the lowercase module names (`dailybonus`, …) are deliberately *not*
+  asserted absent: they also occur inside asset URLs like
+  `assets/config/dailybonus.json`, which must survive for the game to fetch
+  anything.

@@ -272,3 +272,7 @@ tools/.deob-cache/
 
 # Production build artifacts (tools/build.py) — one directory per commit hash
 /build/
+
+# Build-only toolchain (tools/package.json), installed by npm --prefix tools install
+tools/node_modules/
+tools/package-lock.json
