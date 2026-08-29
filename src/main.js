@@ -544,7 +544,7 @@ async function boot() {
     closeTutorial: () => { if (scene._tutorial) scene._tutorial.close(); },
     // The "tutorial done" marker the popup writes on close. Nothing in the game
     // reads it back (the popup is gated on the level number) — only this test hook.
-    tutorialMarker: () => localStorage.getItem("tilemaster.tutorialDone"),
+    tutorialMarker: () => localStorage.getItem("tm3.tutorialDone"),
     // The guidance hand: which tile it points at, if it's up at all.
     handState: () => (scene._hand
       ? { visible: true, tileId: scene._hand.__tileId, x: scene._hand.x, y: scene._hand.y }

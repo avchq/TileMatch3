@@ -439,7 +439,7 @@ try:
         # An existing profile predating the feature: its level history is derived
         # into the lifetime counter (nothing else could be), and the week baseline
         # matches it so the WEEKLY list still starts from zero.
-        uid = page.evaluate("() => localStorage.getItem('tilemaster.uid')")
+        uid = page.evaluate("() => localStorage.getItem('tm3.uid')")
         v6 = {
             "version": 6, "id": uid, "platform": "web", "name": "",
             "progress": {"level": 8, "completed": 7},
@@ -453,7 +453,7 @@ try:
         }
         page.evaluate(
             "([k, v]) => localStorage.setItem(k, v)",
-            [f"tilemaster.user:{uid}", json.dumps(v6)])
+            [f"tm3.user:{uid}", json.dumps(v6)])
         page.reload()
         page.wait_for_function("window.__game && !!window.__game.tasksState", timeout=20000)
         time.sleep(0.6)

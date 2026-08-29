@@ -1,6 +1,6 @@
 // Level parsing + guaranteed-solvable tile-type assignment.
 //
-// Level format (decrypted from the Cocos XXTEA blobs): an array of layer
+// Level format (decrypted from the original XXTEA blobs): an array of layer
 // strings, bottom layer first. Each layer is "x|y,x|y,..." where x,y are
 // grid coordinates (in tile units; adjacent layers are offset by 0.5 so an
 // upper tile straddles up to four lower ones).

@@ -128,7 +128,7 @@ try:
             v, ctrls = check(page, f"{tag} lobby", {"lobby"})
             DW, DH = v["designW"], v["designH"]
             # Corner chrome stays anchored to the top edge (centred in the 750 band,
-            # per the Cocos SHOW_ALL spec) — the cog must sit near the top.
+            # per the SHOW_ALL spec) — the cog must sit near the top.
             cog = by_name(ctrls, "lobby", "cog")
             assert cog and cog["y"] < 160, ("lobby cog not near top", tag, cog)
             # The play button is the bottom-anchored call to action: it must hug the

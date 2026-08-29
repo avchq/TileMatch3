@@ -68,7 +68,7 @@ line per test.
   a tap does **not** close it mid fade-in but does once `introDone`, `OK` is the
   only button (no skip), and the looping demonstration really runs (three tiles
   reach its mini tray and a triple leaves its mini board). Pressing **OK** closes
-  it, writes the `tilemaster.tutorialDone` marker (outside the save record) and
+  it, writes the `tm3.tutorialDone` marker (outside the save record) and
   hands over to the guided opening. It re-centres on a resize, never opens outside
   level 1, opens **again** for a returning player re-entering level 1 (nothing reads
   the marker back), and does not survive leaving the level. Drives it via

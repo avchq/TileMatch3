@@ -1,8 +1,8 @@
 // Fortune Wheel — a daily prize wheel shown as an overlay on top of the lobby,
 // entered from the lobby's wheel button. Modeled on ShopScene (full-screen dim +
 // centred panel + easeOutBack entrance pop + layout(DW,DH) reflow) and, like the
-// other overlays, hidden by default. It folds together what the Cocos original
-// splits across a manager and a view: the per-cycle logic (day rollover, group
+// other overlays, hidden by default. It folds together what the original
+// split across a manager and a view: the per-cycle logic (day rollover, group
 // rotation, weighted prize pick) and the presentation (the spinning wheel, the
 // pointer, the marquee lamps, the prize fly-to-counter).
 //
@@ -103,7 +103,7 @@ export class FortuneWheelScene extends PIXI.Container {
 
   /** Advance to a fresh daily cycle if the calendar day changed since the stored
    *  one. Gated on the feature being unlocked so a locked, low-level player's
-   *  state isn't cycled early (mirrors the Cocos isOpen()/initLuckWheelData gate).
+   *  state isn't cycled early (mirrors the isOpen()/initLuckWheelData gate).
    *  Also handles the very first cycle (stored day "" -> group 0 becomes 1). */
   checkRollover() {
     if (this.user.progress.level < this.unlockLevel) return;
@@ -512,7 +512,7 @@ export class FortuneWheelScene extends PIXI.Container {
     if (!this.canSpin()) { await delay(this.app.ticker, 280); this._back(); }
   }
 
-  /** Report a spin to analytics. Stub — TODO(SDK): Cocos reports 'CK_Spin_Get'
+  /** Report a spin to analytics. Stub — TODO(SDK): report 'CK_Spin_Get'
    *  with the 1-based spin number and the reward. */
   _reportSpin(spinNumber, prize) {
     try { console.debug(`[fortunewheel] spin #${spinNumber}: ${prize.type} x${prize.amount}`); } catch (_) {}

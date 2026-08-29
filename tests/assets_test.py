@@ -26,7 +26,7 @@ try:
         # clear the counter and reload — otherwise its in-flight fetches leak
         # past reqs.clear() and get counted against the reload, inflating counts.
         page.wait_for_function("window.__game && window.__game.soundNames().length >= 7", timeout=20000)
-        page.evaluate("localStorage.removeItem('tilemaster.level')")
+        page.evaluate("localStorage.removeItem('tm3.level')")
         reqs.clear()
         page.reload()
         page.wait_for_function("window.__game && window.__game.soundNames().length >= 7", timeout=20000)

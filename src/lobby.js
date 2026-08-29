@@ -1,7 +1,7 @@
 // Lobby / home screen — shown on load and after each completed level.
 // Displays the game title and a big centred "Level <n>" button that starts the
 // next level the player is on. Styled to match the in-game chrome (rounded
-// buttons, same palette + backgrounds) in the spirit of the original Cocos game.
+// buttons, same palette + backgrounds) in the spirit of the original game.
 
 import { tween, easeOutBack } from "./tween.js";
 import { makeCogButton } from "./settings.js";

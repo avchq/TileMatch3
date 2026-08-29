@@ -17,8 +17,8 @@
 // each documents the exact SDK calls to swap in (// TODO(SDK):) once we integrate
 // each platform for real. Nothing outside this file needs to change at that point.
 
-const UID_KEY = "tilemaster.uid";     // stable local identifier for this browser
-const USER_KEY = "tilemaster.user";   // saved profile blob (namespaced by id)
+const UID_KEY = "tm3.uid";     // stable local identifier for this browser
+const USER_KEY = "tm3.user";   // saved profile blob (namespaced by id)
 
 function newId() {
   try {

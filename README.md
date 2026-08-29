@@ -1,8 +1,8 @@
-# Tile Match 3 — Pixi.js Port
+# Tile Match 3 — Pixi.js
 
-A JavaScript/[Pixi.js](https://pixijs.com) port of the Cocos Creator game in
-`../cocos` ("Tile Match 3"), a stacked-tile match-3 game. The playable levels are
-declared in the JSON config `assets/config/levels.json` (currently **13**).
+**Tile Match 3** is a JavaScript/[Pixi.js](https://pixijs.com) stacked-tile
+match-3 game. The playable levels are declared in the JSON config
+`assets/config/levels.json` (currently **13**).
 
 ## Gameplay
 The first thing on screen is the **splash screen** — the game title over a
@@ -519,16 +519,16 @@ python3 -m http.server 8099
 ```
 
 ## How it maps to the original
-- **Levels** (`assets/levels/level{1,2,3}.json`) are the *decrypted* Cocos
-  level blobs (XXTEA, via `../cocos/tools/level_crypto.py`). Each is an array of
+- **Levels** (`assets/levels/level{1,2,3}.json`) are the *decrypted* original
+  level blobs (XXTEA, decrypted offline). Each is an array of
   layer strings of `x|y` grid positions — bottom layer first, upper layers
   offset by 0.5 so a tile straddles up to four below it.
 - **Backgrounds** (`assets/bg/*.jpg`) and **audio** (`assets/audio/*.mp3`) are
-  the original Cocos native assets, copied and renamed — except the Fortune
+  the original native assets, copied and renamed — except the Fortune
   Wheel's spin clicks (`wheel-spin-click-slow-down-fast-101154.mp3`), which are
   an added stock sound the original had no equivalent of.
 - **Tile faces** are regenerated at runtime (`src/icons.js`) as emoji on white
-  tiles — the original per-theme icon atlas was not among the downloaded Cocos
+  tiles — the original per-theme icon atlas was not among the downloaded
   native files, so an equivalent 20-icon food set is drawn instead.
 
 ## Design notes
@@ -639,7 +639,7 @@ python3 -m http.server 8099
   **destroyed** between any two of them (leaving the level takes it with it) without
   the token changing. Every resume point therefore goes through `_stale(run)`, which
   checks `destroyed`/`closing` as well as the token; without it, a `_demoPick`
-  resuming after a destroy called `addChild` on a dead container and threw. `close()` writes the `tilemaster.tutorialDone` marker (nothing
+  resuming after a destroy called `addChild` on a dead container and threw. `close()` writes the `tm3.tutorialDone` marker (nothing
   reads it back), calls its `onClose` **immediately** — which unlocks the scene and
   fires `_runFirstRunGuide()` when `_firstRun`, so the demo moves follow the
   explanation — and fades itself out. `_closeTutorial()` tears it down *without*
@@ -776,7 +776,7 @@ python3 -m http.server 8099
 - `src/fortunewheel.js` is the `FortuneWheelScene` — the daily prize-wheel overlay
   (modeled on `ShopScene`: full-screen dim + centred panel + `easeOutBack` pop +
   `layout` reflow), opened from the lobby's wheel button. It folds together the
-  per-cycle **logic** and the **presentation** the Cocos original split across a
+  per-cycle **logic** and the **presentation** the original split across a
   manager and a view. Persisted state lives on the User model (`user.fortuneWheel`:
   `group` / `day` / `spinsUsed` / `won` / `seen`); `checkRollover()` compares the
   stored day-key to today and calls `user.advanceWheelCycle()` (advance group + wrap
@@ -866,7 +866,7 @@ python3 -m http.server 8099
   deliberately **outside** the Pixi stage: not a `root` child, no `layout()` call,
   and absent from `window.__game.controls()`.
 - **Responsive layout** — the game is a **fixed-width 750-unit vertical column**
-  that is centred on any screen and never stretched sideways (matching the Cocos
+  that is centred on any screen and never stretched sideways (matching the
   original). `main.js`'s `resize()` sizes the renderer to the whole viewport and
   uniformly scales the stage by `min(vw/750, vh/1334)` — so the game column always
   maps its 750-wide design onto the screen without distortion — then hands each

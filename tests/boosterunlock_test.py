@@ -114,8 +114,8 @@ try:
         # 7) Migration: an existing (v4) save keeps the stock it was given up front
         #    and is NOT handed a second grant, while anything still locked is zeroed.
         page.evaluate("""() => {
-            const uid = localStorage.getItem('tilemaster.uid');
-            localStorage.setItem('tilemaster.user:' + uid, JSON.stringify({
+            const uid = localStorage.getItem('tm3.uid');
+            localStorage.setItem('tm3.user:' + uid, JSON.stringify({
                 version: 4, id: uid, platform: 'web', name: '',
                 progress: { level: 4, completed: 3 },
                 wallet: { coins: 10, gems: 0 },

@@ -33,7 +33,7 @@ const DEMO_TYPES = [
 // Written on close. A leftover from the original design: nothing in this build
 // ever reads it back — the popup is gated on the level number alone. Kept for
 // parity, and deliberately separate from the player's save record.
-const TUTORIAL_MARKER_KEY = "tilemaster.tutorialDone";
+const TUTORIAL_MARKER_KEY = "tm3.tutorialDone";
 
 export class HowToPlayPopup extends PIXI.Container {
   constructor(app, tileTextures, slotTexture, audio, onClose) {

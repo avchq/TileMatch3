@@ -20,7 +20,7 @@ try:
         page.on("pageerror", lambda e: errors.append("PAGEERROR: " + str(e)))
 
         page.goto("http://localhost:8099/index.html")
-        page.evaluate("localStorage.removeItem('tilemaster.level')")
+        page.evaluate("localStorage.removeItem('tm3.level')")
         page.reload()
         page.wait_for_function("window.__game && window.__game.loadedGroups().length >= 4", timeout=20000)
         time.sleep(0.5)
