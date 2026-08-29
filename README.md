@@ -799,6 +799,72 @@ A boot that dies that way now says so: an inline handler in `index.html` catches
 errors the module graph throws before `boot()` exists and paints them into the
 splash's error state, instead of leaving a frozen bar.
 
+## Deploying — `tools/build.py`
+There is no bundler: `index.html` loads plain ES modules. So a *build* here is a
+staged, versioned, verified copy of exactly the files that ship, and the **build
+number is the commit hash it was built from**:
+
+```
+build/<commit>/index.html
+build/<commit>/src/…
+build/<commit>/vendor/pixi.min.js
+build/<commit>/assets/…          audio, bg, config, lang, all 1000 level files
+build/<commit>/build-info.json   commit, branch, subject, timestamp, file count, size
+```
+
+Nothing else in the repo goes in — no `tests/`, `tools/`, `.venv/`, READMEs.
+
+```bash
+python3 tools/build.py --no-upload                   # stage locally only
+python3 tools/build.py --bucket my-bucket            # stage, verify and upload
+python3 tools/build.py --bucket my-bucket --dry-run  # show the upload plan
+python3 tools/build.py --bucket my-bucket --prefix game --latest
+```
+
+`build/` is gitignored. Uploading needs `boto3` (`.venv/bin/python -m pip install
+boto3`) and credentials from the usual chain — env vars, `~/.aws/credentials`, an
+instance role, or `--profile`. The bucket and prefix can also come from
+`GAME_S3_BUCKET` / `GAME_S3_PREFIX`.
+
+### Why the commit hash is the directory
+Every deploy is immutable and addressable: `…/<commit>/index.html` can only ever
+mean one tree, two releases can sit side by side, and a rollback is a pointer
+change rather than a re-upload. It also makes the stale-module-graph failure
+described above *impossible in production* — a given URL's bytes never change, so
+a browser can never hold a fresh `i18n.js` against a cached `config.js`.
+
+That is what lets the uploader cache aggressively: everything under the commit
+prefix goes up as `public, max-age=31536000, immutable`, and only `index.html`
+and `build-info.json` are sent `no-cache, must-revalidate` so a re-upload of the
+same commit is still picked up.
+
+### What the script does that S3 will not do for you
+- **Content-Type per extension.** S3 guesses nothing; an object uploaded without
+  one is stored as `binary/octet-stream`, and a browser *refuses to execute an ES
+  module* that is not served as JavaScript. Every extension is mapped explicitly.
+- **Skips unchanged bytes.** A build is 1065 objects. Any whose ETag already
+  matches the local MD5 is left alone, so re-deploying a commit costs a few
+  hundred HEADs instead of 6 MB. `--force` overrides.
+- **Uploads in parallel** (`-j`, default 16) — 1000 of those files are tiny level
+  JSONs.
+
+### The gate before anything is uploaded
+The staged tree is verified first, and a failure **deletes the artifact and
+uploads nothing**:
+
+- `index.html`, `src/main.js`, `src/config.js` and `vendor/pixi.min.js` exist;
+- every local path `index.html` references is present in the build;
+- all five asset groups are present and non-empty;
+- the 13 language tables are all there and at full key parity with `en.json`;
+- all 1019 JSON files parse.
+
+A **dirty working tree is refused** — a build named after a commit must contain
+that commit. `--allow-dirty` overrides and tags the build `<commit>-dirty`, which
+is deliberately not reproducible.
+
+`tests/build_test.py` covers all of this, and boots the game out of the staged
+build to prove the artifact really runs.
+
 ## How it maps to the original
 - **Levels** (`assets/levels/level{1,2,3}.json`) are the *decrypted* original
   level blobs (XXTEA, decrypted offline). Each is an array of

@@ -269,3 +269,6 @@ __pycache__/
 tools/.deob-cache/
 
 .claude
+
+# Production build artifacts (tools/build.py) — one directory per commit hash
+/build/

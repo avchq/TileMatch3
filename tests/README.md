@@ -552,3 +552,20 @@ Only `howtoplay_test.py` leaves it open.
   (not created synchronously) and begins once the context resumes.
 - **`visibility_test.py`** — hiding the tab suspends audio and returning resumes
   it, without altering the user's music/sound settings.
+
+### Production build
+
+- **`build_test.py`** — the artifact `tools/build.py` stages must be complete and
+  must boot. Builds into a temp directory (never disturbing `./build`), then
+  asserts the directory is named after `HEAD` and `build-info.json` records the
+  full commit; that every entry point, all five asset groups, the 13 language
+  tables and the 1000 level files shipped, and that no dev file (`tests/`,
+  `tools/`, `.venv/`, the READMEs, any `.py`) leaked in. It then serves **the
+  build** on 8099 and boots the game out of it — zero page errors, zero failed
+  requests, no missing language keys, and a level from deep in `assets/levels/`
+  actually served — which is the check no other test can make, since every other
+  test serves the repo root. Finally it exercises the pre-upload gate directly:
+  `verify()` must reject a build missing `vendor/pixi.min.js`, one with no
+  levels, and one containing malformed JSON; and the Content-Type map must send
+  ES modules as `text/javascript`, since a browser refuses to execute anything
+  else.
