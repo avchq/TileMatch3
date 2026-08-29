@@ -39,13 +39,13 @@ try:
 
         sounds = page.evaluate("window.__game.soundNames()")
         print("decoded sounds:", sounds)
-        assert len(sounds) == 7, f"expected 7 decoded sounds, got {sounds}"
+        assert len(sounds) == 8, f"expected 8 decoded sounds, got {sounds}"
 
         # every audio file fetched exactly once during preload
         audio_loads = {u: c for u, c in reqs.items() if u.startswith("assets/audio/")}
         print("audio fetches during preload:", audio_loads)
         assert all(c == 1 for c in audio_loads.values()), "audio should be fetched once"
-        assert len(audio_loads) == 7, "all 7 audio files preloaded"
+        assert len(audio_loads) == 8, "all 8 audio files preloaded"
 
         # NOW the key test: play each sound 20 times; expect ZERO new network reqs
         reqs.clear()

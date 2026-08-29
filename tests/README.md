@@ -365,6 +365,29 @@ Only `howtoplay_test.py` leaves it open.
   a *refused* claim never sets it, so the double-claim and drag cases fall straight
   through instead of hanging.
 
+### Level Chest
+
+- **`levelchest_test.py`** — the recurring level-complete reward (`src/levelchest.js`
+  + the win-overlay bar in `src/game.js`). Covers the **schedule maths**
+  (`chestInfo`): the 50-milestone table's labels, `needed` counts, `full` flags and
+  rewards across the whole hand-tuned schedule (4/8/12-win chests → the steady
+  16-win rhythm) and into its **looping tail** past level 752 — the correct 16-win
+  cadence and the wrapped milestone's reward — plus the reward **vocabulary**
+  (`0`=coins, `10`=undo, `11`=wand[Hint], `12`=shuffle, `20`=lightning→coins). It
+  asserts the **corrected label never goes negative** anywhere (this port
+  deliberately fixes the original's negative-progress wrap bug). Then the
+  **win-overlay behaviour**: a genuinely new clear shows the bar; a **milestone**
+  clear opens the chest and pays out (with the **double-it** ad path doubling the
+  amount into the coin pill); a new **non-milestone** clear shows a partial bar and
+  does not open; a **replay** of an already-cleared level shows no chest at all.
+  It also covers the **persistent lobby bar**: hidden for a brand-new player, showing
+  and updating **live** as levels are cleared, **rolling a just-opened milestone
+  chest forward** to the next one at `0 / N` (`currentFor`), and rendering as a listed
+  visible control on the lobby. Because chest progress is **derived** from the highest
+  level cleared (nothing stored), it drives the state with `completeLevel` jumps. Uses
+  the `window.__game` chest hooks (`chestInfo`, `chestCount`, `chestState`,
+  `lobbyChestState`, `pressChestDouble`, `pressChestClaim`, `setChestAdResult`).
+
 ### Key parameters
 
 - **`config_test.py`** — the central tuning config (`src/config.js`, exposed as
@@ -423,7 +446,7 @@ Only `howtoplay_test.py` leaves it open.
   canvas click on the lobby cog reaches the game. Aborting
   `assets/config/levels.json` leaves the splash up in its **error** state with the
   message shown, rather than fading onto a blank canvas.
-- **`assets_test.py`** — the preload fetches and decodes all 7 audio files exactly
+- **`assets_test.py`** — the preload fetches and decodes all 8 audio files exactly
   once, and starting play triggers no asset re-fetch.
 - **`tiles_render_test.py`** — the runtime-drawn **tile faces** carry their fruit.
   Regression guard for the iOS "white tiles, no fruit" bug: on iOS/WebKit

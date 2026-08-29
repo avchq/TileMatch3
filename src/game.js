@@ -6,6 +6,7 @@ import { typesForLevel } from "./levelConfig.js";
 import { buildColumnBackground, makeHintPill } from "./layout.js";
 import { HowToPlayPopup } from "./tutorial.js";
 import { BoosterCoach } from "./boostercoach.js";
+import { rewardIsCoins } from "./levelchest.js";
 import { CONFIG } from "./config.js";
 
 const DESIGN_W = 750;
@@ -44,8 +45,13 @@ const slotMaxFor = (n) =>
 const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1140;
 
+// Level Chest reward glyphs + words. Coins/lightning draw a gold coin instead of
+// an emoji (see makeCoinIcon), matching how the wheel and daily gift show them.
+const CHEST_REWARD_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀", lightning: "⚡" };
+const CHEST_REWARD_WORD = { coins: "Coins", undo: "Undo", wand: "Wand", shuffle: "Shuffle", lightning: "Coins" };
+
 export class GameScene extends PIXI.Container {
-  constructor(app, tileTextures, slotTexture, backgrounds, audio, user, prices) {
+  constructor(app, tileTextures, slotTexture, backgrounds, audio, user, prices, levelChest) {
     super();
     this.app = app;
     this.tileTextures = tileTextures;
@@ -53,6 +59,10 @@ export class GameScene extends PIXI.Container {
     this.backgrounds = backgrounds; // { 1: tex, 2: tex, 3: tex }
     this.audio = audio;
     this.user = user; // player profile — the helper (booster) inventory lives here
+    // The Level Chest schedule (src/levelchest.js) — pure feature LOGIC. The bar,
+    // open animation and reward popup on the win overlay are drawn here (game.js);
+    // this object just answers "which chest, how full, what reward" for a level.
+    this.levelChest = levelChest || null;
     // Coin prices for buying a helper when its stock hits 0 (from the JSON config;
     // see prices.json / main.js). A keyed map: helper code -> coin cost.
     this.boosterPrices = (prices && prices.boosters) || {};
@@ -101,6 +111,11 @@ export class GameScene extends PIXI.Container {
     this.locked = false;    // blocks input during win/lose transitions
     this._autoRunning = false; // true while the Auto Complete sweep animates
     this._loseBtns = null;  // { cont, home, replay } while the Out-of-Moves overlay is up
+    // ---- level chest (the win-overlay reward bar) --------------------------
+    this._chestDoubleBtn = null; // "📺 Double it!" button, while the reward popup is up
+    this._chestClaimBtn = null;  // the plain "Claim" button, while the reward popup is up
+    this._chestAdResult = "succeed"; // "succeed" | "cancel" | "fail" (double-it test seam)
+    this._chestState = { shown: false }; // snapshot for the debug/test hooks
     this._firstRun = false; // true while a brand-new player is in the guided level 1
     this._hand = null;      // the tutorial pointing hand, when shown
     this._handTile = null;  // the tile it points at (so it can follow a re-layout)
@@ -891,6 +906,7 @@ export class GameScene extends PIXI.Container {
     this._closeCoach();
     this._buildBackground();
     this.overlayLayer.removeChildren();
+    this._resetChestOverlay();
     this.boardLayer.removeChildren();
     // clear any tray tiles from a previous run
     this.tray.forEach((t) => t.container.destroy());
@@ -1092,6 +1108,8 @@ export class GameScene extends PIXI.Container {
     this._clearTrayMessage();
     this._stopTrayPulse();
     this._closeCoach();
+    this.overlayLayer.removeChildren();
+    this._resetChestOverlay();
     if (this.onExit) this.onExit();
   }
 
@@ -1806,6 +1824,11 @@ export class GameScene extends PIXI.Container {
     // (which clears its tiles directly and lands here without ever passing
     // through _settle) is counted in full instead of being missed.
     if (this.user) this.user.bumpStat("tilesMatched", this.tiles.length);
+    // The Level Chest advances one notch only for a GENUINELY NEW clear — pushing
+    // the furthest level higher. completeLevel() hasn't run yet (the host fires it
+    // on the Continue press), so completedLevel() still holds the OLD highest here:
+    // this level is new exactly when it is beyond it. A replay shows no chest.
+    const chestLevel = (this.user && this.levelNum > this.user.completedLevel()) ? this.levelNum : 0;
     const last = this.levelNum >= 3;
     this._showOverlay(
       last ? "🏆 You Win!" : "Level Complete!",
@@ -1813,7 +1836,8 @@ export class GameScene extends PIXI.Container {
       "Continue",
       // hand control back to the lobby, which advances to the next level
       () => this.onLevelComplete && this.onLevelComplete(this.levelNum),
-      COIN_WIN_REWARD // show a gold coin next to the reward
+      COIN_WIN_REWARD, // show a gold coin next to the reward
+      chestLevel       // 0 = no chest (a replay); else the level whose chest to show
     );
   }
 
@@ -1967,9 +1991,10 @@ export class GameScene extends PIXI.Container {
     this._returnTrayToBoard();
   }
 
-  _showOverlay(title, subtitle, btnLabel, onBtn, coinReward = 0) {
+  _showOverlay(title, subtitle, btnLabel, onBtn, coinReward = 0, chestLevel = 0) {
     this._loseBtns = null; // this path is the win overlay — no lose buttons live
     this.overlayLayer.removeChildren();
+    this._resetChestOverlay();
     // Full-view dim + a centred group whose children are laid out relative to its
     // centre, so the panel stays centred on any screen (and reflows on resize).
     const dim = new PIXI.Graphics();
@@ -1983,16 +2008,27 @@ export class GameScene extends PIXI.Container {
     this.overlayLayer.addChild(group);
     this._overlayGroup = group;
 
+    // Only mount a chest for a genuinely new clear whose schedule resolves. When
+    // it does, the panel grows to make room for the bar and the Continue button
+    // drops to the bottom; otherwise the layout is exactly the classic overlay.
+    const chestInfo = (chestLevel && this.levelChest && this.levelChest.enabled)
+      ? this.levelChest.infoFor(chestLevel) : null;
+    const tall = !!chestInfo;
+    const half = tall ? 250 : 180;
+    const titleY = tall ? -half + 66 : -90;
+    const subY = tall ? -half + 132 : -20;
+    const btnY = tall ? half - 62 : 100;
+
     const panel = new PIXI.Graphics();
-    panel.beginFill(0x22335e, 1).drawRoundedRect(-280, -180, 560, 360, 34).endFill();
-    panel.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(-280, -180, 560, 360, 34);
+    panel.beginFill(0x22335e, 1).drawRoundedRect(-280, -half, 560, half * 2, 34).endFill();
+    panel.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(-280, -half, 560, half * 2, 34);
     group.addChild(panel);
 
     const tt = new PIXI.Text(title, {
       fontFamily: "Arial", fontSize: 56, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 6,
     });
-    tt.anchor.set(0.5); tt.position.set(0, -90);
+    tt.anchor.set(0.5); tt.position.set(0, titleY);
     const st = new PIXI.Text(subtitle, {
       fontFamily: "Arial", fontSize: 30, fill: 0xd7e2ff,
     });
@@ -2002,26 +2038,307 @@ export class GameScene extends PIXI.Container {
       const icon = makeCoinIcon(16);
       const gap = 12;
       const total = st.width + gap + 32; // 32 = coin diameter
-      st.anchor.set(0, 0.5); st.position.set(-total / 2, -20);
-      icon.position.set(-total / 2 + st.width + gap + 16, -20);
+      st.anchor.set(0, 0.5); st.position.set(-total / 2, subY);
+      icon.position.set(-total / 2 + st.width + gap + 16, subY);
       group.addChild(icon);
     } else {
-      st.anchor.set(0.5); st.position.set(0, -20);
+      st.anchor.set(0.5); st.position.set(0, subY);
     }
 
-    const btn = this._makeButton(btnLabel, 320, 92, 0, 100, 0x39c06a, () => {
+    const btn = this._makeButton(btnLabel, 320, 92, 0, btnY, 0x39c06a, () => {
       this.overlayLayer.removeChildren();
       this._winBtn = null;
+      this._resetChestOverlay();
       onBtn();
     });
     group.addChild(btn);
     this._winBtn = btn; // test seam (window.__game.pressWinContinue)
+
+    if (chestInfo) this._mountLevelChest(group, chestInfo);
 
     tt.scale.set(0.2);
     tween(this.app.ticker, {
       duration: 420, ease: easeOutBack,
       onUpdate: (e) => tt.scale.set(0.2 + 0.8 * e),
     });
+  }
+
+  // ---- level chest (the win-overlay reward bar) ----------------------------
+
+  // Mount the chest bar + treasure icon into an open win overlay. `info` comes
+  // from LevelChest.infoFor (filled / needed / reward / full). The bar animates up
+  // one notch; if the win FILLED the chest, it then pops open and pays out.
+  _mountLevelChest(group, info) {
+    this._chestTaken = false;
+    this._chestDoubled = false;
+    this._chestState = {
+      shown: true,
+      label: info.label,
+      filled: info.filled,
+      needed: info.needed,
+      reward: { type: info.reward.type, amount: info.reward.amount },
+      full: info.full,
+      opened: false,
+      popup: false,
+      claimed: false,
+    };
+
+    const icon = this._makeChestIcon();
+    icon.position.set(0, -34);
+    group.addChild(icon);
+    this._chestIcon = icon;
+
+    // Progress bar — the Tasks-row style (dark track + green fill + count label).
+    const trackW = 320, trackH = 22, barY = 58;
+    const track = new PIXI.Graphics();
+    track.beginFill(0x0a1226, 0.75)
+      .drawRoundedRect(-trackW / 2, barY - trackH / 2, trackW, trackH, trackH / 2).endFill();
+    group.addChild(track);
+    const fill = new PIXI.Graphics();
+    group.addChild(fill);
+    const label = new PIXI.Text(info.label, {
+      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xdce7ff,
+      stroke: 0x122043, strokeThickness: 3,
+    });
+    label.anchor.set(0.5); label.position.set(0, barY);
+    group.addChild(label);
+    this._chestBar = { fill, label, trackW, trackH, barY, needed: info.needed };
+
+    // Draw the fill to a given (possibly fractional) notch count.
+    const draw = (notches) => {
+      fill.clear();
+      const pct = info.needed > 0 ? Math.max(0, Math.min(1, notches / info.needed)) : 0;
+      if (pct > 0) {
+        fill.beginFill(0x39c06a)
+          .drawRoundedRect(-trackW / 2, barY - trackH / 2,
+            Math.max(trackH, trackW * pct), trackH, trackH / 2).endFill();
+      }
+      label.text = `${Math.round(notches)} / ${info.needed}`;
+    };
+    draw(Math.max(0, info.filled - 1));
+
+    // Animate the last notch filling, then open the chest if this win filled it.
+    this._chestAnimRun = (this._chestAnimRun || 0) + 1;
+    const run = this._chestAnimRun;
+    delay(this.app.ticker, 300).then(() => {
+      if (fill.destroyed || run !== this._chestAnimRun) return;
+      return tween(this.app.ticker, {
+        duration: 420, ease: easeOutCubic,
+        onUpdate: (e) => { if (!fill.destroyed) draw(info.filled - 1 + e); },
+      });
+    }).then(() => {
+      if (fill.destroyed || run !== this._chestAnimRun) return;
+      if (info.full) this._openChest(info.reward);
+    });
+  }
+
+  // A small treasure chest whose lid lifts when it opens.
+  _makeChestIcon() {
+    const c = new PIXI.Container();
+    const w = 104, h = 74, lidH = 32;
+    const body = new PIXI.Graphics();
+    body.beginFill(0x8a5a2b).drawRoundedRect(-w / 2, -h / 2 + lidH - 4, w, h - lidH + 4, 10).endFill();
+    body.lineStyle(4, 0xffe27a, 0.95).drawRoundedRect(-w / 2, -h / 2 + lidH - 4, w, h - lidH + 4, 10);
+    // Gold clasp + keyhole on the body.
+    const clasp = new PIXI.Graphics();
+    clasp.beginFill(0xffcf4d).drawRoundedRect(-16, -h / 2 + lidH - 6, 32, 26, 6).endFill();
+    clasp.beginFill(0x5a3a00).drawCircle(0, -h / 2 + lidH + 4, 5).endFill();
+    c.addChild(body, clasp);
+    // Lid (a rounded cap, pivoting up from its back edge on open).
+    const lid = new PIXI.Container();
+    lid.position.set(0, -h / 2 + lidH);
+    const lg = new PIXI.Graphics();
+    lg.beginFill(0xb5762f).drawRoundedRect(-w / 2 - 2, -lidH, w + 4, lidH, 10).endFill();
+    lg.lineStyle(4, 0xffe27a, 0.95).drawRoundedRect(-w / 2 - 2, -lidH, w + 4, lidH, 10);
+    lid.addChild(lg);
+    c.addChild(lid);
+    c.lid = lid; c.body = body;
+    return c;
+  }
+
+  // Chest is full → pop it open (sound + lid lift), then show the reward popup.
+  async _openChest(reward) {
+    this.audio.play("openbox");
+    this._chestState.opened = true;
+    const icon = this._chestIcon;
+    if (icon && !icon.destroyed) {
+      const lid = icon.lid;
+      await tween(this.app.ticker, {
+        duration: 340, ease: easeOutBack,
+        onUpdate: (e) => {
+          if (icon.destroyed) return;
+          icon.scale.set(1 + 0.14 * Math.sin(Math.PI * e));
+          if (lid) { lid.y = (-34) * e; lid.rotation = -0.5 * e; }
+        },
+      });
+    }
+    if (this.overlayLayer.children.length) this._showChestReward(reward);
+  }
+
+  // The reward popup: a reveal + "📺 Double it!" (immediate) and a plain "Claim"
+  // that fades in a moment later — the same nudge-toward-the-ad shape the daily
+  // gift uses. It draws over the win overlay's own panel and, once collected,
+  // removes itself to reveal the Continue button underneath.
+  _showChestReward(reward) {
+    const group = this._overlayGroup;
+    if (!group || group.destroyed) return;
+    const popup = new PIXI.Container();
+    group.addChild(popup);
+    this._chestReward = popup;
+    this._chestState.popup = true;
+
+    const localDim = new PIXI.Graphics();
+    localDim.beginFill(0x081018, 0.82).drawRoundedRect(-280, -250, 560, 500, 34).endFill();
+    localDim.eventMode = "static"; // modal over the panel
+    popup.addChild(localDim);
+
+    const title = new PIXI.Text("Chest Reward!", {
+      fontFamily: "Arial", fontSize: 44, fontWeight: "900", fill: 0xffe27a,
+      stroke: 0x5a3a00, strokeThickness: 6,
+    });
+    title.anchor.set(0.5); title.position.set(0, -160);
+    popup.addChild(title);
+
+    const icon = this._makeRewardIcon(reward, 42);
+    icon.position.set(0, -56);
+    popup.addChild(icon);
+    this._chestRewardIcon = icon;
+
+    const amt = new PIXI.Text(this._rewardText(reward), {
+      fontFamily: "Arial", fontSize: 34, fontWeight: "800", fill: 0xffffff,
+    });
+    amt.anchor.set(0.5); amt.position.set(0, 14);
+    popup.addChild(amt);
+    this._chestRewardAmt = amt;
+
+    const dbl = this._makeButton("📺  Double it!", 380, 88, 0, 110, 0x2f9e6a,
+      () => this._doubleChest(reward));
+    popup.addChild(dbl);
+    this._chestDoubleBtn = dbl;
+
+    const claim = this._makeButton("Claim", 300, 82, 0, 205, 0x4d8dff,
+      () => this._claimChest(reward, 1));
+    claim.alpha = 0; claim.eventMode = "none";
+    popup.addChild(claim);
+    this._chestClaimBtn = claim;
+
+    // The plain Claim fades in ~1.6 s after the ad button (dailybonus.js does the
+    // same) — guarded so a level that closed the popup meanwhile doesn't revive it.
+    delay(this.app.ticker, 1600).then(() => {
+      if (claim.destroyed || this._chestReward !== popup) return;
+      claim.eventMode = "static";
+      tween(this.app.ticker, { duration: 260, onUpdate: (e) => { if (!claim.destroyed) claim.alpha = e; } });
+    });
+  }
+
+  // Watch a rewarded video to double the chest. Stub — returns the seam value.
+  // TODO(SDK): show a real rewarded video and resolve on the completed view.
+  _watchChestAd() { return this._chestAdResult || "succeed"; }
+
+  async _doubleChest(reward) {
+    if (this._chestTaken) return;
+    const res = this._watchChestAd();
+    if (res === "succeed") {
+      this._chestDoubled = true;
+      const doubled = { type: reward.type, amount: (reward.amount || 0) * 2 };
+      if (this._chestRewardAmt && !this._chestRewardAmt.destroyed) {
+        this._chestRewardAmt.text = this._rewardText(doubled);
+      }
+      await this._claimChest(reward, 2);
+    } else if (res === "fail") {
+      this._chestToast("Ad not available");
+    }
+    // "cancel": nothing spent — the base Claim stays available.
+  }
+
+  async _claimChest(reward, mult) {
+    if (this._chestTaken) return;
+    this._chestTaken = true;
+    if (this._chestDoubleBtn) this._chestDoubleBtn.eventMode = "none";
+    if (this._chestClaimBtn) this._chestClaimBtn.eventMode = "none";
+    await this._collectChestReward({ type: reward.type, amount: (reward.amount || 0) * mult });
+    this._chestState.claimed = true;
+    this._chestState.popup = false;
+    if (this._chestReward && !this._chestReward.destroyed) this._chestReward.destroy({ children: true });
+    this._chestReward = null;
+    this._chestDoubleBtn = null;
+    this._chestClaimBtn = null;
+  }
+
+  // Fly the reward icon to its HUD counter (coins → the coin pill; a booster → its
+  // helper button) and grant ON LANDING so the number ticks in sync. Falls back to
+  // an immediate grant if the fly-targets can't be located (mirrors dailybonus).
+  async _collectChestReward(reward) {
+    const grant = () => {
+      if (rewardIsCoins(reward.type)) this.user.credit("coins", reward.amount);
+      else this.user.grantBooster(reward.type, reward.amount);
+    };
+    const target = rewardIsCoins(reward.type)
+      ? this.coinPill
+      : ({ undo: this.undoBtn, wand: this.wandBtn, shuffle: this.shuffleBtn })[reward.type];
+    let start, end;
+    try {
+      start = this.fxLayer.toLocal(this._chestRewardIcon.getGlobalPosition());
+      end = this.fxLayer.toLocal((target || this.coinPill).getGlobalPosition());
+    } catch (_) { grant(); return; }
+
+    const flyer = this._makeRewardIcon(reward, 34);
+    flyer.position.set(start.x, start.y);
+    this.fxLayer.addChild(flyer);
+    const C = { x: (start.x + end.x) / 2, y: Math.min(start.y, end.y) - 150 };
+    await tween(this.app.ticker, {
+      duration: 540, ease: easeInOutQuad,
+      onUpdate: (e) => {
+        const u = 1 - e;
+        flyer.x = u * u * start.x + 2 * u * e * C.x + e * e * end.x;
+        flyer.y = u * u * start.y + 2 * u * e * C.y + e * e * end.y;
+        flyer.scale.set(1 - 0.3 * e);
+      },
+    });
+    grant();
+    if (target && !target.destroyed) { target.scale.set(1.22); this._animateScale(target, 1, 220); }
+    if (!flyer.destroyed) flyer.destroy();
+  }
+
+  _makeRewardIcon(reward, size) {
+    if (rewardIsCoins(reward.type)) return makeCoinIcon(size);
+    const t = new PIXI.Text(CHEST_REWARD_EMOJI[reward.type] || "❔", {
+      fontFamily: "Arial", fontSize: size * 1.6,
+    });
+    t.anchor.set(0.5);
+    return t;
+  }
+
+  _rewardText(reward) {
+    const n = reward.amount || 0;
+    const word = CHEST_REWARD_WORD[reward.type] || reward.type;
+    return `${n} ${word}${n === 1 ? "" : "s"}`;
+  }
+
+  // A brief message inside the reward popup (e.g. "Ad not available").
+  _chestToast(msg) {
+    const popup = this._chestReward;
+    if (!popup || popup.destroyed) return;
+    const t = new PIXI.Text(msg, { fontFamily: "Arial", fontSize: 24, fill: 0xffd0d0 });
+    t.anchor.set(0.5); t.position.set(0, 58);
+    popup.addChild(t);
+    delay(this.app.ticker, 1400).then(() => { if (!t.destroyed) t.destroy(); });
+  }
+
+  // Tear down any chest overlay state (on Continue, a level reload or an exit) so
+  // nothing survives onto the next board.
+  _resetChestOverlay() {
+    this._chestAnimRun = (this._chestAnimRun || 0) + 1; // invalidate an in-flight fill/open
+    this._chestIcon = null;
+    this._chestBar = null;
+    this._chestReward = null;
+    this._chestRewardIcon = null;
+    this._chestRewardAmt = null;
+    this._chestDoubleBtn = null;
+    this._chestClaimBtn = null;
+    this._chestTaken = false;
+    this._chestDoubled = false;
+    this._chestState = { shown: false };
   }
 
   // ---- micro-animations ----------------------------------------------------

@@ -508,6 +508,58 @@ the top of `src/tasks.js` (titles are not in the JSON, mirroring `PRIZE_LABEL` i
 it is reachable but late. Lower `features.tasks.unlockLevel` in `src/config.js` to
 demo it sooner.
 
+### Level Chest — a filling reward on the win screen
+A **progress bar with a treasure-chest icon** on the **level-complete screen**: an
+endless "keep playing and you'll open another chest soon" carrot. Each time you
+clear a level **you haven't cleared before**, the bar advances **one notch**; when
+it fills, the chest **pops open right there** (open-box animation + the `openbox`
+sound) and pays a reward. The **same bar also sits on the lobby** (in the centre band
+below the fruit row) as a **persistent "progress toward the next chest" indicator**,
+so you can see how close the next reward is without finishing a level first. The
+lobby bar never opens a chest — it only reflects your standing; opening happens on
+the win screen. It updates **live** as you clear levels, and once a milestone chest
+has opened it rolls forward to show the **next** chest freshly empty (via
+`LevelChest.currentFor`, as opposed to the win screen's `infoFor`, which shows the
+chest that clear filled). A brand-new player (no level cleared yet) sees no bar.
+
+- **Only genuinely new progress counts.** The bar is tied strictly to pushing your
+  **furthest level** higher — replaying or re-clearing a level you've already beaten
+  does nothing, and the bar (and its icon) **don't even appear** on the results
+  screen for a replay. The label reads **"notches filled / notches needed"** (e.g.
+  `5 / 16`).
+- **Opening & rewards.** A full chest opens and delivers its reward through a popup
+  that also offers the usual **"📺 watch a short video to double it"** (stubbed —
+  grants immediately; `succeed` doubles, `fail`/`cancel` leave the base amount). The
+  reward flies to its top-bar counter and is **credited on landing** — coins/lightning
+  to the coin pill, a booster to its helper button. There is **no separate claim
+  step**; as soon as one chest opens, the **next begins filling** from the next new
+  level.
+- **The schedule.** Chests follow a defined list of **milestones** at increasing
+  level numbers; the gap to the previous milestone is how many wins that chest takes,
+  and each carries **its own reward**. The shipped schedule (50 milestones, last at
+  level 752) starts short — the first three take **4 wins** (levels 4, 8, 12), then
+  **8** (level 20), **12** (level 32), and from level 48 on **every chest is 16
+  wins**. After the last milestone the tail **loops forever** from a configured
+  **repeat-start** point, so chests never run out — a late-game player sees a fixed
+  `? / 16` bar. Contents are **flat, not escalating**: the overwhelming default is
+  **25 coins**, with the odd booster chest (2 Undos, 2 Hints→**wands**, 2 Shuffles,
+  6 Lightning→**coins**) and one **100-coin** chest (level 288) as a change of pace.
+- **What it remembers: nothing new.** Which chest you're on and how full it is are
+  both **derived** from the **highest level you've cleared** (`progress.completed`,
+  already saved), so the state can never drift and a QA level jump lands straight on
+  the right chest — there is no chest field on the profile and no migration.
+- **A note on the label.** The original game's wrap-around had an off-by-one that
+  briefly showed **negative** progress numbers just past the last milestone. This
+  port ships the **corrected** label — it always counts up cleanly `0 → needed`, so
+  no negative-progress window ever appears. The opening cadence and rewards are
+  identical to the original either way.
+
+The chest **schedule** is a JSON data table, `assets/config/levelChest.json` (one
+`[id, levelId, "itemId|count"]` row per milestone; item ids `0`=coins, `10`=Undo,
+`11`=Hint→wand, `12`=Shuffle, `20`=Lightning→coins). Its one pacing knob — the
+**repeat-start** index — lives in `src/config.js` (`features.levelChest.repeatStart`,
+shipped `6`, i.e. the 7th milestone/level 64 begins the looping tail).
+
 ## Run it
 Because it uses ES modules and `fetch`, it must be served over HTTP (not
 opened via `file://`):
@@ -674,6 +726,28 @@ python3 -m http.server 8099
   guarded by a **generation token** (`_guideRun`, bumped in `loadLevel`): without
   it, re-entering level 1 mid-sequence would leave the previous run collecting
   tiles off the old board.
+  The **Level Chest** rides the win overlay. `_win()` computes a `chestLevel` — the
+  cleared level, but **only when it beats `user.completedLevel()`** (a genuinely new
+  clear; a replay passes `0`). `completeLevel()` hasn't run yet at that point (the
+  host fires it on the Continue press), so the old highest is still readable, which is
+  exactly the "new clear?" test. `_showOverlay` grows its panel and drops the Continue
+  button when a chest is present, then `_mountLevelChest(group, info)` draws the
+  treasure icon (`_makeChestIcon`, a lidded chest) and a Tasks-style progress bar,
+  animating the last notch up. If `info.full`, `_openChest` plays `openbox`, lifts the
+  lid (`easeOutBack`) and calls `_showChestReward` — a reveal + **"📺 Double it!"**
+  (immediate) and a **Claim** that fades in ~1.6 s later, the same nudge-toward-the-ad
+  shape as `DailyBonusScene`. `_watchChestAd` is the stub (seam `_chestAdResult`);
+  `_claimChest` grants at `mult` 1 or 2 and `_collectChestReward` flies the icon on the
+  shared quadratic-Bézier arc to its HUD counter (`coinPill` for coins/lightning, else
+  the matching helper button), **granting on landing**, with an immediate-grant
+  fallback if a target can't be located. The chest lives inside `_overlayGroup` (so the
+  `layout()` reflow re-centres it for free and it stays out of `controls()`, like the
+  win/lose overlays), and `_resetChestOverlay()` tears it down on Continue, a level
+  reload and `_exit`. The schedule/maths are `LevelChest.infoFor` (`src/levelchest.js`),
+  and everything is **derived** from the highest level cleared — no chest state is
+  stored. This port ships the **corrected** progress label (it always counts up cleanly
+  `0 → needed`), unlike the original's off-by-one that briefly showed negative numbers
+  just past the last milestone.
   **Out of Moves** (`_lose()` → `_showLoseOverlay()`): a full tray no longer
   dead-ends. `_lose` shows a **modal** overlay (its dim is `eventMode:"static"`, so
   it swallows every tap and there's no close affordance) with **Home** (`onExit`),
@@ -742,6 +816,13 @@ python3 -m http.server 8099
   so the call to action keeps a fixed margin above the bottom of the screen on
   every device shape. It also owns the **feature buttons**
   (Free Spin / Daily Bonus) and hands their arrangement to a `FeatureRail`.
+  On the centred `uiLayer`, below the fruit row, it draws the **Level Chest bar**
+  (`_makeChestBar` / `_refreshChestBar`): a treasure glyph + progress track +
+  "filled / needed" label, read from `LevelChest.currentFor(user.completedLevel())`
+  and refreshed live on every `progress` change (the same subscription that drives
+  the rails and the shop gate). It is hidden when there is no chest yet (a brand-new
+  player) and listed in `controls()` only while shown, so it stays inside
+  `resize_overlap_test`'s no-overlap guarantee.
 - `src/featurerail.js` is the `FeatureRail` — the ordered, self-arranging column of
   lobby feature buttons (see the Gameplay section). `add(key, display, isAvailable)`
   registers an entry **in priority order**; `refresh({ animate })` re-asks every
@@ -832,6 +913,21 @@ python3 -m http.server 8099
   and from the same low-frequency `main.js` ticker as the wheel (so a lobby left open
   across midnight re-shows the gift). It is entry **#2** on the lobby's feature rail,
   so it **rises into the wheel button's slot** whenever that one isn't offered.
+- `src/levelchest.js` is the `LevelChest` — the **feature logic** of the level-complete
+  chest (the schedule and the maths), drawn nowhere itself: it just answers
+  `infoFor(level)` → `{ index, filled, needed, label, reward, full }` for the win
+  overlay. The schedule comes from `assets/config/levelChest.json` (degrading to an
+  empty schedule on a missing/failed config, so the overlay simply shows no chest);
+  the **repeat-start** index is read from `CONFIG.features.levelChest`. It is a pure,
+  UI-free module — everything is **derived** from the highest level cleared, so it
+  holds no per-player state. The bar, the open animation and the reward popup live in
+  `GameScene` (see the `game.js` note above) and the persistent bar in `LobbyScene`.
+  `infoFor(level)` is the win-screen view (the chest that clear filled, `full` when it
+  reaches the top); `currentFor(level)` is the lobby's resting view (identical
+  mid-chest, but a just-opened milestone rolls forward to the next chest at 0
+  notches). `parseReward`/`rewardIsCoins` translate the `"itemId|count"` reward
+  strings to the port's grant vocabulary
+  (`0`→coins, `10`→undo, `11`→wand, `12`→shuffle, `20`→lightning→coins).
 - `src/tutorial.js` is the `HowToPlayPopup` — the modal tutorial level 1 opens
   before play (see the Gameplay section and the `GameScene` notes above). Unlike
   the other overlays it is **owned by the level scene**, not by `main.js`: it lives
@@ -935,7 +1031,7 @@ sections are:
 | Section | What's in it |
 | --- | --- |
 | `progression` | `tutorialLevel` (which level opens "How To Play" + the guided opening) and `autoComplete.minLevel` / `.maxTiles` (the window the free Auto Complete button is offered in) |
-| `features` | one gate per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel`, `tasks.unlockLevel` / `.weeklyResetDay` |
+| `features` | one gate/pacing block per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel`, `tasks.unlockLevel` / `.weeklyResetDay`, and `levelChest.repeatStart` (the Level Chest has no gate — it's derived from progress) |
 | `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — and `coach` (`enabled`, `undoDelayMs`) for the guided first use |
 | `economy` | `currencies`, the `startingWallet`, and `coinWinReward` (the only free coin faucet) |
 | `board` | `traySlots` — the base tray capacity, the core difficulty dial — plus `extraSlot` (`unlockLevel` / `grant`, the ad-funded 8th slot) and `warnings` (`pulseAtFree` / `bubbleAtFree`, the two near-full cues, counted against the *live* capacity) |
@@ -1126,7 +1222,7 @@ JS/
   index.html
   vendor/pixi.min.js
   src/config.js             # KEY PARAMETERS: feature gates, unlocks, economy
-  src/{main,splash,game,lobby,settings,shop,fortunewheel,dailybonus,tasks,level,levelConfig,icons,audio,assets,tween}.js
+  src/{main,splash,game,lobby,settings,shop,fortunewheel,dailybonus,tasks,levelchest,level,levelConfig,icons,audio,assets,tween}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
     config/levels.json      # the level table: {background,data,types,preload?} per level
@@ -1134,6 +1230,7 @@ JS/
     config/turntable.json   # Fortune Wheel prize groups + odds (gate/pacing: src/config.js)
     config/dailybonus.json  # Daily Bonus weighted prize pool (gate: src/config.js)
     config/tasks.json       # Tasks: achievement chains + weekly list (gate: src/config.js)
+    config/levelChest.json  # Level Chest schedule: [id, levelId, reward] milestones (repeat-start: src/config.js)
     levels/level{1..13}.json
     bg/*.jpg
     audio/*.mp3

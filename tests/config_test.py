@@ -23,6 +23,7 @@ EXPECT = {
         "fortuneWheel": {"unlockLevel": 5, "spinsPerCycle": 6, "headlinePrize": "lightning"},
         "dailyBonus": {"unlockLevel": 1},
         "tasks": {"unlockLevel": 10, "weeklyResetDay": 1},
+        "levelChest": {"repeatStart": 6},
     },
     "boosters": {
         "kinds": ["undo", "shuffle", "wand"],

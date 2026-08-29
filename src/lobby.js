@@ -22,13 +22,14 @@ const CHROME_COL = 175;
 const CENTER_MAX_W = DESIGN_W - 2 * CHROME_COL; // 400
 
 export class LobbyScene extends PIXI.Container {
-  constructor(app, backgrounds, audio, maxLevel, user) {
+  constructor(app, backgrounds, audio, maxLevel, user, levelChest) {
     super();
     this.app = app;
     this.backgrounds = backgrounds; // { 1: tex, 2: tex, 3: tex }
     this.audio = audio;
     this.maxLevel = maxLevel;
     this.user = user;       // player profile — for the coin balance pill
+    this.levelChest = levelChest || null; // Level Chest schedule — for the progress bar
     this.fortuneWheel = null; // the FortuneWheelScene (set by the host) — for gating/badges
     this.dailyBonus = null; // the DailyBonusScene (set by the host) — for gating
     this.tasks = null;      // the TasksScene (set by the host) — for gating + the red dot
@@ -72,6 +73,7 @@ export class LobbyScene extends PIXI.Container {
       { name: "title", obj: this.title },
       { name: "subtitle", obj: this.subtitle },
       { name: "fruits", obj: this.fruits },
+      { name: "chestBar", obj: this.chestBar },
       { name: "playBtn", obj: this.playBtn },
       { name: "hint", obj: this.hint },
       { name: "cog", obj: this.cog },
@@ -123,6 +125,18 @@ export class LobbyScene extends PIXI.Container {
     this.playBtn = this._makePlayButton();
     this.playBtn.position.set(DESIGN_W / 2, 1160);
     this.botHud.addChild(this.playBtn);
+
+    // Level Chest progress bar — a persistent "progress toward the next chest"
+    // indicator, derived from the highest level cleared (the same schedule the
+    // level-complete screen opens). It sits in the clear centre band below the
+    // fruit row, on the vertically-centred uiLayer, so it stays clear of the
+    // corner chrome / rails (top) and the play cluster (bottom) on every shape.
+    // Hidden until there is a chest to fill (a brand-new player has none).
+    this.chestBar = this.levelChest ? this._makeChestBar() : null;
+    if (this.chestBar) {
+      this.chestBar.position.set(DESIGN_W / 2, 660);
+      this.uiLayer.addChild(this.chestBar);
+    }
 
     // Settings (cog) — top-left. Opens the settings screen via the host.
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
@@ -186,14 +200,82 @@ export class LobbyScene extends PIXI.Container {
           domain === "progress" || domain === "tasks") {
         this.refreshFeatures();
       }
-      if (domain === "progress") this._refreshShopGate();
+      if (domain === "progress") { this._refreshShopGate(); this._refreshChestBar(); }
     });
+    this._refreshChestBar();
   }
 
   // The shop is a progression unlock (CONFIG.features.shop.unlockLevel): until it comes due
   // the pill loses its cart badge and ignores taps, staying a plain coin counter.
   _refreshShopGate() {
     this.coinPill.setShopEnabled(!this.user || this.user.isShopUnlocked());
+  }
+
+  // Build the lobby's Level Chest bar: a treasure glyph + a progress track + a
+  // "filled / needed" label, all around the container's own centre.
+  _makeChestBar() {
+    const c = new PIXI.Container();
+    const glyph = this._makeChestGlyph();
+    glyph.position.set(-150, 0);
+    c.addChild(glyph);
+
+    const trackW = 290, trackH = 24, trackX = -118;
+    const track = new PIXI.Graphics();
+    track.beginFill(0x0a1226, 0.72).drawRoundedRect(trackX, -trackH / 2, trackW, trackH, trackH / 2).endFill();
+    track.lineStyle(3, 0xffffff, 0.14).drawRoundedRect(trackX, -trackH / 2, trackW, trackH, trackH / 2);
+    c.addChild(track);
+
+    const fill = new PIXI.Graphics();
+    c.addChild(fill);
+
+    const label = new PIXI.Text("", {
+      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xdce7ff,
+      stroke: 0x122043, strokeThickness: 3,
+    });
+    label.anchor.set(0.5); label.position.set(trackX + trackW / 2, 0);
+    c.addChild(label);
+
+    c._fill = fill; c._label = label;
+    c._trackW = trackW; c._trackH = trackH; c._trackX = trackX;
+    return c;
+  }
+
+  // A small static treasure chest (the level-complete screen draws a larger one
+  // whose lid can lift; this one just needs to read as a chest).
+  _makeChestGlyph() {
+    const c = new PIXI.Container();
+    const w = 52, h = 40, lidH = 16;
+    const body = new PIXI.Graphics();
+    body.beginFill(0x8a5a2b).drawRoundedRect(-w / 2, -h / 2 + lidH, w, h - lidH, 6).endFill();
+    body.lineStyle(3, 0xffe27a, 0.95).drawRoundedRect(-w / 2, -h / 2 + lidH, w, h - lidH, 6);
+    const lid = new PIXI.Graphics();
+    lid.beginFill(0xb5762f).drawRoundedRect(-w / 2 - 1, -h / 2, w + 2, lidH, 6).endFill();
+    lid.lineStyle(3, 0xffe27a, 0.95).drawRoundedRect(-w / 2 - 1, -h / 2, w + 2, lidH, 6);
+    const clasp = new PIXI.Graphics();
+    clasp.beginFill(0xffcf4d).drawRoundedRect(-8, -h / 2 + lidH - 4, 16, 14, 3).endFill();
+    clasp.beginFill(0x5a3a00).drawCircle(0, -h / 2 + lidH + 3, 3).endFill();
+    c.addChild(body, lid, clasp);
+    return c;
+  }
+
+  // Update the lobby chest bar from the highest level cleared. Shows the chest
+  // currently being filled (LevelChest.currentFor rolls a just-opened milestone
+  // chest forward to the next one at 0 notches); hidden when there is none.
+  _refreshChestBar() {
+    const bar = this.chestBar;
+    if (!bar) return;
+    const info = (this.levelChest && this.levelChest.enabled)
+      ? this.levelChest.currentFor(this.user ? this.user.completedLevel() : 0) : null;
+    if (!info) { bar.visible = false; return; }
+    bar.visible = true;
+    const pct = info.needed > 0 ? Math.max(0, Math.min(1, info.filled / info.needed)) : 0;
+    bar._fill.clear();
+    if (pct > 0) {
+      bar._fill.beginFill(0x39c06a)
+        .drawRoundedRect(bar._trackX, -bar._trackH / 2,
+          Math.max(bar._trackH, bar._trackW * pct), bar._trackH, bar._trackH / 2).endFill();
+    }
+    bar._label.text = info.label;
   }
 
   _makeWheelButton() {

@@ -5,6 +5,7 @@ import { ShopScene } from "./shop.js";
 import { FortuneWheelScene } from "./fortunewheel.js";
 import { DailyBonusScene } from "./dailybonus.js";
 import { TasksScene } from "./tasks.js";
+import { LevelChest } from "./levelchest.js";
 import { makePayments } from "./user/payments.js";
 import { makeTileTextures, makeSlotTexture, tilesFontReady, emojiPaints, TILE_EMOJIS } from "./icons.js";
 import { AudioManager } from "./audio.js";
@@ -136,10 +137,18 @@ async function boot() {
   let tasksCfg = null;
   try { tasksCfg = await fetch("assets/config/tasks.json").then((r) => r.json()); }
   catch (_) { /* keep null — TasksScene falls back to empty lists */ }
+
+  // The Level Chest schedule (50 milestones, each level + reward). Same defensive
+  // load — a failure leaves an empty schedule, so the level-complete screen simply
+  // shows no chest. Chest progress is derived from user.completedLevel(), not stored.
+  let levelChestCfg = null;
+  try { levelChestCfg = await fetch("assets/config/levelChest.json").then((r) => r.json()); }
+  catch (_) { /* keep null — LevelChest falls back to an empty schedule */ }
+  const levelChest = new LevelChest(levelChestCfg);
   splash.set(P.configs, "Preparing board…");
 
-  const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices);
-  const lobby = new LobbyScene(app, backgrounds, audio, maxLevel, user);
+  const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices, levelChest);
+  const lobby = new LobbyScene(app, backgrounds, audio, maxLevel, user, levelChest);
   const settings = new SettingsScene(app, audio);
   const shop = new ShopScene(app, audio, user, payments);
   const wheel = new FortuneWheelScene(app, audio, user, turntable);
@@ -728,6 +737,31 @@ async function boot() {
     // Force "now" / the week-key (weekly reset + countdown tests).
     setTasksNow: (iso) => { tasks._nowOverride = iso; tasks.checkRollover(); lobby.refreshFeatures(); },
     setTasksWeek: (key) => { tasks._weekOverride = key; tasks.checkRollover(); lobby.refreshFeatures(); },
+    // ---- level chest ----
+    // The chest state implied by having cleared up to `level` — index / filled /
+    // needed / label / reward / full — straight from the schedule (no UI needed),
+    // so a test can assert the maths across the whole 50-milestone table and its
+    // looping tail without playing levels out.
+    chestInfo: (level) => levelChest.infoFor(level),
+    chestCount: () => levelChest.count,
+    // What the win overlay is showing right now: whether a chest bar is up, its
+    // label/reward, whether it opened, and where the reward popup has got to.
+    chestState: () => ({ ...scene._chestState }),
+    // Drive the reward popup: press its buttons on the real hit path, and pin the
+    // double-it ad outcome ("succeed" | "cancel" | "fail"), mirroring the daily bonus.
+    pressChestClaim: () => scene._chestClaimBtn && scene._chestClaimBtn.emit("pointertap"),
+    pressChestDouble: () => scene._chestDoubleBtn && scene._chestDoubleBtn.emit("pointertap"),
+    setChestAdResult: (mode) => { scene._chestAdResult = mode; },
+    // The persistent Level Chest bar on the LOBBY: whether it's shown, its label,
+    // and the resting "currently filling" chest it reflects (currentFor rolls a
+    // just-opened milestone forward to the next chest). Derived from the highest
+    // level cleared — nothing stored.
+    lobbyChestState: () => ({
+      visible: !!(lobby.chestBar && lobby.chestBar.visible),
+      label: (lobby.chestBar && lobby.chestBar._label) ? lobby.chestBar._label.text : "",
+      completed: user.completedLevel(),
+      info: levelChest.currentFor(user.completedLevel()),
+    }),
     // ---- helper (booster) inventory ----
     boosterCount: (kind) => user.boosterCount(kind),
     grantBooster: (kind, n) => user.grantBooster(kind, n),

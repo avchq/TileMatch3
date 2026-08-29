@@ -169,6 +169,24 @@ export const CONFIG = deepFreeze({
       // current week ends early or runs long exactly once, then settles.
       weeklyResetDay: 1,
     },
+
+    // THE LEVEL CHEST (src/levelchest.js) — the progress bar with a treasure
+    // icon on the level-complete screen that fills one notch per NEWLY-cleared
+    // level and, when full, pops open and pays a reward (with the usual "watch a
+    // video to double it" option). The chest SCHEDULE — 50 milestones, each with
+    // its own level and reward — is a data table in assets/config/levelChest.json.
+    // Chest progress is DERIVED purely from the highest level cleared
+    // (user.completedLevel), so nothing is stored, there is no unlock gate, and
+    // there is nothing to migrate — a QA level jump just lands on the right chest.
+    levelChest: {
+      // The point from which the schedule's TAIL repeats forever, as a 0-based
+      // INDEX into the milestone list. 6 = the 7th milestone (level 64): every
+      // milestone from there on loops, so once a player is past the last authored
+      // milestone (level 752) chests keep arriving on a steady 16-win cadence
+      // instead of running out. Raising it makes more of the early, hand-tuned
+      // schedule one-shot; lowering it makes the repeating tail longer.
+      repeatStart: 6,
+    },
   },
 
   // --------------------------------------------------------------------------

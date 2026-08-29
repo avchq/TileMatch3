@@ -33,6 +33,8 @@ export const MANIFEST = {
       { name: "win", url: "assets/audio/win.mp3", volume: 0.8 },
       { name: "fail", url: "assets/audio/fail.mp3", volume: 0.7 },
       { name: "btn_01", url: "assets/audio/btn_01.mp3", volume: 0.6 },
+      // The Level Chest bursting open on the level-complete screen (src/game.js).
+      { name: "openbox", url: "assets/audio/openbox.mp3", volume: 0.8 },
       // The Fortune Wheel's spin clicks. Looped (over its head only) and pitched
       // to the wheel's live speed by FortuneWheelScene — see playLoop().
       { name: "wheel_spin", url: "assets/audio/wheel-spin-click-slow-down-fast-101154.mp3", volume: 0.7 },
