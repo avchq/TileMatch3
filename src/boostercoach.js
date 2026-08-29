@@ -16,15 +16,22 @@
 // the lesson is the use.
 
 import { DESIGN_W, DESIGN_H, makeHintPill } from "./layout.js";
+import { t } from "./i18n.js";
 
-// The one line of copy per helper. Presentation, so it lives here rather than in
-// config.js — the SCHEDULE (which level, how much stock) is the tunable, and
-// that is in CONFIG.boosters.unlocks.
+// The TEXT KEY of the one line of copy per helper. Presentation, so it lives
+// here rather than in config.js — the SCHEDULE (which level, how much stock) is
+// the tunable, and that is in CONFIG.boosters.unlocks. The wording itself is in
+// the language tables (assets/lang/<code>.json); use coachCaption() to read it.
 export const BOOSTER_COACH = {
-  undo: "Undo the last move",
-  wand: "Auto match a group of tiles",
-  shuffle: "Reset the remaining tiles in this level",
+  undo: "coach_undo",
+  wand: "coach_wand",
+  shuffle: "coach_shuffle",
 };
+
+/** The caption for a helper's coached first use, in the active language. */
+export function coachCaption(kind) {
+  return BOOSTER_COACH[kind] ? t(BOOSTER_COACH[kind]) : "";
+}
 
 const DIM_COLOR = 0x040814;
 const DIM_ALPHA = 0.72;   // same modal dim as SettingsScene / HowToPlayPopup
@@ -43,7 +50,7 @@ export class BoosterCoach extends PIXI.Container {
     this.kind = kind;
     this.btn = btn;
     this.badge = badge;
-    this.caption = BOOSTER_COACH[kind] || "";
+    this.caption = coachCaption(kind);
     this.closed = false;
     this._home = { bx: btn.x, by: btn.y, gx: badge.x, gy: badge.y };
     this._homeParent = btn.parent;

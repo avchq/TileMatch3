@@ -50,6 +50,12 @@ Tests drop PNG snapshots into `tests/output/` (gitignored) for eyeballing.
 Each file is a standalone script covering one area. Descriptions below are one
 line per test.
 
+**Note:** the suite runs **in English**. Headless Chromium reports `en-US`, so a
+fresh profile's one-time language detection picks `en` and every assertion on
+on-screen wording reads the English table (`assets/lang/en.json`). A test that
+wants another language sets `localStorage['ck_language']` before loading — see
+`i18n_test.py`.
+
 ### Navigation & UI
 
 - **`newuser_test.py`** — the **first-run flow**: a brand-new profile (fresh
@@ -116,7 +122,10 @@ Only `howtoplay_test.py` leaves it open.
   coins) survives both the Back press and a reload.
 - **`settings_test.py`** — the settings cog (top-left) opens the settings overlay
   from both the lobby and inside a level; the Music/Sound toggles switch the
-  audio channels and persist to the user profile.
+  audio channels and persist to the user profile. (The panel grew downward to
+  make room for the **Language** row between Sound and Back, so the Back click
+  point moved while the two toggles kept theirs — the row itself is
+  `languagepicker_test.py`'s subject.)
 - **`roundbtn_test.py`** — the in-level round buttons (undo / reshuffle) are
   clickable at their HUD positions and drive their actions without errors.
 - **`levelhud_test.py`** — the level's top bar carries the level title, coin pill,
@@ -388,6 +397,67 @@ Only `howtoplay_test.py` leaves it open.
   the `window.__game` chest hooks (`chestInfo`, `chestCount`, `chestState`,
   `lobbyChestState`, `pressChestDouble`, `pressChestClaim`, `setChestAdResult`).
 
+### Localization
+
+- **`i18n_test.py`** — the **13-language localization system** (`src/i18n.js` +
+  `assets/lang/*.json`). Static half: all 13 files parse, their **key lists are
+  byte-for-byte identical**, no value is empty, **no phrase is left sitting in
+  English** (a one- or two-word cognate is allowed, a whole sentence is not),
+  every `%value` appears at most once and each file's `{0}`/`{1}` token set
+  matches English, line breaks survive, **no badge word** (`NEW`, `HOT`, `TOP`, …)
+  has acquired a key — those stay literals in the scene that draws them, like the
+  emoji — and nothing ships that nothing reads.
+  Live half: the **device-language map** including the regional variants and the
+  two trap codes (`en-IN`/`hi` → **`in` = Hindi**, `en-ID`/`id` → Indonesian,
+  `ja` → **`jp`**, `zh-HK` → `zh-tw`, an unrecognised tag → English); **detection
+  runs exactly once** (a `de-AT` browser boots German and writes `ck_language`,
+  after which the stored value wins even though the device still says German, and
+  an unrecognised stored code is treated as English); it **walks every screen**
+  and asserts `missingKeys()` is empty, which catches a typo'd key whichever of
+  the three routes reached the table; `setLanguage('ru')` **re-letters the lobby
+  and an in-level HUD in place** with no reload and no loss of progress; and the
+  documented rough edges hold — a **missing key renders as the key itself**, a
+  **failed download leaves the text alone but still stores the choice**, and every
+  visited language **stays resident**.
+- **`languagepicker_test.py`** — the **Language row and the picker**
+  (`src/settings.js` + `src/languagepicker.js`). The row shows the current
+  language's **own name**; tapping it opens the picker with all **13 rows in the
+  fixed order**, names **untranslated**, the current one ticked and **scrolled
+  into view**. Tapping a row moves the tick and changes **nothing else** (the
+  active language, the lobby title and the stored choice are all untouched);
+  closing without Confirm **discards** it, and reopening starts from the active
+  language again. **Confirm** applies, closes, re-letters the screen underneath
+  and translates the popup heading while leaving the list's names alone;
+  re-picking the current language just closes. The choice survives a reload with
+  progress intact, and the popup reflows on a narrow viewport.
+
+- **`langfit_test.py`** — **every translation fits the button it sits on.** The
+  game's buttons are fixed-width pills with the label centred on top: the text is
+  not masked and not shrunk, so a translation that runs long simply spills over
+  the artwork, and `i18n_test.py` passes happily on a string that is perfectly
+  correct and twice too wide. This boots all 13 languages in turn and measures
+  each label that lives on a fixed-width widget (the play button, the settings
+  Back / Language row, the picker's Confirm / Back / heading, the level HUD, Auto
+  Complete) against that widget's inner width, in design units. Labels that
+  already run through `fitTextWidth()` — the lobby title and subtitle, task rows,
+  the tab buttons, the picker's language names — are deliberately excluded, since
+  they shrink themselves. **A failure here is a translation to shorten in
+  `assets/lang/<code>.json`, not a layout to widen.**
+
+### Boot resilience
+
+- **`boot_resilience_test.py`** — boot survives a broken environment, and when it
+  genuinely cannot, it **says so** instead of leaving a frozen loading screen.
+  Routes one thing wrong at a time: a **stale `src/config.js`** with the
+  `language` section stripped (the real bug — `src/i18n.js` builds its singleton
+  at module-evaluation time, so a direct `CONFIG.language.x` read threw *before*
+  `boot()` ran and killed the whole graph); a **stalled** `assets/lang/*.json`
+  (must not hold boot open — the fetch is time-bounded); **missing** language
+  files (boots, and every label shows its key); and a module that **throws at
+  import**, which must paint the splash's error state with a message rather than
+  freeze at "Starting up… 0%". Finishes with a plain boot under the `iPhone 13`
+  and `Galaxy S9+` device profiles.
+
 ### Key parameters
 
 - **`config_test.py`** — the central tuning config (`src/config.js`, exposed as
@@ -406,6 +476,9 @@ Only `howtoplay_test.py` leaves it open.
   win pays exactly `coinWinReward`); and that there is **no second source** — the
   JSON prize tables no longer carry the gates, and the modules the constants came
   from derive them from `CONFIG` instead of re-declaring a literal.
+  It also covers the `language` section: an unrecognised tag maps to nothing, a
+  fresh player lands on `defaultLanguage`, and the active table really came from
+  `textDir`.
 
 ### User profile & persistence
 

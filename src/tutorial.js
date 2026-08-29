@@ -10,6 +10,7 @@
 // sequence has finished a tap anywhere closes it too.
 
 import { tween, delay, easeOutCubic, easeOutBack } from "./tween.js";
+import { t, locText } from "./i18n.js";
 
 const PANEL_W = 620;
 const PANEL_H = 860;
@@ -95,7 +96,7 @@ export class HowToPlayPopup extends PIXI.Container {
     // offset) stays inside the panel, so no mask is needed.
     this.group.addChild(panel, this.rays);
 
-    this.titleText = new PIXI.Text("How To Play", {
+    this.titleText = locText("tutorial_title", {
       fontFamily: "Arial", fontSize: 54, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 6,
     });
@@ -103,7 +104,7 @@ export class HowToPlayPopup extends PIXI.Container {
     this.titleText.position.set(0, -358);
     this.titleText.alpha = 0;
 
-    this.lineText = new PIXI.Text("Collect 3 identical tiles to remove them", {
+    this.lineText = locText("tutorial_line", {
       fontFamily: "Arial", fontSize: 28, fontWeight: "700", fill: 0xd7e2ff,
       align: "center", wordWrap: true, wordWrapWidth: PANEL_W - 80,
     });
@@ -113,7 +114,7 @@ export class HowToPlayPopup extends PIXI.Container {
 
     this.group.addChild(this.titleText, this.lineText);
 
-    this.okBtn = this._makeButton("OK", 260, 88, 0, 356, 0x39c06a, () => this.close());
+    this.okBtn = this._makeButton(t("ui_ok"), 260, 88, 0, 356, 0x39c06a, () => this.close());
     this.okBtn.alpha = 0;
     this.okBtn.eventMode = "none"; // armed when it fades in
     this.group.addChild(this.okBtn);

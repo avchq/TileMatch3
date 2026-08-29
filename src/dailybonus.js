@@ -21,6 +21,7 @@ import { tween, delay, easeInCubic, easeOutCubic, easeInOutQuad, easeOutBack } f
 import { makeCoinIcon } from "./shop.js";
 import { fitPanel } from "./layout.js";
 import { CONFIG } from "./config.js";
+import { t, locText, itemName } from "./i18n.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -35,9 +36,9 @@ const PRIZE_GRANT = {
   shuffle: { booster: "shuffle" },
 };
 
-// Glyphs + names for the non-coin prize types (coins use the drawn gold coin).
+// Glyphs for the non-coin prize types (coins use the drawn gold coin). The NAME
+// that goes under the glyph is localized — see itemName() in src/i18n.js.
 const PRIZE_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀" };
-const PRIZE_LABEL = { coins: "Coins", undo: "Undo", wand: "Wand", shuffle: "Shuffle" };
 
 // The three mystery boxes: green / red / blue (lid + darker body).
 const BOXES = [
@@ -170,7 +171,7 @@ export class DailyBonusScene extends PIXI.Container {
     this.panel.position.set(DESIGN_W / 2, DESIGN_H / 2);
     this.addChild(this.panel);
 
-    const title = new PIXI.Text("Daily Bonus", {
+    const title = locText("daily_bonus_title", {
       fontFamily: "Arial", fontSize: 64, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 7,
     });
@@ -178,7 +179,7 @@ export class DailyBonusScene extends PIXI.Container {
     title.position.set(0, -460);
     this.panel.addChild(title);
 
-    this._tip = new PIXI.Text("Pick a box!", {
+    this._tip = locText("pick_a_box", {
       fontFamily: "Arial", fontSize: 40, fontWeight: "800", fill: 0xdce7ff,
       stroke: 0x122043, strokeThickness: 4,
     });
@@ -202,11 +203,11 @@ export class DailyBonusScene extends PIXI.Container {
     this.panel.addChild(this._reveal);
 
     // "Watch a video to double it" — appears first; the plain Claim fades in ~2s later.
-    this._doubleBtn = this._makeButton("📺  Double it!", 380, 96, 0, 170, 0x2f9e6a, () => this._double());
+    this._doubleBtn = this._makeButton(`📺  ${t("double_it")}`, 380, 96, 0, 170, 0x2f9e6a, () => this._double());
     this._doubleBtn.visible = false;
     this.panel.addChild(this._doubleBtn);
 
-    this._claimBtn = this._makeButton("Claim", 300, 88, 0, 290, 0x4d8dff, () => this._take(1));
+    this._claimBtn = this._makeButton(t("claim"), 300, 88, 0, 290, 0x4d8dff, () => this._take(1));
     this._claimBtn.visible = false;
     this.panel.addChild(this._claimBtn);
 
@@ -221,7 +222,7 @@ export class DailyBonusScene extends PIXI.Container {
     this.panel.addChild(this.toast);
 
     // Back button — only during the pick phase (before a box is opened).
-    this._backBtn = this._makeButton("Back", 220, 74, 0, 480, 0x3a4a72, () => this._close());
+    this._backBtn = this._makeButton(t("btn_back"), 220, 74, 0, 480, 0x3a4a72, () => this._close());
     this.panel.addChild(this._backBtn);
 
     // Prize flight layer (on top of everything).
@@ -364,7 +365,7 @@ export class DailyBonusScene extends PIXI.Container {
     const g = this._reveal;
     g.removeChildren();
 
-    const congr = new PIXI.Text("Congratulations!", {
+    const congr = new PIXI.Text(t("congratulations"), {
       fontFamily: "Arial", fontSize: 40, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 5,
     });
@@ -382,13 +383,14 @@ export class DailyBonusScene extends PIXI.Container {
     g.addChild(icon);
     this._revealIcon = icon;
 
-    const name = new PIXI.Text(PRIZE_LABEL[prize.type] || "Prize", {
+    const name = new PIXI.Text(itemName(prize.type, prize.amount) || t("item_prize"), {
       fontFamily: "Arial", fontSize: 34, fontWeight: "800", fill: 0xffffff,
       stroke: 0x1a2140, strokeThickness: 4,
     });
     name.anchor.set(0.5);
     name.position.set(0, 62);
     g.addChild(name);
+    this._revealName = name;
 
     const amt = new PIXI.Text(this._amountText(prize), {
       fontFamily: "Arial", fontSize: 40, fontWeight: "900", fill: 0xffffff,
@@ -476,7 +478,7 @@ export class DailyBonusScene extends PIXI.Container {
       if (this._revealAmt) this._revealAmt.text = this._amountText({ type: prize.type, amount: prize.amount * 2 });
       await this._take(2);
     } else if (res === "fail") {
-      this._showToast("Ad not available");
+      this._showToast(t("ad_not_available"));
     }
     // "cancel": nothing spent — the base Claim stays available.
   }
@@ -540,6 +542,23 @@ export class DailyBonusScene extends PIXI.Container {
       duration: 240, ease: easeOutCubic,
       onUpdate: (e) => node.scale.set(1 + 0.28 * Math.sin(Math.PI * e)),
     });
+  }
+
+  /**
+   * Re-letter. The panel title and the "Pick a box!" tip carry their keys and
+   * refresh themselves; the three buttons and the revealed prize's name are
+   * assembled in code, so they are re-read here. The reveal group is rebuilt on
+   * every open anyway — this only matters for a language changed while a prize
+   * is still on screen.
+   */
+  relocalize() {
+    this._doubleBtn.label.text = `📺  ${t("double_it")}`;
+    this._claimBtn.label.text = t("claim");
+    this._backBtn.label.text = t("btn_back");
+    if (this._revealName && !this._revealName.destroyed && this._opened) {
+      const prize = this._prizes && this._prizes[this._chosen];
+      if (prize) this._revealName.text = itemName(prize.type, prize.amount) || t("item_prize");
+    }
   }
 
   _showToast(msg) {

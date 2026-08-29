@@ -8,6 +8,7 @@ import { HowToPlayPopup } from "./tutorial.js";
 import { BoosterCoach } from "./boostercoach.js";
 import { rewardIsCoins } from "./levelchest.js";
 import { CONFIG } from "./config.js";
+import { t, itemName } from "./i18n.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -45,10 +46,10 @@ const slotMaxFor = (n) =>
 const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1140;
 
-// Level Chest reward glyphs + words. Coins/lightning draw a gold coin instead of
-// an emoji (see makeCoinIcon), matching how the wheel and daily gift show them.
+// Level Chest reward glyphs. Coins/lightning draw a gold coin instead of an
+// emoji (see makeCoinIcon), matching how the wheel and daily gift show them.
+// The WORDS that go with them are localized — see itemName() in src/i18n.js.
 const CHEST_REWARD_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀", lightning: "⚡" };
-const CHEST_REWARD_WORD = { coins: "Coins", undo: "Undo", wand: "Wand", shuffle: "Shuffle", lightning: "Coins" };
 
 export class GameScene extends PIXI.Container {
   constructor(app, tileTextures, slotTexture, backgrounds, audio, user, prices, levelChest) {
@@ -271,7 +272,7 @@ export class GameScene extends PIXI.Container {
   _showBoosterHint(btn, kind) {
     this._clearBoosterHint();
     if (!btn || !this.user) return;
-    const c = makeHintPill(`Unlocks at Level ${this.user.boosterUnlockLevel(kind)}`);
+    const c = makeHintPill(t("booster_unlock_level", this.user.boosterUnlockLevel(kind)));
     // Above the button, clamped so a hint on an edge helper can't run off the
     // 750-wide safe band (the band, not the view — hudBottom is centred in it).
     const half = c.__w / 2 + 8;
@@ -394,7 +395,7 @@ export class GameScene extends PIXI.Container {
     const res = this._watchExtraSlotAd();
     if (res === "fail") {
       this.audio.play("fail");
-      this._showTrayMessage("Ad not ready, please try again later!");
+      this._showTrayMessage(t("ad_not_ready"));
       return false;
     }
     if (res !== "succeed") return false; // cancelled — spend nothing, keep the offer
@@ -421,7 +422,7 @@ export class GameScene extends PIXI.Container {
     // state it would pop again on every tap once the tray is pinned there.
     if (free > 0 && free <= TRAY_WARNINGS.bubbleAtFree
       && this._trayWarnFree > TRAY_WARNINGS.bubbleAtFree) {
-      this._showTrayMessage("Insufficient space!");
+      this._showTrayMessage(t("insufficient_space"));
     }
     this._trayWarnFree = free;
   }
@@ -650,7 +651,7 @@ export class GameScene extends PIXI.Container {
     bar.beginFill(0x0a1226, 0.35).drawRoundedRect(24, 40, DESIGN_W - 48, 120, 28).endFill();
     this.hudTop.addChild(bar);
 
-    this.levelText = new PIXI.Text("LEVEL 1", {
+    this.levelText = new PIXI.Text(t("hud_level", 1), {
       fontFamily: "Arial", fontSize: 40, fontWeight: "900", fill: 0xffffff,
       stroke: 0x1a2a52, strokeThickness: 6,
     });
@@ -683,7 +684,7 @@ export class GameScene extends PIXI.Container {
     // Auto Complete — a wide pill sharing the helper baseline, centred over the
     // three round buttons. Hidden until the endgame is trivially solvable, when
     // it REPLACES the helpers (see _updateBoosters / _autoAvailable).
-    this.autoBtn = this._makeButton("✓ Auto Complete", 460, 92, DESIGN_W / 2, by, 0x39c06a,
+    this.autoBtn = this._makeButton(`✓ ${t("auto_complete")}`, 460, 92, DESIGN_W / 2, by, 0x39c06a,
       () => this.autoComplete());
     this.autoBtn.visible = false;
     this.hudBottom.addChild(this.autoBtn);
@@ -890,7 +891,7 @@ export class GameScene extends PIXI.Container {
   loadLevel(rawArr, levelNum) {
     this.levelNum = levelNum;
     this.rawArr = rawArr;
-    this.levelText.text = `LEVEL ${levelNum}`;
+    this.levelText.text = t("hud_level", levelNum);
     // The very first level a brand-new player sees is the guided one: stripped
     // chrome (see _applyFirstRunChrome) plus the opening demo moves below.
     this._firstRun = !!(this.user && this.user.isNewPlayer() && levelNum === 1);
@@ -1831,9 +1832,9 @@ export class GameScene extends PIXI.Container {
     const chestLevel = (this.user && this.levelNum > this.user.completedLevel()) ? this.levelNum : 0;
     const last = this.levelNum >= 3;
     this._showOverlay(
-      last ? "🏆 You Win!" : "Level Complete!",
-      `${last ? "You cleared levels 1–3" : "Great matching!"}  +${COIN_WIN_REWARD}`,
-      "Continue",
+      last ? `🏆 ${t("you_win")}` : t("Language2"),
+      t("win_subtitle", t(last ? "win_all_cleared" : "win_great_matching"), COIN_WIN_REWARD),
+      t("btn_go"),
       // hand control back to the lobby, which advances to the next level
       () => this.onLevelComplete && this.onLevelComplete(this.levelNum),
       COIN_WIN_REWARD, // show a gold coin next to the reward
@@ -1878,24 +1879,24 @@ export class GameScene extends PIXI.Container {
     panel.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(-290, -230, 580, 470, 34);
     group.addChild(panel);
 
-    const tt = new PIXI.Text("Out of Moves", {
+    const tt = new PIXI.Text(t("out_of_moves"), {
       fontFamily: "Arial", fontSize: 52, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 6,
     });
     tt.anchor.set(0.5); tt.position.set(0, -162);
-    const stt = new PIXI.Text("The tray is full — keep going?", {
+    const stt = new PIXI.Text(t("tray_full"), {
       fontFamily: "Arial", fontSize: 28, fill: 0xd7e2ff,
     });
     stt.anchor.set(0.5); stt.position.set(0, -104);
     group.addChild(tt, stt);
 
     // Secondary row: Home (lobby) | Replay (restart), above the Continue button.
-    const home = this._makeButton("Home", 250, 88, -136, -6, 0x556080, () => {
+    const home = this._makeButton(t("btn_home"), 250, 88, -136, -6, 0x556080, () => {
       this._loseBtns = null;
       this.overlayLayer.removeChildren();
       this._exit();
     });
-    const replay = this._makeButton("Replay", 250, 88, 136, -6, 0x4d8dff, () => {
+    const replay = this._makeButton(t("btn_replay"), 250, 88, 136, -6, 0x4d8dff, () => {
       this._loseBtns = null;
       this.overlayLayer.removeChildren();
       this.restart();
@@ -1931,7 +1932,7 @@ export class GameScene extends PIXI.Container {
     g.beginFill(0x39c06a).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
     g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
     c.addChild(g);
-    const label = new PIXI.Text("Continue", {
+    const label = new PIXI.Text(t("btn_go"), {
       fontFamily: "Arial", fontSize: 34, fontWeight: "800", fill: 0xffffff,
     });
     label.anchor.set(0, 0.5);
@@ -2192,7 +2193,7 @@ export class GameScene extends PIXI.Container {
     localDim.eventMode = "static"; // modal over the panel
     popup.addChild(localDim);
 
-    const title = new PIXI.Text("Chest Reward!", {
+    const title = new PIXI.Text(t("chest_reward_title"), {
       fontFamily: "Arial", fontSize: 44, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 6,
     });
@@ -2211,12 +2212,12 @@ export class GameScene extends PIXI.Container {
     popup.addChild(amt);
     this._chestRewardAmt = amt;
 
-    const dbl = this._makeButton("📺  Double it!", 380, 88, 0, 110, 0x2f9e6a,
+    const dbl = this._makeButton(`📺  ${t("double_it")}`, 380, 88, 0, 110, 0x2f9e6a,
       () => this._doubleChest(reward));
     popup.addChild(dbl);
     this._chestDoubleBtn = dbl;
 
-    const claim = this._makeButton("Claim", 300, 82, 0, 205, 0x4d8dff,
+    const claim = this._makeButton(t("claim"), 300, 82, 0, 205, 0x4d8dff,
       () => this._claimChest(reward, 1));
     claim.alpha = 0; claim.eventMode = "none";
     popup.addChild(claim);
@@ -2246,7 +2247,7 @@ export class GameScene extends PIXI.Container {
       }
       await this._claimChest(reward, 2);
     } else if (res === "fail") {
-      this._chestToast("Ad not available");
+      this._chestToast(t("ad_not_available"));
     }
     // "cancel": nothing spent — the base Claim stays available.
   }
@@ -2309,10 +2310,25 @@ export class GameScene extends PIXI.Container {
     return t;
   }
 
+  /**
+   * Re-letter the text this scene assembles in code. Only two things outlive a
+   * language change here: the HUD's level heading and the Auto Complete button.
+   * The win / lose / chest overlays are built fresh every time they are shown —
+   * and while one is up its dim swallows every tap, so the settings cog (and
+   * with it the picker) cannot be reached anyway.
+   */
+  relocalize() {
+    if (this.levelText && !this.levelText.destroyed) {
+      this.levelText.text = t("hud_level", this.levelNum || 1);
+    }
+    if (this.autoBtn && !this.autoBtn.destroyed) {
+      this.autoBtn.label.text = `✓ ${t("auto_complete")}`;
+    }
+  }
+
   _rewardText(reward) {
     const n = reward.amount || 0;
-    const word = CHEST_REWARD_WORD[reward.type] || reward.type;
-    return `${n} ${word}${n === 1 ? "" : "s"}`;
+    return t("reward_amount", n, itemName(reward.type, n));
   }
 
   // A brief message inside the reward popup (e.g. "Ad not available").

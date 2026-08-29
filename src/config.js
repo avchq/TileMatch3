@@ -350,6 +350,31 @@ export const CONFIG = deepFreeze({
     // rate-limited, which is why this is not 0.
     saveDebounceMs: 400,
   },
+
+  // --------------------------------------------------------------------------
+  //  LANGUAGE — where the localized text comes from, and what it falls back to
+  // --------------------------------------------------------------------------
+  //  The game ships in 13 languages (see src/i18n.js and the README's
+  //  Localization section). Only two things about that are tunable; the OFFERED
+  //  SET is deliberately not one of them — it is hard-coded as `LANGUAGES` in
+  //  src/i18n.js, so adding a language stays a three-edit job: a new translated
+  //  text file, an entry in that list, and a new case in the device-language
+  //  detection. A data-driven list would let a language exist that nothing can
+  //  reach.
+  language: {
+    // What an unrecognised DEVICE language falls back to on a brand-new player,
+    // and what an unrecognised STORED choice is treated as. "Anything the
+    // detection doesn't recognise becomes English." Changing it changes the
+    // language a player in an unsupported locale meets on their first launch;
+    // it must be one of the 13 codes in src/i18n.js LANGUAGES.
+    defaultLanguage: "en",
+
+    // Folder holding the per-locale string tables, loaded as
+    // `<textDir>/<code>.json`. Only the ACTIVE language's file is ever fetched.
+    // Configurable so the text can be moved (a CDN path, a versioned folder)
+    // without touching code.
+    textDir: "assets/lang",
+  },
 });
 
 // Recursively freeze so a stray `CONFIG.features.shop.unlockLevel = 1` throws in

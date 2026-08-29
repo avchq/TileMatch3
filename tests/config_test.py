@@ -40,6 +40,10 @@ EXPECT = {
               "extraSlot": {"unlockLevel": 9, "grant": 1},
               "warnings": {"pulseAtFree": 2, "bubbleAtFree": 1}},
     "persistence": {"saveDebounceMs": 400},
+    # The two tunable parts of the localization. The 13 OFFERED codes are
+    # deliberately NOT here — the spec has that list hard-coded in the program
+    # (LANGUAGES in src/i18n.js), so adding a language stays three edits.
+    "language": {"defaultLanguage": "en", "textDir": "assets/lang"},
 }
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -153,6 +157,15 @@ try:
         print("WHEEL AT GATE ->", w["unlocked"], w["spinsLeft"])
         assert w["unlocked"] is True, w
         assert w["spinsLeft"] == C["features"]["fortuneWheel"]["spinsPerCycle"], w
+
+        # The language layer reads its fallback and its folder from the config —
+        # a brand-new player in an unrecognised locale lands on `defaultLanguage`
+        # and the table really came from `textDir` (i18n_test.py owns the rest).
+        lang = C["language"]
+        assert page.evaluate("window.__game.mapTag('xx-YY')") is None
+        assert page.evaluate("window.__game.detectLanguage()") == lang["defaultLanguage"]
+        assert page.evaluate("window.__game.language()") == lang["defaultLanguage"]
+        assert json.loads(text(f"{lang['textDir']}/{lang['defaultLanguage']}.json"))
 
         # The Daily Bonus is gated the same way (shipped as 1 = from the start).
         d = page.evaluate("window.__game.dailyBonusState()")

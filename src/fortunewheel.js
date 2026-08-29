@@ -18,6 +18,7 @@ import { tween, delay, easeInCubic, easeOutCubic, easeInOutQuad, easeOutBack } f
 import { makeCoinIcon } from "./shop.js";
 import { fitPanel } from "./layout.js";
 import { CONFIG } from "./config.js";
+import { t, locText } from "./i18n.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -151,7 +152,7 @@ export class FortuneWheelScene extends PIXI.Container {
     this.panel.position.set(DESIGN_W / 2, DESIGN_H / 2);
     this.addChild(this.panel);
 
-    const title = new PIXI.Text("Fortune Wheel", {
+    const title = locText("wheel_title", {
       fontFamily: "Arial", fontSize: 64, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 7,
     });
@@ -228,7 +229,8 @@ export class FortuneWheelScene extends PIXI.Container {
     this.panel.addChild(this.toast);
 
     // Back button.
-    const back = this._makeButton("Back", 260, 78, 0, 470, 0x4d8dff, () => this._back());
+    const back = this._makeButton(t("btn_back"), 260, 78, 0, 470, 0x4d8dff, () => this._back());
+    this._backBtn = back;
     this.panel.addChild(back);
 
     // Prize flight layer (on top of everything). Flyers are placed in its space
@@ -244,7 +246,7 @@ export class FortuneWheelScene extends PIXI.Container {
     g.beginFill(0x2f9e6a).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.6).endFill();
     g.beginFill(0x39c06a).drawRoundedRect(-w / 2, -h / 2, w, h - 10, h / 2.6).endFill();
     g.lineStyle(5, 0xffffff, 0.4).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.6);
-    const label = new PIXI.Text("FREE SPIN", {
+    const label = new PIXI.Text(t("free_spin_btn"), {
       fontFamily: "Arial", fontSize: 40, fontWeight: "900", fill: 0xffffff,
       stroke: 0x1c5c39, strokeThickness: 5,
     });
@@ -266,9 +268,10 @@ export class FortuneWheelScene extends PIXI.Container {
     const g = new PIXI.Graphics();
     g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
     g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const t = new PIXI.Text(label, { fontFamily: "Arial", fontSize: 32, fontWeight: "800", fill: 0xffffff });
-    t.anchor.set(0.5);
-    c.addChild(g, t);
+    const btnLabel = new PIXI.Text(label, { fontFamily: "Arial", fontSize: 32, fontWeight: "800", fill: 0xffffff });
+    btnLabel.anchor.set(0.5);
+    c.addChild(g, btnLabel);
+    c.label = btnLabel;
     c.eventMode = "static";
     c.cursor = "pointer";
     c.on("pointertap", onClick);
@@ -420,7 +423,7 @@ export class FortuneWheelScene extends PIXI.Container {
 
   _refreshSpinBtn() {
     const free = this.user.wheelSpinsUsed() === 0;
-    this._spinBtn.label.text = free ? "FREE SPIN" : "📺  SPIN";
+    this._spinBtn.label.text = free ? t("free_spin_btn") : `📺  ${t("spin_btn")}`;
     const ok = this.canSpin();
     this._spinBtn.eventMode = ok ? "static" : "none";
     this._spinBtn.alpha = ok ? 1 : 0.5;
@@ -453,7 +456,7 @@ export class FortuneWheelScene extends PIXI.Container {
       } else {
         const res = this._watchAd();
         if (res === "succeed") await this._runSpin(false);
-        else if (res === "fail") this._showToast("Ad not available");
+        else if (res === "fail") this._showToast(t("ad_not_available"));
         // "cancel": nothing spent, no message.
       }
     } finally {
@@ -663,6 +666,16 @@ export class FortuneWheelScene extends PIXI.Container {
       duration: 250, ease: easeOutCubic,
       onUpdate: (e) => { this.glow.alpha = from + (to - from) * e; },
     });
+  }
+
+  /**
+   * Re-letter. The panel title carries its key and refreshes itself; the spin
+   * button's face depends on whether the free spin is still owed, so it goes
+   * back through the same refresh the game uses.
+   */
+  relocalize() {
+    if (this._backBtn) this._backBtn.label.text = t("btn_back");
+    this._refreshSpinBtn();
   }
 
   _showToast(msg) {

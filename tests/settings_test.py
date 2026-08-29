@@ -42,7 +42,10 @@ try:
         COG = (60, 84)  # settings cog moved to top-left
         MUSIC_TOGGLE = (583, 627)
         SOUND_TOGGLE = (583, 737)
-        BACK = (375, 873)
+        # The panel grew downward to make room for the Language row (which sits
+        # between Sound and Back — see languagepicker_test.py), so Back moved
+        # while the two toggles kept their offsets from the panel centre.
+        BACK = (375, 933)
 
         # -- Lobby: cog opens settings ---------------------------------------
         assert page.evaluate("window.__game.settingsVisible()") is False

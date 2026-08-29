@@ -11,7 +11,11 @@ everything the first screen needs is in memory, then faded out. It is plain
 **DOM/CSS** (`index.html` + `src/splash.js`), not a Pixi scene, so it is painted
 from the very first frame, before `vendor/pixi.min.js` and the ES modules have
 even been fetched, and covers the whole of boot rather than only the part after
-Pixi starts. See the boot section below for what fills the bar.
+Pixi starts. If boot **fails**, the splash stays up and turns red with the
+reason instead of fading onto a blank canvas — including for failures that
+happen *before* `boot()` exists (a bad import, a module that throws while being
+evaluated), which an inline handler in `index.html` catches, since `boot()`'s own
+`.catch()` cannot see those. `boot_resilience_test.py` guards it. See the boot section below for what fills the bar.
 
 After it fades you land on the **lobby** screen, which shows a big
 **"Level &lt;n&gt;"** button for the level you're on, anchored to the **bottom edge**
@@ -499,10 +503,11 @@ with a `tiers[]` of `{target, reward}`) and `weekly[]` (flat `{activity, target,
 reward}` rows), rewards written as `{type, amount}` with the same
 `coins`/`undo`/`wand`/`shuffle` vocabulary as the wheel and the gift. Adding
 **tiers** to an existing chain is a change to that file alone; adding a genuinely
-**new kind** of task also needs a title template and icon in the `ACTIVITY` map at
-the top of `src/tasks.js` (titles are not in the JSON, mirroring `PRIZE_LABEL` in
-`dailybonus.js`). The feature's **gate and reset weekday** sit in **`src/config.js`**
-(`features.tasks`) with every other key parameter.
+**new kind** of task needs three things — the rows, a `titles` entry naming its
+**text key** (plus that key in all 13 language files, see
+[Localization](#localization)) and an icon in the `ACTIVITY` map at the top of
+`src/tasks.js`, which is now glyphs only. The feature's **gate and reset weekday**
+sit in **`src/config.js`** (`features.tasks`) with every other key parameter.
 
 **Note:** the shipped `unlockLevel` is **10**, and this port ships 13 levels — so
 it is reachable but late. Lower `features.tasks.unlockLevel` in `src/config.js` to
@@ -560,6 +565,212 @@ The chest **schedule** is a JSON data table, `assets/config/levelChest.json` (on
 **repeat-start** index — lives in `src/config.js` (`features.levelChest.repeatStart`,
 shipped `6`, i.e. the 7th milestone/level 64 begins the looping tail).
 
+## Localization
+
+The game ships in **13 languages**, and every one of them is complete: the same
+**96 pieces of text** exist in all 13, with no gaps, no fallbacks to English, and
+no partially-translated locale. The player can change language at any time from
+the settings screen, and the whole interface **re-letters itself immediately** —
+no restart, no reload, no loss of progress.
+
+The 13, in the order the picker lists them:
+
+| Code | Shown in the picker as | |
+| --- | --- | --- |
+| `zh` | Chinese | Simplified |
+| `zh-tw` | Traditional Chinese | |
+| `en` | English | |
+| `id` | Bahasa Indonesia | |
+| `de` | Deutsch | |
+| `es` | Español | |
+| `fr` | Français | |
+| `in` | Hindi | the code is `in`, the language is Hindi |
+| `it` | Italiano | |
+| `jp` | Japanese | |
+| `ko` | Korean | |
+| `ru` | Русский | |
+| `pt` | Português | |
+
+Two of these codes are **traps for the unwary**. **`in` means Hindi, not
+Indonesian** — Indonesian is `id`. And **`jp`** is used where the standard code
+would be `ja`. Both are the game's own convention and appear everywhere.
+
+### Picking a language
+
+#### The first time — automatic
+On a brand-new player the game asks the **device** what language it is set to and
+maps that onto one of its 13. The mapping is generous about regional variants:
+Austrian, Swiss and Liechtenstein German all land on `de`; every flavour of
+Spanish (Spain, Latin America, Argentina, Mexico, Colombia, Puerto Rico, US
+Spanish) lands on `es`; Belgian, Swiss and Luxembourgish French land on `fr`;
+mainland and Singapore Chinese land on `zh` while Hong Kong, Macau and Taiwan
+land on `zh-tw`; Indonesian *and* Indonesian-region English land on `id`; Hindi
+*and* Indian English land on `in`. **Anything unrecognised becomes English**
+(`CONFIG.language.defaultLanguage`).
+
+Two details worth knowing:
+- The detection uses the **browser/device language** (`navigator.languages`),
+  not any platform account language. On Facebook Instant the two normally agree,
+  but they are not the same signal — the Facebook locale is never consulted.
+- Detection runs **exactly once**. The result is written into browser storage
+  under the key **`ck_language`** (unprefixed — it predates the `tm3.`
+  convention), and from then on that stored value wins. Changing the device
+  language later has no effect; the player must change it in-game.
+
+#### Afterwards — the language picker
+Settings carries a **Language** row showing the current language's own name.
+Tapping it opens a **scrolling list** of all 13, with the current one
+tick-marked; the list **auto-scrolls** so the current choice is visible when the
+popup opens. Tapping a row moves the tick but changes nothing yet — the choice
+only applies on **Confirm**. Closing the popup any other way (Back, or a tap on
+the dim) discards it.
+
+The names in that list are **not translated**. Each language is written in its
+own language (or in English, for the Asian ones): a Russian player browsing the
+list sees "Chinese", "English", "Deutsch", "Русский", "Traditional Chinese". The
+only word in the popup that does translate is the heading **"Language"** itself.
+
+#### What happens on Confirm
+If the picked language is the current one, the popup just closes. Otherwise the
+game downloads that language's text, swaps it in, **re-letters every label
+currently on screen**, remembers the choice, and closes the popup. Screens that
+are not currently visible re-letter themselves too, so the swap is seamless
+whichever way the player arrives back at them.
+
+Labels the game writes itself — the lobby's level counter, the game screen's
+`LEVEL 12` heading, the tasks countdown and note lines, the shop's package
+names — are told to refresh in place through the `relocalize()` broadcast in
+`src/main.js`, the language-change twin of the existing `resize()`.
+
+Two rough edges, kept deliberately:
+- **A failed download still counts as a choice.** If the language file can't be
+  fetched, the on-screen text stays as it was — but the new language is still
+  written to storage, so the next launch will come up in it (or fail to, again).
+- **The old language is never unloaded.** `i18n.unload()` exists but nothing
+  calls it, so switching back and forth in one session leaves every visited
+  language resident. Harmless in practice — a table is a few kilobytes — and it
+  makes switching back instant.
+
+The **splash screen** is a special case: it is painted before any module has
+parsed, so its first status line ("Starting up…") is the markup's own English.
+Every line after it — "Loading level table…" onward — is localized, because
+`i18n.init()` is the first thing `boot()` does.
+
+### Where the text lives
+Each language is one flat JSON file of `key → translated string`,
+`assets/lang/<code>.json`; only the one for the **active** language is ever
+fetched. The folder is configurable (`CONFIG.language.textDir`); the **set of
+offered languages is not** — it is hard-coded as `LANGUAGES` in `src/i18n.js`,
+because a data-driven list would let a language exist that nothing can reach.
+
+There are **96 keys**, and the key list is **byte-for-byte identical across all
+13 languages** — `tests/i18n_test.py` enforces that, along with "not a single
+phrase is left sitting in English". Where a translation looks like English it is
+a one- or two-word cognate (German `Level`, `Shop`; Indonesian `OK`), not a
+missed string.
+
+The keys are mixed-convention, a fingerprint of a sheet that grew by several
+hands: mostly `snake_case` (`daily_reward`, `btn_go`, `insufficient_space`), a
+`Capitalised_Numbered` family (`Language1`, `Language2`), and a few English
+phrases used as their own key (`Pouch Of Coins`, `Starter Bundle`).
+
+### How a screen gets its text
+Three routes, all landing in the same table.
+
+**1. Baked into the screen layout.** A label made with `locText("key", style)`
+carries its key and fills itself in whenever the language changes — no scene
+code needed. Panel titles, buttons and captions all work this way.
+
+**2. Fetched by name from the game logic.** Anything assembled at runtime —
+`Level 12`, a `2d 14h` countdown, a task title — calls `t(key, …values)` and is
+re-run from that scene's `relocalize()`.
+
+**3. Named by a config table.** Two tables store a text **key** rather than the
+text itself, so the same row reads correctly in every language:
+
+| Table | Column | Example |
+| --- | --- | --- |
+| `assets/config/tasks.json` | `titles.<activity>.title` / `.one` | `levelsCompleted` → `title_task_1` → "Complete %value levels" |
+| `PACKAGES` (`src/user/payments.js`) | `nameKey` | `Pouch Of Coins` → "Pouch of Coins" |
+
+Every activity in the goal table has a title key, so a task row can never fall
+back to printing its internal activity code at the player.
+
+### What is *not* localized
+Three kinds of on-screen text deliberately have no key and are literals in the
+scene that draws them:
+
+- **Emoji and glyphs** — the fruit flourish, 🎁 📺 🔒 🛒 ✓ ★, the helper icons.
+  Where one sits next to a word the two are separate objects (`📺` + `t("spin_btn")`),
+  so a translator never has to carry a glyph and can't reorder it by accident.
+- **Badge words** — the lobby's red **`NEW`** pill. A badge word is part of the
+  badge's *artwork*, not copy: it sits in a fixed-width pill sized around three
+  characters, and the mark reads as itself worldwide. Any future `HOT`, `TOP` or
+  `SALE` badge gets the same treatment. `i18n_test.py` fails if one of them turns
+  up as a key.
+- **Numbers and prices** — counters, `7/12`, `+25`, the shop's `$0.99`.
+
+### Placeholders
+There is no formatting system — the game does a plain find-and-replace on two
+placeholder styles:
+
+- **`%value`**, for anything counted — `title_task_1` = "Complete %value levels".
+- **`{0}` / `{1}`**, for levels and ranges — `Language1` = "Level {0}",
+  `reset_in_dh` = "Reset in: {0}d {1}h".
+
+Because the substitution is a plain **first-match replace**, **each placeholder
+may appear only once per string**. A translator who repeats `%value` for emphasis
+gets the first one filled and the second left as literal text. `{0}` and `{1}`
+are substituted one after another, so they must stay distinct tokens — they may
+be **reordered**, but not merged. The tests check all of this against English.
+
+A placeholder can be filled with **another translated string**: `win_subtitle`
+(`"{0}  +{1}"`) takes the win line and the coin reward, and `tasks_note_weekly`
+takes the localized countdown.
+
+**Singulars and plurals are two separate keys** (`item_coin` / `item_coin_plural`,
+`title_task_1` / `title_task_1_one`) rather than an "s" appended in code — most
+of the 13 do not form a plural that way, and several do not distinguish one at
+all.
+
+### When a key is missing
+A label whose key isn't in the active language **displays the key itself**. There
+is no fallback to English: a missing translation is meant to be noticed rather
+than papered over. Every key the shipped screens reach for resolves — the test
+walks every screen and asserts `i18n.missingKeys()` is empty.
+
+### Fonts
+Every label renders in the font it was designed with (`Arial`, with the browser's
+own fallback behind it). The Chinese, Japanese, Korean, Russian and Hindi text
+all display correctly, so no language-aware font selection is wired up.
+
+Long translations are a real hazard: buttons are fixed-width pills with the label
+centred on top, neither masked nor auto-shrunk, so an over-long string spills over
+the artwork. `tests/langfit_test.py` measures every such label in all 13 languages
+against its widget — **a failure there means shortening the translation, not
+widening the button.** Labels that pass through `fitTextWidth()` (the lobby title
+and subtitle, task rows, tab buttons, the picker's own language names) shrink
+themselves and are exempt.
+
+### Adding a language
+Three edits, not one — otherwise the language exists but nothing can reach it:
+1. a new translated text file, `assets/lang/<code>.json`, with **exactly** the
+   same key set as `en.json`;
+2. an entry in the hard-coded `LANGUAGES` list in `src/i18n.js`;
+3. a new case in the device-language detection (`EXACT_TAGS` / `BASE_LANGS` in
+   the same file).
+
+### Testing another language locally
+The stored choice is the browser-storage key **`ck_language`**. Setting it to any
+of the 13 codes before loading the page starts the game in that language;
+clearing it makes the game re-detect from the browser. The in-game picker writes
+the same key, so the two are interchangeable. A code the game doesn't recognise
+is silently treated as English.
+
+```js
+localStorage.setItem("ck_language", "jp");  // then reload
+```
+
 ## Run it
 Because it uses ES modules and `fetch`, it must be served over HTTP (not
 opened via `file://`):
@@ -569,6 +780,24 @@ cd JS
 python3 -m http.server 8099
 # then open http://localhost:8099/index.html
 ```
+
+**Testing on a phone?** Use the no-cache server instead:
+
+```bash
+python3 tools/serve.py 8099        # then open http://<LAN IP>:8099/index.html
+```
+
+`python3 -m http.server` sends no cache headers, so a mobile browser will hold ES
+modules indefinitely and revalidate none of them. That gets you a *partially*
+stale module graph — a fresh `src/i18n.js` against a cached `src/config.js`, say
+— and a module that throws while being evaluated takes the whole graph down
+**before `boot()` runs**, so the splash freezes at "Starting up… 0%". `serve.py`
+sends `Cache-Control: no-store` so every reload gets the current tree. (If a
+device is already stuck, one hard reload clears it.)
+
+A boot that dies that way now says so: an inline handler in `index.html` catches
+errors the module graph throws before `boot()` exists and paints them into the
+splash's error state, instead of leaving a frozen bar.
 
 ## How it maps to the original
 - **Levels** (`assets/levels/level{1,2,3}.json`) are the *decrypted* original
@@ -1036,6 +1265,7 @@ sections are:
 | `economy` | `currencies`, the `startingWallet`, and `coinWinReward` (the only free coin faucet) |
 | `board` | `traySlots` — the base tray capacity, the core difficulty dial — plus `extraSlot` (`unlockLevel` / `grant`, the ad-funded 8th slot) and `warnings` (`pulseAtFree` / `bubbleAtFree`, the two near-full cues, counted against the *live* capacity) |
 | `persistence` | `saveDebounceMs` — the autosave debounce |
+| `language` | `defaultLanguage` (what an unrecognised device language falls back to) and `textDir` (the folder holding the per-locale string tables). The 13 **offered** codes are deliberately not here — that list is hard-coded in `src/i18n.js`; see Localization above |
 
 Every `unlockLevel` reads **"available from level N onward"**, i.e. it opens once
 the player has *cleared* level N-1; gates are derived from `progress.completed`,

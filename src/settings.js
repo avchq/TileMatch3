@@ -1,11 +1,13 @@
 // Settings screen — an overlay shown on top of whichever scene is active (lobby
-// or game). Two toggles (Music = background music, Sound = tap/match SFX) plus a
-// Back button that returns to the previous screen. The toggles drive the audio
-// channels (audio.setMusic / setSound), which persist to the User profile via
-// the onMusicChange / onSoundChange callbacks wired up in main.js.
+// or game). Two toggles (Music = background music, Sound = tap/match SFX), a
+// LANGUAGE row that opens the picker, and a Back button that returns to the
+// previous screen. The toggles drive the audio channels (audio.setMusic /
+// setSound), which persist to the User profile via the onMusicChange /
+// onSoundChange callbacks wired up in main.js.
 
 import { tween, easeOutBack } from "./tween.js";
-import { fitPanel } from "./layout.js";
+import { fitPanel, fitTextWidth } from "./layout.js";
+import { i18n, locText, languageLabel } from "./i18n.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -56,7 +58,8 @@ export class SettingsScene extends PIXI.Container {
     super();
     this.app = app;
     this.audio = audio;
-    this.onBack = null; // () => void — optional hook when returning
+    this.onBack = null;     // () => void — optional hook when returning
+    this.onLanguage = null; // () => void — open the language picker
     this.visible = false;
     this._build();
   }
@@ -84,7 +87,7 @@ export class SettingsScene extends PIXI.Container {
     this.dim = dim;
 
     // Panel
-    const pw = 600, ph = 580;
+    const pw = 600, ph = 700;
     const px = (DESIGN_W - pw) / 2, py = (DESIGN_H - ph) / 2;
     this.panel = new PIXI.Container();
     this.panel.position.set(DESIGN_W / 2, DESIGN_H / 2); // pivot at centre for the entrance pop
@@ -95,7 +98,7 @@ export class SettingsScene extends PIXI.Container {
     g.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(-pw / 2, -ph / 2, pw, ph, 36);
     this.panel.addChild(g);
 
-    const title = new PIXI.Text("Settings", {
+    const title = locText("settings_title", {
       fontFamily: "Arial", fontSize: 60, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 6,
     });
@@ -106,16 +109,21 @@ export class SettingsScene extends PIXI.Container {
     // Two toggle rows (coordinates relative to the panel centre)
     const labelX = -pw / 2 + 56;
     const toggleX = pw / 2 - 92;
-    this.musicToggle = this._buildRow("Music", labelX, toggleX, -40, (on) => this.audio.setMusic(on));
-    this.soundToggle = this._buildRow("Sound", labelX, toggleX, 70, (on) => this.audio.setSound(on));
+    this.musicToggle = this._buildRow("music", labelX, toggleX, -40, (on) => this.audio.setMusic(on));
+    this.soundToggle = this._buildRow("sound", labelX, toggleX, 70, (on) => this.audio.setSound(on));
+
+    // LANGUAGE — a row like the two above, but its right-hand side is the
+    // current language's own name rather than a switch, and tapping anywhere on
+    // it opens the picker (src/languagepicker.js).
+    this.languageRow = this._buildLanguageRow(labelX, pw / 2 - 40, 180);
 
     // Back button
-    const back = this._makeButton("Back", 300, 88, 0, ph / 2 - 84, 0x4d8dff, () => this._back());
+    const back = this._makeButton("btn_back", 300, 88, 0, ph / 2 - 84, 0x4d8dff, () => this._back());
     this.panel.addChild(back);
   }
 
-  _buildRow(labelText, labelX, toggleX, y, onChange) {
-    const label = new PIXI.Text(labelText, {
+  _buildRow(labelKey, labelX, toggleX, y, onChange) {
+    const label = locText(labelKey, {
       fontFamily: "Arial", fontSize: 42, fontWeight: "800", fill: 0xffffff,
     });
     label.anchor.set(0, 0.5);
@@ -157,17 +165,54 @@ export class SettingsScene extends PIXI.Container {
     return c;
   }
 
-  _makeButton(label, w, h, cx, cy, color, onClick) {
+  // The Language row. The VALUE is the language's own name ("Русский"), which is
+  // never translated — the list it opens isn't either. Only the "Language" label
+  // on the left changes with the language.
+  _buildLanguageRow(labelX, valueX, y) {
+    const c = new PIXI.Container();
+    c.position.set(0, y);
+
+    const label = locText("language", {
+      fontFamily: "Arial", fontSize: 42, fontWeight: "800", fill: 0xffffff,
+    });
+    label.anchor.set(0, 0.5);
+    label.position.set(labelX, 0);
+    c.addChild(label);
+
+    const value = new PIXI.Text(languageLabel(i18n.code), {
+      fontFamily: "Arial", fontSize: 36, fontWeight: "800", fill: 0xffe27a,
+    });
+    value.anchor.set(1, 0.5);
+    value.position.set(valueX, 0);
+    fitTextWidth(value, 260);
+    c.addChild(value);
+    c.value = value;
+
+    // The whole row is the target, not just the words on it.
+    c.eventMode = "static";
+    c.cursor = "pointer";
+    c.hitArea = new PIXI.Rectangle(labelX - 16, -34, valueX - labelX + 32, 68);
+    c.on("pointertap", () => {
+      this.audio.play("btn_01");
+      if (this.onLanguage) this.onLanguage();
+    });
+
+    this.panel.addChild(c);
+    return c;
+  }
+
+  _makeButton(labelKey, w, h, cx, cy, color, onClick) {
     const c = new PIXI.Container();
     c.position.set(cx, cy);
     const g = new PIXI.Graphics();
     g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
     g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const t = new PIXI.Text(label, {
+    const t = locText(labelKey, {
       fontFamily: "Arial", fontSize: 36, fontWeight: "800", fill: 0xffffff,
     });
     t.anchor.set(0.5);
     c.addChild(g, t);
+    c.label = t;
     c.eventMode = "static";
     c.cursor = "pointer";
     c.on("pointertap", onClick);
@@ -182,6 +227,7 @@ export class SettingsScene extends PIXI.Container {
     this.visible = true;
     this.musicToggle.__set(this.audio.musicOn);
     this.soundToggle.__set(this.audio.soundOn);
+    this.relocalize(); // a language picked while this screen was shut
     this.panel.scale.set(0.6);
     tween(this.app.ticker, {
       duration: 300, ease: easeOutBack,
@@ -193,5 +239,16 @@ export class SettingsScene extends PIXI.Container {
     this.audio.play("btn_01");
     this.visible = false;
     if (this.onBack) this.onBack();
+  }
+
+  /**
+   * Re-letter. The title, the two row labels and the Back button carry their
+   * keys and refresh themselves; the language row's VALUE is the newly active
+   * language's own name, which has to be re-read here.
+   */
+  relocalize() {
+    if (!this.languageRow) return;
+    this.languageRow.value.text = languageLabel(i18n.code);
+    fitTextWidth(this.languageRow.value, 260);
   }
 }

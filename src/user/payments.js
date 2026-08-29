@@ -28,12 +28,17 @@ import { detectPlatform } from "./platform.js";
 // The packages offered for real money. `id` is the product/catalog id the platform
 // store is configured with; `coins` + `boosters` are what a successful purchase
 // grants. A package may hold just coins (a single item) or a combination.
+//
+// `nameKey` is a TEXT KEY, not wording: the shop looks it up in the active
+// language (assets/lang/<code>.json), which is what makes the same catalog row
+// read correctly in all 13 languages. `price` stays a literal — it is a store
+// price string, not copy.
 export const PACKAGES = [
-  { id: "coins_small",   price: "$0.99", label: "Pouch of Coins",
+  { id: "coins_small",   price: "$0.99", nameKey: "Pouch Of Coins",
     coins: 100,  boosters: {} },
-  { id: "starter_bundle", price: "$4.99", label: "Starter Bundle",
+  { id: "starter_bundle", price: "$4.99", nameKey: "Starter Bundle",
     coins: 300,  boosters: { wand: 1, undo: 2 } },
-  { id: "mega_bundle",    price: "$9.99", label: "Mega Bundle",
+  { id: "mega_bundle",    price: "$9.99", nameKey: "Mega Bundle",
     coins: 1200, boosters: { wand: 3, undo: 5, shuffle: 1 } },
 ];
 

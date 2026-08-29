@@ -15,6 +15,7 @@
 import { tween, easeOutBack } from "./tween.js";
 import { PACKAGES } from "./user/payments.js";
 import { fitPanel } from "./layout.js";
+import { t, locText } from "./i18n.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -209,7 +210,7 @@ export class ShopScene extends PIXI.Container {
     g.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(-pw / 2, -ph / 2, pw, ph, 36);
     this.panel.addChild(g);
 
-    const title = new PIXI.Text("Shop", {
+    const title = locText("shop_title", {
       fontFamily: "Arial", fontSize: 60, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 6,
     });
@@ -230,6 +231,7 @@ export class ShopScene extends PIXI.Container {
     this.panel.addChild(this.balanceGroup);
 
     // One row per package.
+    this._pkgNames = [];
     let y = -ph / 2 + 250;
     for (const pkg of packages) {
       this._packageRow(pkg, y);
@@ -237,7 +239,8 @@ export class ShopScene extends PIXI.Container {
     }
 
     // Back button
-    const back = this._makeButton("Back", 300, 84, 0, ph / 2 - 62, 0x4d8dff, () => this._back());
+    const back = this._makeButton(t("btn_back"), 300, 84, 0, ph / 2 - 62, 0x4d8dff, () => this._back());
+    this._backBtn = back;
     this.panel.addChild(back);
 
     this._refresh();
@@ -248,13 +251,14 @@ export class ShopScene extends PIXI.Container {
   _packageRow(pkg, y) {
     const leftX = -PANEL_W / 2 + 44;
 
-    const name = new PIXI.Text(pkg.label, {
+    const name = new PIXI.Text(t(pkg.nameKey), {
       fontFamily: "Arial", fontSize: 34, fontWeight: "900", fill: 0xffffff,
       stroke: 0x1a2a52, strokeThickness: 4,
     });
     name.anchor.set(0, 0.5);
     name.position.set(leftX, y - 24);
     this.panel.addChild(name);
+    this._pkgNames.push({ node: name, key: pkg.nameKey });
 
     const contents = buildContents(pkg);
     contents.position.set(leftX, y + 22);
@@ -267,6 +271,19 @@ export class ShopScene extends PIXI.Container {
       if (this.onBuyPackage) this.onBuyPackage(pkg.id);
     });
     this.panel.addChild(btn);
+  }
+
+  /**
+   * Re-letter. The panel title carries its key; the Back button and each
+   * package name are assembled in code. A package's name is named by its
+   * catalog row as a TEXT KEY (see PACKAGES in src/user/payments.js), so the
+   * same row reads correctly in every language.
+   */
+  relocalize() {
+    if (this._backBtn) this._backBtn.label.text = t("btn_back");
+    for (const p of this._pkgNames) {
+      if (!p.node.destroyed) p.node.text = t(p.key);
+    }
   }
 
   _refresh() {

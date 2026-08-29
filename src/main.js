@@ -14,6 +14,8 @@ import { loadLevels } from "./levelConfig.js";
 import { UserStore } from "./user/UserStore.js";
 import { CONFIG } from "./config.js";
 import { createSplash } from "./splash.js";
+import { i18n, t, LANGUAGES, detectLanguage, mapTag, bcp47 } from "./i18n.js";
+import { LanguagePickerScene } from "./languagepicker.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -36,6 +38,21 @@ const splash = createSplash();
 
 async function boot() {
   splash.show("Starting up…");
+
+  // LANGUAGE FIRST. Every scene builds its text in its constructor, so the
+  // active language's string table has to be resident before any of them exist
+  // — and before the splash writes its own status lines. This is also where the
+  // one-and-only device-language detection happens on a brand-new player (see
+  // src/i18n.js); from then on the stored `ck_language` wins.
+  // Say what stage this is BEFORE awaiting it: this is the first await in boot()
+  // and it runs ahead of the renderer, so a slow language fetch would otherwise
+  // look like a dead screen frozen at 0%. English, necessarily — there is no
+  // table yet.
+  splash.set(0.01, "Loading language…");
+  await i18n.init();
+  // The DOM wants a real BCP-47 tag, which the game's internal codes are not
+  // (`jp`, `in`) — see bcp47() in src/i18n.js.
+  document.documentElement.lang = bcp47(i18n.code);
   // The renderer fills the whole viewport; the stage is uniformly scaled so the
   // constraining viewport dimension maps exactly onto the 750×1334 design (no
   // distortion). The other dimension gains extra design units, which the scenes
@@ -73,7 +90,7 @@ async function boot() {
   // from JSON like the other configs, then used to build the asset manifest.
   // Essential config, so a failure is fatal (unlike prices/turntable below,
   // which degrade gracefully). The highest playable level is just its length.
-  splash.set(0.02, "Loading level table…");
+  splash.set(0.02, t("loading_level_table"));
   const levels = await loadLevels();
   buildLevelGroups(levels);   // populate MANIFEST + PRELOAD_GROUPS in place
   const maxLevel = levels.length;
@@ -82,7 +99,7 @@ async function boot() {
   // The player profile (identity, progress, wallet, settings). One object, saved
   // through a platform storage adapter (localStorage on the web; FB/Reddit/Telegram
   // adapters swap in later). Everything the game persists lives here.
-  splash.set(P.levels, "Loading profile…");
+  splash.set(P.levels, t("loading_profile"));
   const store = new UserStore();
   const user = await store.init();
   splash.set(P.profile);
@@ -90,7 +107,7 @@ async function boot() {
   // The one stage that moves real bytes, so it gets the biggest slice of the
   // bar. AssetManager.preload already reports per-item completion; map that onto
   // the [profile, assets] range.
-  splash.set(P.profile, "Loading assets…");
+  splash.set(P.profile, t("loading_assets"));
   await assets.preload(PRELOAD_GROUPS, (done, total) => {
     splash.set(P.profile + (P.assets - P.profile) * (total ? done / total : 1));
   });
@@ -112,7 +129,7 @@ async function boot() {
   // Coin prices for in-level consumable purchases (buying a helper when its stock
   // hits 0). Kept in a JSON config so they're tunable without touching code; on a
   // fetch failure we fall back to no prices (purchases simply stay unavailable).
-  splash.set(P.assets, "Loading settings…");
+  splash.set(P.assets, t("loading_settings"));
   let prices = { boosters: {} };
   try { prices = await fetch("assets/config/prices.json").then((r) => r.json()); }
   catch (_) { /* keep the empty default */ }
@@ -145,7 +162,7 @@ async function boot() {
   try { levelChestCfg = await fetch("assets/config/levelChest.json").then((r) => r.json()); }
   catch (_) { /* keep null — LevelChest falls back to an empty schedule */ }
   const levelChest = new LevelChest(levelChestCfg);
-  splash.set(P.configs, "Preparing board…");
+  splash.set(P.configs, t("loading_board"));
 
   const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices, levelChest);
   const lobby = new LobbyScene(app, backgrounds, audio, maxLevel, user, levelChest);
@@ -154,7 +171,8 @@ async function boot() {
   const wheel = new FortuneWheelScene(app, audio, user, turntable);
   const daily = new DailyBonusScene(app, audio, user, dailybonus);
   const tasks = new TasksScene(app, audio, user, tasksCfg);
-  root.addChild(scene, lobby, settings, shop, wheel, daily, tasks); // overlays draw on top of whichever scene is active
+  const langPicker = new LanguagePickerScene(app, audio);
+  root.addChild(scene, lobby, settings, shop, wheel, daily, tasks, langPicker); // overlays draw on top of whichever scene is active
 
   // Fit the viewport: size the renderer to the window, scale the stage so the
   // constraining dimension fills exactly, then hand each scene the resulting
@@ -172,12 +190,40 @@ async function boot() {
     wheel.layout(DW, DH);
     daily.layout(DW, DH);
     tasks.layout(DW, DH);
+    langPicker.layout(DW, DH);
   };
   resize();
+
+  // RE-LETTERING BROADCAST — the language-change twin of resize() above. Same
+  // shape, same fixed list: when the picker's Confirm swaps the string table in,
+  // every scene is told to rebuild the text it assembles in code ("Level 12",
+  // a countdown, a task title). Labels that carry their own key re-letter
+  // themselves inside i18n.refresh(), before this runs.
+  //
+  // Scenes are built once and kept for the whole session, so a screen that is
+  // not visible right now still gets the call and simply reads correctly the
+  // next time it is opened.
+  const relocalize = () => {
+    // The mapped tag, not the internal code — same reason as the boot path above.
+    document.documentElement.lang = bcp47(i18n.code);
+    scene.relocalize();
+    lobby.relocalize();
+    settings.relocalize();
+    shop.relocalize();
+    wheel.relocalize();
+    daily.relocalize();
+    tasks.relocalize();
+    langPicker.relocalize();
+  };
+  i18n.onChange(relocalize);
+
   splash.set(P.scenes);
 
   // The cog button in either scene opens the settings overlay; Back just hides it,
   // returning to whatever scene is underneath.
+  // The settings screen's Language row opens the picker over it; closing the
+  // picker (either way) just reveals the settings screen again underneath.
+  settings.onLanguage = () => langPicker.open();
   lobby.onSettings = () => settings.open();
   scene.onSettings = () => settings.open();
 
@@ -258,7 +304,7 @@ async function boot() {
     // Lazy-load this level's assets if they weren't part of the preload set
     // (levels 1–3 are already in memory, so this resolves instantly for them).
     if (assets.hasLevel(level) && !assets.levelData(level)) {
-      splash.show(`Loading level ${level}…`);
+      splash.show(t("loading_level", level));
       try {
         await assets.ensureLevel(level, (done, total) => splash.set(total ? done / total : 1));
       } finally { splash.hide(); }
@@ -292,7 +338,7 @@ async function boot() {
   // lobby rather than leaving the player on a blank screen.)
   const enteredFirstLevel = user.isNewPlayer() && (await startLevel(currentLevel));
   if (!enteredFirstLevel) showLobby(currentLevel);
-  splash.set(1, "Ready");
+  splash.set(1, t("loading_ready"));
 
   // Apply the persisted music/sound preferences (without re-persisting them),
   // then wire any later change back into the User profile (which autosaves).
@@ -340,6 +386,57 @@ async function boot() {
   window.__game = {
     app, scene, lobby, settings, assets, audio, store,
     openSettings: () => settings.open(),
+    // ---- localization -------------------------------------------------------
+    // The active language, the 13 the game offers, and the raw lookup — enough
+    // for i18n_test.py to check that a swap really re-letters the live scenes
+    // rather than only the table behind them.
+    language: () => i18n.code,
+    languages: () => LANGUAGES.map((l) => ({ code: l.code, label: l.label })),
+    t: (key, ...values) => i18n.t(key, ...values),
+    hasKey: (key) => i18n.has(key),
+    // Every key looked up this session that the active language does not have.
+    // A miss is not an error — the key itself is what goes on screen — so this
+    // is the only record of one; i18n_test.py walks every screen and asserts it
+    // stays empty.
+    missingKeys: () => i18n.missingKeys(),
+    clearMissingKeys: () => i18n.clearMissing(),
+    // What the device-language detection would pick right now, and what is
+    // actually stored. Detection runs ONCE, so after the first launch these two
+    // can legitimately disagree.
+    detectLanguage: () => detectLanguage(),
+    mapTag: (tag) => mapTag(tag),
+    storedLanguage: () => i18n.stored(),
+    // A code as a valid BCP-47 tag — what <html lang> is set to. Defaults to
+    // the active language; pass a code to check the mapping for any of the 13.
+    languageTag: (code) => bcp47(code || i18n.code),
+    // Every language resident in memory. Nothing unloads them, so this grows as
+    // the player visits languages (see the README's Localization notes).
+    loadedLanguages: () => i18n.loaded().slice().sort(),
+    // Change language the way Confirm does: download, swap, re-letter, remember.
+    // Resolves to true when the swap actually happened.
+    setLanguage: (code) => i18n.setLanguage(code),
+    // ---- the language picker ------------------------------------------------
+    languagePicker: langPicker,
+    openLanguagePicker: () => langPicker.open(),
+    closeLanguagePicker: () => langPicker._close(),
+    languagePickerVisible: () => langPicker.visible,
+    // `picked` is the ticked row, which is NOT applied until confirmLanguage().
+    languagePickerState: () => ({
+      visible: langPicker.visible,
+      picked: langPicker.picked(),
+      active: i18n.code,
+      codes: LANGUAGES.map((l) => l.code),
+      labels: LANGUAGES.map((l) => l.label),
+      pickedVisible: langPicker.rowVisible(langPicker.picked()),
+      scroll: langPicker.scrollState(),
+    }),
+    tapLanguageRow: (code) => langPicker.pick(code),
+    confirmLanguage: () => langPicker._confirm(),
+    // The settings screen's Language row, as it reads on screen.
+    languageRowText: () => ({
+      label: settings.languageRow.children[0].text,
+      value: settings.languageRow.value.text,
+    }),
     settingsVisible: () => settings.visible,
     currentLevel: () => currentLevel,
     inLobby: () => lobby.visible,
@@ -388,6 +485,7 @@ async function boot() {
       add("wheel", wheel);
       add("daily", daily);
       add("tasks", tasks);
+      add("language", langPicker);
       return out;
     },
     // Tray sizing: the per-level slot size, the on-screen board tile size it

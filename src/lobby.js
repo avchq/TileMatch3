@@ -8,6 +8,7 @@ import { makeCogButton } from "./settings.js";
 import { makeCoinPill } from "./shop.js";
 import { buildColumnBackground, fitTextWidth } from "./layout.js";
 import { FeatureRail, RAIL_LEFT_X, RAIL_RIGHT_X } from "./featurerail.js";
+import { t, locText } from "./i18n.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -86,7 +87,7 @@ export class LobbyScene extends PIXI.Container {
 
   _buildStatic() {
     // Title block
-    this.title = new PIXI.Text("TILE MATCH 3", {
+    this.title = locText("game_title", {
       fontFamily: "Arial", fontSize: 82, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 9, align: "center",
     });
@@ -95,7 +96,11 @@ export class LobbyScene extends PIXI.Container {
     fitTextWidth(this.title, CENTER_MAX_W); // keep clear of the left chrome column
     this.uiLayer.addChild(this.title);
 
-    this.subtitle = new PIXI.Text("Match 3 fruits · clear the board", {
+    // The subtitle changes with what just happened (a clear, the last level,
+    // or the resting state), so it is assembled in code and re-read by
+    // relocalize() rather than carrying a fixed key.
+    this._subtitleKey = "lobby_subtitle";
+    this.subtitle = new PIXI.Text(t("lobby_subtitle"), {
       fontFamily: "Arial", fontSize: 32, fontWeight: "700", fill: 0xdce7ff,
       stroke: 0x122043, strokeThickness: 4,
     });
@@ -115,7 +120,7 @@ export class LobbyScene extends PIXI.Container {
     // band (botHud) rather than the vertically-centred block: it keeps a fixed
     // margin above the screen's bottom edge on every shape, tall screens
     // included, and is the last thing before that edge. Its hint sits above it.
-    this.hint = new PIXI.Text("Tap to start", {
+    this.hint = locText("tap_to_start", {
       fontFamily: "Arial", fontSize: 26, fontWeight: "700", fill: 0xaebfe0,
     });
     this.hint.anchor.set(0.5);
@@ -305,7 +310,7 @@ export class LobbyScene extends PIXI.Container {
     c.addChild(ptr);
     c.ptr = ptr;
 
-    const cap = new PIXI.Text("Free Spin", {
+    const cap = locText("free_spin", {
       fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 4,
     });
@@ -314,6 +319,10 @@ export class LobbyScene extends PIXI.Container {
     c.addChild(cap);
 
     // "new" badge (until first-ever open) — top-right.
+    // NOT LOCALIZED, deliberately: the word is part of the badge's artwork, not
+    // copy. It is a fixed-width red pill sized around three characters, and the
+    // mark reads as "new" worldwide — so it has no key in the language tables
+    // and stays "NEW" in all 13. Same treatment as the emoji glyphs.
     const newBadge = new PIXI.Container();
     const nbg = new PIXI.Graphics();
     nbg.beginFill(0xff3b3b).drawRoundedRect(-25, -15, 50, 30, 14).endFill();
@@ -469,7 +478,7 @@ export class LobbyScene extends PIXI.Container {
     c.addChild(gift);
     c.gift = gift;
 
-    const cap = new PIXI.Text("Daily Bonus", {
+    const cap = locText("daily_reward", {
       fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 4,
     });
@@ -556,7 +565,7 @@ export class LobbyScene extends PIXI.Container {
     board.anchor.set(0.5);
     c.addChild(board);
 
-    const cap = new PIXI.Text("Tasks", {
+    const cap = locText("task_title", {
       fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 4,
     });
@@ -594,7 +603,7 @@ export class LobbyScene extends PIXI.Container {
     g.beginFill(0x2f9e6a).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.6).endFill();
     g.beginFill(0x39c06a).drawRoundedRect(-w / 2, -h / 2, w, h - 12, h / 2.6).endFill();
     g.lineStyle(6, 0xffffff, 0.4).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.6);
-    const label = new PIXI.Text("Level 1", {
+    const label = new PIXI.Text(t("Language1", 1), {
       fontFamily: "Arial", fontSize: 52, fontWeight: "900", fill: 0xffffff,
       stroke: 0x1c5c39, strokeThickness: 6,
     });
@@ -627,22 +636,37 @@ export class LobbyScene extends PIXI.Container {
     this.bgLayer.addChild(dark);
   }
 
+  /**
+   * Re-letter the text this scene assembles in code. The title, the hint and
+   * the three feature captions carry their own keys and refresh themselves;
+   * what is left is the play button (which stitches in the level number) and
+   * the subtitle (whose wording depends on what just happened). Both are re-fit
+   * afterwards, because a translation is rarely the same width.
+   */
+  relocalize() {
+    this.playBtn.label.text = t("Language1", this._level || 1);
+    this.subtitle.text = t(this._subtitleKey);
+    fitTextWidth(this.title, CENTER_MAX_W);
+    fitTextWidth(this.subtitle, CENTER_MAX_W);
+  }
+
   /** Show the lobby for the given level (the next level to play). */
   show(level, { celebrate = false } = {}) {
     this._level = level;
     this._locked = false;
     this.visible = true;
     this._buildBackground(level);
-    this.playBtn.label.text = `Level ${level}`;
+    this.playBtn.label.text = t("Language1", level);
     // Snap, don't slide: the rail should already be arranged when the lobby appears.
     this.refreshFeatures({ animate: false });
 
     const allDone = celebrate && level >= this.maxLevel;
-    this.subtitle.text = allDone
-      ? "All levels cleared — nice!"
+    this._subtitleKey = allDone
+      ? "lobby_all_cleared"
       : celebrate
-        ? "Level complete!"
-        : "Match 3 fruits · clear the board";
+        ? "lobby_level_complete"
+        : "lobby_subtitle";
+    this.subtitle.text = t(this._subtitleKey);
     fitTextWidth(this.subtitle, CENTER_MAX_W); // re-fit for the new text width
 
     // entrance pop of the play button + a gentle attention pulse

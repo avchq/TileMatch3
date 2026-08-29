@@ -78,6 +78,46 @@
       </div>
     </div>
   </div>
+  <script>
+    // BOOT ERROR SURFACE — a classic inline script, so it is already running
+    // before any module is fetched and keeps working when the module graph dies.
+    //
+    // boot()'s own .catch() in src/main.js can only see errors thrown INSIDE
+    // boot(). A syntax error, a failed import, or a throw at module scope kills
+    // the graph before boot() is ever defined — and without this the splash just
+    // sits at "Starting up… 0%" with nothing on screen or in the console UI to
+    // say why. (That is exactly how a stale cached module once bricked the game
+    // on a phone while the desktop was fine.) Paints the same `.error` state
+    // src/splash.js's fail() uses, so there is one visual failure state.
+    (function () {
+      var shown = false;
+      function showBootError(what) {
+        // Only ever speak for a boot that never finished. Once window.__game
+        // exists the game is up and running, and a later stray error must not
+        // slam a red overlay across a live session.
+        if (shown || window.__game) return;
+        shown = true;
+        var el = document.getElementById("splash");
+        var status = document.getElementById("splash-status");
+        if (!el || !status) return;
+        el.classList.remove("hiding");
+        el.style.display = "";
+        el.classList.add("error");
+        status.textContent = "Error: " + (
+          (what && what.message) || String(what == null ? "failed to start" : what));
+      }
+      addEventListener("error", function (e) {
+        // Ignore sub-resource load failures (a missing image is not a dead boot);
+        // only script/module errors carry an `error` or a `message`.
+        if (e.target && e.target !== window && e.target.tagName) {
+          if (e.target.tagName !== "SCRIPT") return;
+          return showBootError("could not load " + (e.target.src || "a script"));
+        }
+        showBootError(e.error || e.message);
+      }, true);
+      addEventListener("unhandledrejection", function (e) { showBootError(e.reason); });
+    })();
+  </script>
   <script src="vendor/pixi.min.js"></script>
   <script type="module" src="src/main.js"></script>
 </body>

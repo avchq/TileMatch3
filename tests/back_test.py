@@ -50,8 +50,10 @@ try:
         # -- The moved cog (top-left) still opens settings from the level -----
         click_design(*COG)
         assert page.evaluate("window.__game.settingsVisible()") is True, "cog at (60,84) must open settings in-level"
-        # close settings again (settings Back button, centre-bottom)
-        click_design(375, 873)
+        # close settings again (settings Back button, centre-bottom). The panel
+        # grew downward to make room for the Language row, so Back sits lower
+        # than it used to — see settings_test.py / languagepicker_test.py.
+        click_design(375, 933)
         assert page.evaluate("window.__game.settingsVisible()") is False, "settings should close"
         assert page.evaluate("window.__game.state()")["inLobby"] is False, "still in level after closing settings"
 

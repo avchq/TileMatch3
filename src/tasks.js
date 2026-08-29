@@ -27,35 +27,37 @@
 //
 // Nothing here is hardcoded: the GOAL TABLE (chains, tiers, targets, rewards)
 // comes from assets/config/tasks.json (passed in as cfg) and the feature's GATE
-// and reset weekday from CONFIG.features.tasks in src/config.js. Only the row
-// TITLES and icons live in this file — one `%n` template per activity, the same
-// arrangement as dailybonus.js's PRIZE_LABEL and boostercoach.js's BOOSTER_COACH.
+// and reset weekday from CONFIG.features.tasks in src/config.js. The row TITLES
+// are not here either — the same config file names one TEXT KEY per activity
+// (its `titles` map), looked up in the active language. Only the row ICONS live
+// in this file.
 
 import { tween, easeOutCubic, easeInOutQuad, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
 import { fitTextWidth } from "./layout.js";
 import { CONFIG } from "./config.js";
+import { t, locText } from "./i18n.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
-// One title template + icon per tracked activity. `%n` is replaced by the row's
-// target; `one` is the singular wording used when that target is 1, so the first
-// tier of a chain doesn't read "Complete 1 levels". An activity with no entry
-// here still works (it falls back to its own code and a neutral glyph) — but
-// adding a genuinely NEW kind of task means adding a line here, whereas adding
-// new TIERS of an existing kind is a change to assets/config/tasks.json alone.
+// The GLYPH per tracked activity. The row's WORDING is not here: it is named as
+// a text key by the `titles` map in assets/config/tasks.json and looked up in
+// the active language (see the Localization section of the README), so the same
+// row reads correctly in all 13 languages. An activity with no entry here still
+// works — it falls back to a neutral glyph, and a title key missing from the
+// language table shows up as the key itself.
 const ACTIVITY = {
-  levelsCompleted:   { icon: "🏁", title: "Complete %n levels", one: "Complete 1 level" },
-  tilesMatched:      { icon: "🍉", title: "Match %n tiles", one: "Match 1 tile" },
-  boostersUsed:      { icon: "🧰", title: "Use %n boosters", one: "Use 1 booster" },
-  undoUsed:          { icon: "⤺",  title: "Use Undo %n times", one: "Use Undo once" },
-  shuffleUsed:       { icon: "🔀", title: "Use Reshuffle %n times", one: "Use Reshuffle once" },
-  wandUsed:          { icon: "🪄", title: "Use the Wand %n times", one: "Use the Wand once" },
-  coinsSpent:        { icon: "coin", title: "Spend %n gold coins", one: "Spend 1 gold coin" },
-  dailyBonusClaimed: { icon: "🎁", title: "Claim the Daily Bonus %n times", one: "Claim the Daily Bonus once" },
-  wheelSpins:        { icon: "🎡", title: "Spin the Fortune Wheel %n times", one: "Spin the Fortune Wheel once" },
-  shopPurchases:     { icon: "🛒", title: "Buy %n shop packages", one: "Buy 1 shop package" },
+  levelsCompleted:   { icon: "🏁" },
+  tilesMatched:      { icon: "🍉" },
+  boostersUsed:      { icon: "🧰" },
+  undoUsed:          { icon: "⤺"  },
+  shuffleUsed:       { icon: "🔀" },
+  wandUsed:          { icon: "🪄" },
+  coinsSpent:        { icon: "coin" },
+  dailyBonusClaimed: { icon: "🎁" },
+  wheelSpins:        { icon: "🎡" },
+  shopPurchases:     { icon: "🛒" },
 };
 
 // How a reward `type` is granted — the same mapping (and the same vocabulary in
@@ -86,6 +88,9 @@ export class TasksScene extends PIXI.Container {
     // GOAL DATA from the JSON config; the GATE + reset weekday from src/config.js.
     cfg = cfg || {};
     this.achievements = Array.isArray(cfg.achievements) ? cfg.achievements : [];
+    // activity -> { title, one }: the TEXT KEYS for each row's title, not the
+    // wording itself (route 3 of the localization — see src/i18n.js).
+    this.titles = (cfg.titles && typeof cfg.titles === "object") ? cfg.titles : {};
     this.weekly = Array.isArray(cfg.weekly) ? cfg.weekly : [];
     this.unlockLevel = CONFIG.features.tasks.unlockLevel;
     this.resetDay = CONFIG.features.tasks.weeklyResetDay;
@@ -162,9 +167,9 @@ export class TasksScene extends PIXI.Container {
     const dys = Math.floor(s / 86400); s -= dys * 86400;
     const hrs = Math.floor(s / 3600);  s -= hrs * 3600;
     const mins = Math.floor(s / 60);   s -= mins * 60;
-    if (dys) return `Reset in: ${dys}d ${hrs}h`;
-    if (hrs) return `Reset in: ${hrs}h ${mins}m`;
-    return `Reset in: ${mins}m ${s}s`;
+    if (dys) return t("reset_in_dh", dys, hrs);
+    if (hrs) return t("reset_in_hm", hrs, mins);
+    return t("reset_in_ms", mins, s);
   }
 
   /** Roll the weekly list over if the period has changed. Gated on the feature's
@@ -277,7 +282,7 @@ export class TasksScene extends PIXI.Container {
       .drawRoundedRect(-PANEL_W / 2, -PANEL_H / 2, PANEL_W, PANEL_H, 36);
     this.panel.addChild(bg);
 
-    const title = new PIXI.Text("Tasks", {
+    const title = locText("task_title", {
       fontFamily: "Arial", fontSize: 64, fontWeight: "900", fill: 0xffe27a,
       stroke: 0x5a3a00, strokeThickness: 7,
     });
@@ -287,8 +292,8 @@ export class TasksScene extends PIXI.Container {
 
     // Tabs.
     this._tabBtns = {
-      achievements: this._makeTab("Achievements", -156, () => this.setTab("achievements")),
-      weekly: this._makeTab("Weekly Tasks", 156, () => this.setTab("weekly")),
+      achievements: this._makeTab("tab_achievements", -156, () => this.setTab("achievements")),
+      weekly: this._makeTab("tab_weekly", 156, () => this.setTab("weekly")),
     };
     this.panel.addChild(this._tabBtns.achievements, this._tabBtns.weekly);
 
@@ -351,7 +356,7 @@ export class TasksScene extends PIXI.Container {
     this._empty.visible = false;
     this.panel.addChild(this._empty);
 
-    this._backBtn = this._makeButton("Back", 220, 74, 0, 440, 0x3a4a72, () => this._close());
+    this._backBtn = this._makeButton(t("btn_back"), 220, 74, 0, 440, 0x3a4a72, () => this._close());
     this.panel.addChild(this._backBtn);
 
     // Reward flight layer (above everything, and outside the list's mask).
@@ -381,22 +386,23 @@ export class TasksScene extends PIXI.Container {
 
   // A tab button. Like SettingsScene's toggle it keeps a local draw() and exposes
   // __set(on), so selecting one is a redraw in place rather than a rebuild.
-  _makeTab(label, cx, onTap) {
+  _makeTab(labelKey, cx, onTap) {
     const c = new PIXI.Container();
     c.position.set(cx, -364);
     const w = 300, h = 76;
     const g = new PIXI.Graphics();
     c.addChild(g);
-    const t = new PIXI.Text(label, { fontFamily: "Arial", fontSize: 28, fontWeight: "800", fill: 0xffffff });
-    t.anchor.set(0.5);
-    fitTextWidth(t, w - 28);
-    c.addChild(t);
-    c.label = t;
+    const tab = locText(labelKey, { fontFamily: "Arial", fontSize: 28, fontWeight: "800", fill: 0xffffff });
+    tab.anchor.set(0.5);
+    fitTextWidth(tab, w - 28);
+    c.addChild(tab);
+    c.label = tab;
+    c.__fit = () => fitTextWidth(tab, w - 28);
     const draw = (on) => {
       g.clear();
       g.beginFill(on ? 0x4d8dff : 0x2b3a63).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
       g.lineStyle(4, 0xffffff, on ? 0.5 : 0.18).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-      t.alpha = on ? 1 : 0.7;
+      tab.alpha = on ? 1 : 0.7;
     };
     draw(false);
     c.__set = draw;
@@ -500,19 +506,17 @@ export class TasksScene extends PIXI.Container {
     icon.position.set(-258, 0);
     c.addChild(icon);
 
-    const label = (row.target === 1 && meta.one)
-      ? meta.one
-      : (meta.title || `${row.activity} %n`).replace("%n", String(row.target));
-    const t = new PIXI.Text(label, {
+    const t2 = new PIXI.Text(this._rowTitle(row), {
       fontFamily: "Arial", fontSize: 25, fontWeight: "800", fill: 0xffffff,
       stroke: 0x1a2140, strokeThickness: 4,
     });
-    t.anchor.set(0, 0.5);
+    t2.anchor.set(0, 0.5);
     // Capped so a long title can never run into the reward chip to its right.
-    fitTextWidth(t, 285);
-    t.position.set(-212, row.claimable ? 0 : -30);
-    c.addChild(t);
-    c.titleText = t;
+    fitTextWidth(t2, 285);
+    t2.position.set(-212, row.claimable ? 0 : -30);
+    c.addChild(t2);
+    c.titleText = t2;
+    c.__row = row;
 
     if (row.claimable) {
       // Finished: the bar has nothing left to say, so the reward and the button
@@ -521,7 +525,7 @@ export class TasksScene extends PIXI.Container {
       chip.position.set(132, 0);
       c.addChild(chip);
 
-      const btn = this._makeButton("Claim", 120, 58, 248, 0, 0x39c06a, () => this._claim(c));
+      const btn = this._makeButton(t("claim"), 120, 58, 248, 0, 0x39c06a, () => this._claim(c));
       c.addChild(btn);
       c.claimBtn = btn;
     } else {
@@ -563,8 +567,8 @@ export class TasksScene extends PIXI.Container {
     this._tabBtns.achievements.__set(this._tab === "achievements");
     this._tabBtns.weekly.__set(this._tab === "weekly");
     this._note.text = this._tab === "weekly"
-      ? `New Tasks Every Week!   ·   ${this._resetText()}`
-      : "Lifetime goals · they never reset";
+      ? t("tasks_note_weekly", this._resetText())
+      : t("tasks_note_achievements");
 
     this._rows = this.rowsFor(this._tab);
     let y = ROW_H / 2 + 8;
@@ -578,8 +582,8 @@ export class TasksScene extends PIXI.Container {
 
     this._empty.visible = this._rows.length === 0;
     this._empty.text = this._tab === "weekly"
-      ? "All done for this week!\nCome back after the reset."
-      : "Every achievement claimed.\nKeep playing for more!";
+      ? t("tasks_empty_weekly")
+      : t("tasks_empty_achievements");
 
     // Claiming keeps the player where they were reading; a tab switch or a fresh
     // open starts at the top. _setScroll re-clamps either way, so a list that
@@ -589,7 +593,46 @@ export class TasksScene extends PIXI.Container {
 
   _refreshCountdown() {
     if (this._tab !== "weekly") return;
-    this._note.text = `New Tasks Every Week!   ·   ${this._resetText()}`;
+    this._note.text = t("tasks_note_weekly", this._resetText());
+  }
+
+  /**
+   * A row's title, in the active language. The key comes from the config
+   * table's `titles` map (activity -> { title, one }), never from wording baked
+   * into this file: `title` carries a %value placeholder filled with the row's
+   * target, and `one` is the singular used when that target is 1. An activity
+   * the table doesn't name falls back to its own code, exactly as before.
+   */
+  _rowTitle(row) {
+    const keys = this.titles[row.activity];
+    if (!keys) return `${row.activity} ${row.target}`;
+    if (row.target === 1 && keys.one) return t(keys.one);
+    return t(keys.title, row.target);
+  }
+
+  /**
+   * Re-letter. The panel title, both tabs and the Back button carry their keys
+   * and refresh themselves; the note line, the empty-state message and every
+   * row title are assembled in code, so they are re-read here. The rows are
+   * re-titled in place rather than rebuilt, so a reward already in flight and
+   * the player's scroll position both survive the swap.
+   */
+  relocalize() {
+    this._backBtn.label.text = t("btn_back");
+    this._tabBtns.achievements.__fit();
+    this._tabBtns.weekly.__fit();
+    this._note.text = this._tab === "weekly"
+      ? t("tasks_note_weekly", this._resetText())
+      : t("tasks_note_achievements");
+    this._empty.text = this._tab === "weekly"
+      ? t("tasks_empty_weekly")
+      : t("tasks_empty_achievements");
+    for (const node of this._rowNodes) {
+      if (!node.__row || !node.titleText || node.titleText.destroyed) continue;
+      node.titleText.text = this._rowTitle(node.__row);
+      fitTextWidth(node.titleText, 285);
+      if (node.claimBtn) node.claimBtn.label.text = t("claim");
+    }
   }
 
   // ---- scrolling -----------------------------------------------------------
