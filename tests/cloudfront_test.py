@@ -75,7 +75,7 @@ expected["Origins"]["Items"][0]["OriginPath"] = "/game/newcommit"
 stub.add_response("update_distribution", {},
                   {"Id": "D1", "DistributionConfig": expected, "IfMatch": "ETAG-1"})
 stub.activate()
-old, changed = gb.cf_set_origin_path(cf, "D1", None, "/game/newcommit")
+old, changed, _cfg = gb.cf_set_origin_path(cf, "D1", None, "/game/newcommit")
 stub.assert_no_pending_responses()
 check(old == "/game/oldcommit" and changed,
       f"the previous origin path is reported back ({old}, changed={changed})")
@@ -89,7 +89,7 @@ stub.add_response("get_distribution_config",
                   {"ETag": "ETAG-1", "DistributionConfig": config([origin(path="/game/same")])},
                   {"Id": "D1"})
 stub.activate()
-old, changed = gb.cf_set_origin_path(cf, "D1", None, "/game/same")
+old, changed, _cfg = gb.cf_set_origin_path(cf, "D1", None, "/game/same")
 stub.assert_no_pending_responses()      # would raise if update_distribution ran
 check(not changed and old == "/game/same",
       "an origin already at the target path is not rewritten")
@@ -103,7 +103,7 @@ stub.add_response("get_distribution_config",
 stub.add_response("update_distribution", {}, {"Id": ANY, "DistributionConfig": ANY,
                                               "IfMatch": ANY})
 stub.activate()
-old, changed = gb.cf_set_origin_path(cf, "D1", None, "/game/first")
+old, changed, _cfg = gb.cf_set_origin_path(cf, "D1", None, "/game/first")
 check(old == "" and changed, "a distribution serving the bucket root can be moved")
 stub.deactivate()
 
@@ -113,13 +113,22 @@ picked = gb.cf_pick_origin(two, "api")
 check(picked[0] == 1 and picked[1]["Id"] == "api",
       "--cf-origin-id selects the named origin")
 
-stopped, msg = False, ""
+# With several origins and no --cf-origin-id, the origin behind the default
+# cache behaviour is the one serving `/`, so it is the one serving the game.
+idx, chosen = gb.cf_pick_origin(two, None)
+check(chosen["Id"] == "s3-game",
+      "several origins resolve via DefaultCacheBehavior.TargetOriginId")
+
+# But if that pointer does not resolve to a real origin, guessing is not on.
+orphan = config([origin("a", "/x"), origin("b", "")])
+orphan["DefaultCacheBehavior"]["TargetOriginId"] = "gone"
+stopped = False
 try:
-    gb.cf_pick_origin(two, None)
+    gb.cf_pick_origin(orphan, None)
 except SystemExit:
     stopped = True
-check(stopped, "several origins with no --cf-origin-id stops the deploy "
-               "rather than guessing")
+check(stopped, "an unresolvable TargetOriginId with several origins stops the "
+               "deploy rather than guessing")
 
 stopped = False
 try:
@@ -139,7 +148,7 @@ stub.add_response("get_distribution_config",
 stub.add_response("update_distribution", {},
                   {"Id": ANY, "DistributionConfig": ANY, "IfMatch": "E2"})
 stub.activate()
-old, changed = gb.cf_set_origin_path(cf, "D1", None, "/game/newcommit")
+old, changed, _cfg = gb.cf_set_origin_path(cf, "D1", None, "/game/newcommit")
 stub.assert_no_pending_responses()
 check(changed, "a PreconditionFailed re-reads the config and retries with the new ETag")
 stub.deactivate()
@@ -191,7 +200,9 @@ class RecordingCf:
         self.paths = []
     def get_distribution_config(self, **kw):
         calls.append("get_distribution_config")
-        return {"ETag": "E", "DistributionConfig": config([origin()])}
+        cfg = config([origin()])
+        cfg["DefaultRootObject"] = "index.html"
+        return {"ETag": "E", "DistributionConfig": cfg}
     def update_distribution(self, **kw):
         calls.append("update_distribution")
         return {}
@@ -201,13 +212,38 @@ class RecordingCf:
 
 class Args:
     region = None; profile = None; distribution_id = "D1"; cf_origin_id = None
-    invalidate = None; wait = False
+    invalidate = None; wait = False; bucket = None
 
 rec = RecordingCf()
 gb.cf_client = lambda region, profile: rec          # inject the recorder
 gb.cf_deploy(Args(), "game/newcommit", "newcommit", "f" * 40)
 check(calls == ["get_distribution_config", "update_distribution", "create_invalidation"],
       f"origin is updated BEFORE the cache is invalidated ({calls})")
+
+# ---- 7b. under --wait, propagation is awaited BEFORE the flush ------------
+# An invalidation that completes while some edges still run the old config lets
+# those edges refill from the OLD origin path — and s-maxage then pins the wrong
+# bytes there for a year. So the wait belongs between the two, not after both.
+class WaitingCf(RecordingCf):
+    def get_waiter(self, name):
+        calls.append(f"wait:{name}")
+        class W:
+            def wait(self, **kw): pass
+        return W()
+    def get_distribution(self, **kw):
+        return {"Distribution": {"DomainName": "d1.cloudfront.net"}}
+
+calls.clear()
+gb.cf_client = lambda region, profile: WaitingCf()
+gb.cf_verify_live = lambda *a, **k: calls.append("verify_live")
+class WaitArgs(Args):
+    wait = True
+gb.cf_deploy(WaitArgs(), "game/newcommit", "newcommit", "f" * 40)
+check(calls.index("wait:distribution_deployed") < calls.index("create_invalidation"),
+      f"--wait blocks for propagation BEFORE invalidating ({calls})")
+check(calls.index("create_invalidation") < calls.index("wait:invalidation_completed"),
+      "…and waits for the flush after submitting it")
+check(calls[-1] == "verify_live", "…then verifies the live site last")
 
 # ---- 8. rollback refuses a build that is not in the bucket ----------------
 class MissingS3:
@@ -236,6 +272,43 @@ check("immutable" not in gb.CACHE_EDGE,
       "asset would strand players on the old build past any invalidation")
 check(gb.CACHE_REVALIDATE == "no-cache, must-revalidate",
       "index.html and build-info.json are never cached")
+
+# ---- 10. the upload skip must notice a header-only change -----------------
+# Comparing bodies alone would leave an object uploaded under the old cache
+# model carrying `immutable` for ever, and `immutable` on a stable URL is the
+# one header an invalidation cannot take back.
+src = open(os.path.join(ROOT, "tools", "build.py"), encoding="utf-8").read()
+skip = src[src.index("if (\"-\" not in etag"):src.index("return \"skip\"")]
+check("CacheControl" in skip and "ContentType" in skip,
+      "the ETag skip compares Cache-Control and Content-Type, not just the body")
+
+# ---- 11. preflight warns about the things that break a *successful* deploy -
+import contextlib, io as _io
+def warnings_for(cfg, bucket=None):
+    buf = _io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        gb.cf_preflight(cfg, bucket)
+    return buf.getvalue()
+
+good = config([origin()]); good["DefaultRootObject"] = "index.html"
+check(warnings_for(good) == "", "a healthy distribution produces no warnings")
+
+no_root = config([origin()])
+check("DefaultRootObject" in warnings_for(no_root),
+      "an empty DefaultRootObject is flagged (/ would not serve index.html)")
+
+disabled = config([origin()]); disabled["DefaultRootObject"] = "index.html"
+disabled["DefaultCacheBehavior"]["CachePolicyId"] = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+check("CachingDisabled" in warnings_for(disabled),
+      "CachingDisabled is flagged — s-maxage buys nothing behind it")
+
+minttl = config([origin()]); minttl["DefaultRootObject"] = "index.html"
+minttl["DefaultCacheBehavior"]["MinTTL"] = 300
+check("MinTTL" in warnings_for(minttl),
+      "a MinTTL floor is flagged — it overrides no-cache on index.html")
+
+check("other-bucket" in warnings_for(good, "other-bucket"),
+      "an origin pointing at a different bucket than the upload is flagged")
 
 if failures:
     print(f"\nCLOUDFRONT TEST FAILED — {len(failures)} check(s):")

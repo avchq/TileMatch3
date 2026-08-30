@@ -913,9 +913,17 @@ the whole config back guarded by the ETag it read (CloudFront has no partial
 update, and the ETag is what stops it clobbering a concurrent console edit), and
 then invalidates the edge cache.
 
-**Origin first, invalidation second.** The reverse order would clear the edge and
-immediately refill it from the *old* origin path in the seconds before the update
-lands, leaving the site serving the previous build out of a freshly warmed cache.
+**Origin first, invalidation second — and with `--wait`, propagation in between.**
+`update_distribution` returns `InProgress`, and the new config reaches every edge
+over roughly one to five minutes. An invalidation that completes inside that
+window empties edges that are *still running the old config*, and they refill
+`/src/main.js` from the **old** origin path — where `s-maxage` then pins the
+wrong bytes for a year. The old cache model could not suffer this, because every
+release had its own URL; this one can.
+
+So `--wait` blocks on `distribution_deployed` **before** invalidating, and only
+then waits for the flush. Without `--wait` the script says plainly that it is
+skipping that guard. **Use `--wait` for production deploys.**
 
 | flag | env | |
 |---|---|---|
@@ -927,15 +935,25 @@ lands, leaving the site serving the previous build out of a freshly warmed cache
 | `--rollback COMMIT` | | repoint at an older build; no build, no upload |
 | `--list-builds` | | what is in the bucket, and which one is live |
 
-With `--wait` the script blocks on the `distribution_deployed` and
-`invalidation_completed` waiters, then fetches `build-info.json` **through the
-distribution** and checks the commit matches. That is the only check here that
+With `--wait` the full sequence is: update the origin → wait for the
+distribution to deploy → invalidate → wait for the flush → fetch
+`build-info.json` **through the distribution** and check the commit matches. That is the only check here that
 exercises the whole chain — origin path, invalidation, cache headers — rather
 than trusting that a successful API call means a correct deployment.
 
 The distribution needs `cloudfront:GetDistributionConfig`, `UpdateDistribution`
 and `CreateInvalidation`, plus `GetDistribution` and `GetInvalidation` for
 `--wait`. An `AccessDenied` from any of them says so and lists the actions.
+Changing `OriginPath` needs no bucket-policy change: an OAC policy is scoped by
+the distribution's ARN, not by key prefix, so the new path is already allowed.
+
+The deploy also warns — without failing — about the distribution settings that
+let a *successful* deploy serve the wrong thing: an empty `DefaultRootObject` (so
+`/` does not reach `index.html`, which the `--wait` check would not notice
+because it fetches `/build-info.json`), a `CachingDisabled` cache policy (nothing
+is held at the edge, so `s-maxage` buys nothing), a legacy `MinTTL` floor (which
+overrides `no-cache` on `index.html`), and an origin whose domain is a different
+bucket than the one just uploaded to.
 
 ### Rolling back
 Every build ever deployed is still in the bucket under its own commit prefix, so
@@ -979,10 +997,9 @@ The browser revalidates every request — a 304 from a nearby edge is quick — 
 `s-maxage` lets CloudFront hold the object for a year, until the deploy
 invalidates it. The origin is barely touched either way.
 
-**One-time migration:** the ETag skip compares object *bodies*, not headers, so
-objects uploaded before this change would be skipped and keep their old
-`immutable` header forever. Run once with `--force` to rewrite them. The script
-prints a reminder whenever it skips objects.
+The upload's skip check compares the object's **headers as well as its body**,
+so a build uploaded under the old `immutable` model is re-uploaded automatically
+the next time it is deployed. No `--force`, nothing to remember.
 
 ### What the script does that S3 will not do for you
 - **Content-Type per extension.** S3 guesses nothing; an object uploaded without

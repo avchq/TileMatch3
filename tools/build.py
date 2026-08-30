@@ -622,7 +622,15 @@ def upload(dest, bucket, key_prefix, region, profile, jobs, force, dry_run):
             try:
                 head = s3.head_object(Bucket=bucket, Key=key)
                 etag = head.get("ETag", "").strip('"')
-                if "-" not in etag and etag == digest:
+                # Body AND headers. Comparing only the body would leave an
+                # object uploaded under an older cache model carrying its old
+                # Cache-Control for ever — and `immutable` on a stable URL is
+                # exactly the header no invalidation can take back. Including
+                # the headers here makes that migration self-healing instead of
+                # something an operator has to remember to force.
+                if ("-" not in etag and etag == digest
+                        and head.get("CacheControl") == cache
+                        and head.get("ContentType") == ctype):
                     return "skip", key, None
             except ClientError as e:
                 if e.response.get("Error", {}).get("Code") not in ("404", "NoSuchKey", "403"):
@@ -665,6 +673,14 @@ def cf_pick_origin(config, origin_id):
                 return i, o
         die(f"no origin with id '{origin_id}' — the distribution has: "
             + ", ".join(repr(o.get("Id")) for o in items))
+    # The origin behind the default cache behaviour is by definition the one
+    # serving `/`, which is the one serving the game. A better default than
+    # "the only one", and it makes multi-origin distributions work unattended.
+    target = config.get("DefaultCacheBehavior", {}).get("TargetOriginId")
+    if target:
+        for i, o in enumerate(items):
+            if o.get("Id") == target:
+                return i, o
     if len(items) > 1:
         die("the distribution has several origins, so I will not guess which one "
             "serves the game:\n"
@@ -697,12 +713,12 @@ def cf_set_origin_path(cf, dist_id, origin_id, new_path):
         old_path = origin.get("OriginPath", "")
 
         if old_path == new_path:
-            return old_path, False
+            return old_path, False, config
 
         config["Origins"]["Items"][idx]["OriginPath"] = new_path
         try:
             cf.update_distribution(Id=dist_id, DistributionConfig=config, IfMatch=etag)
-            return old_path, True
+            return old_path, True, config
         except ClientError as e:
             code = e.response.get("Error", {}).get("Code", "")
             # Someone changed the distribution between our read and our write.
@@ -711,6 +727,40 @@ def cf_set_origin_path(cf, dist_id, origin_id, new_path):
                 print("  distribution changed under us, re-reading and retrying…")
                 continue
             die(f"cannot update distribution {dist_id}: {_aws_reason(e)}")
+
+
+def cf_preflight(config, bucket):
+    """Warnings about the distribution, from the config already in hand.
+
+    None of these fail the deploy — they are all things that make a *successful*
+    deploy serve the wrong thing, which is the failure mode worth a sentence.
+    """
+    # With an OriginPath set, `/` resolves to <origin path>/<DefaultRootObject>.
+    # Empty means the site's root URL returns an S3 error while every deeper URL
+    # works — and the --wait check fetches /build-info.json, so it would not
+    # notice.
+    if not config.get("DefaultRootObject"):
+        print("  WARNING: the distribution has no DefaultRootObject, so / will "
+              "not serve index.html")
+
+    behaviour = config.get("DefaultCacheBehavior", {})
+    # The managed CachingDisabled policy. s-maxage buys nothing behind it: every
+    # request goes to the origin and the invalidation has nothing to clear.
+    if behaviour.get("CachePolicyId") == "4135ea2d-6df8-44a3-9df3-4b5a84be39ad":
+        print("  WARNING: the default cache behaviour uses CachingDisabled — "
+              "nothing is cached at the edge")
+    # Legacy ForwardedValues: a MinTTL floor overrides no-cache on index.html,
+    # so the origin switch appears not to take effect for MinTTL seconds.
+    if behaviour.get("MinTTL"):
+        print(f"  WARNING: the cache behaviour sets MinTTL={behaviour['MinTTL']}, "
+              f"which overrides no-cache on index.html")
+
+    origins = config.get("Origins", {}).get("Items", [])
+    if bucket and origins:
+        domain = origins[0].get("DomainName", "")
+        if domain and domain.split(".")[0] != bucket:
+            print(f"  WARNING: the origin points at {domain}, but this build "
+                  f"went to {bucket}")
 
 
 def cf_invalidate(cf, dist_id, paths, reference):
@@ -756,12 +806,30 @@ def cf_deploy(args, key_prefix, build_id, commit):
     cf = cf_client(args.region, args.profile)
     new_path = "/" + key_prefix.strip("/")      # leading slash, no trailing one
 
-    old_path, changed = cf_set_origin_path(cf, args.distribution_id,
-                                           args.cf_origin_id, new_path)
+    old_path, changed, config = cf_set_origin_path(cf, args.distribution_id,
+                                                   args.cf_origin_id, new_path)
+    cf_preflight(config, args.bucket)
     if changed:
         print(f"  origin {old_path or '(root)'} → {new_path}")
     else:
         print(f"  origin already {new_path} (no change)")
+
+    # Wait for the new origin to reach every edge BEFORE flushing the cache.
+    #
+    # update_distribution returns InProgress; the config propagates over roughly
+    # one to five minutes. An invalidation that completes inside that window
+    # empties edges which are still running the OLD config, and they refill
+    # /src/main.js from the OLD origin path — where s-maxage=31536000 then pins
+    # the wrong bytes for a year. The previous cache model could not suffer this
+    # (each release had its own URL); this one can, so the order matters.
+    if changed and args.wait:
+        print("  waiting for the distribution to deploy…", end="", flush=True)
+        cf.get_waiter("distribution_deployed").wait(Id=args.distribution_id)
+        print(" done")
+    elif changed:
+        print("  NOT waiting for propagation before invalidating — an edge that\n"
+              "  has not seen the new origin yet can re-cache the old build.\n"
+              "  Use --wait for a production deploy.")
 
     paths = args.invalidate or ["/*"]
     inv = cf_invalidate(cf, args.distribution_id, paths,
@@ -769,12 +837,8 @@ def cf_deploy(args, key_prefix, build_id, commit):
     print(f"  invalidation {inv} submitted for {' '.join(paths)}")
 
     if not args.wait:
-        print("  not waiting — CloudFront usually propagates within a few minutes")
         return
 
-    print("  waiting for the distribution to deploy…", end="", flush=True)
-    cf.get_waiter("distribution_deployed").wait(Id=args.distribution_id)
-    print(" done")
     print("  waiting for the invalidation to complete…", end="", flush=True)
     cf.get_waiter("invalidation_completed").wait(
         DistributionId=args.distribution_id, Id=inv)
@@ -1088,15 +1152,7 @@ def main():
     elif args.cloudfront and not args.rollback:
         print("  (no --distribution-id: nothing is pointing at this build yet)")
 
-    # An object already in the bucket is skipped by ETag, which compares bodies
-    # and not headers — so a build uploaded before the cache model changed keeps
-    # its old `immutable` header, and the browsers holding it never come back.
-    if skipped and not args.force:
-        print(f"\n  note: {skipped} object(s) were already in the bucket and were "
-              f"left untouched.\n"
-              f"  If any of them predate the s-maxage cache model, re-run once "
-              f"with --force\n"
-              f"  to rewrite their Cache-Control headers.")
+
 
 
 if __name__ == "__main__":
