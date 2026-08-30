@@ -2,8 +2,12 @@
 
 End-to-end tests that drive the actual game in headless Chromium via
 [Playwright](https://playwright.dev/python/). Each test serves the project over
-`python -m http.server` on port `8099`, loads `index.html`, and exercises
+`python -m http.server` on a free port, loads `index.html`, and exercises
 behaviour through the `window.__game` debug API exposed in `src/main.js`.
+
+The server, the browser and the boot sequence come from **`tests/harness.py`**;
+a test file no longer carries any of that itself. Because nothing names a fixed
+port any more, the files run **in parallel**.
 
 ## Requirements
 
@@ -22,6 +26,9 @@ python3 -m venv .venv
 ## Running
 
 ```bash
+# the fast tier — seven files, broad coverage, for the inner loop
+python3 tests/run_all.py --smoke
+
 # all tests
 python3 tests/run_all.py
 
@@ -37,13 +44,95 @@ python3 tests/settings_test.py
 
 With the virtualenv above, substitute `.venv/bin/python` for `python3`.
 
-Each test starts and stops its own server, so they run **one at a time** (they
-share port 8099). A test exits non-zero and prints an assertion on failure;
-`run_all.py` prints a final PASS/FAIL summary.
+Tests run **four at a time** by default. That is not one-per-core on purpose:
+headless Chromium renders through SwiftShader, so every worker is CPU-bound on
+software WebGL, and eight at once starved each other badly enough to blow
+Playwright's navigation timeout — a red suite for want of CPU, not for a defect.
+Tune it with `-j`, or use `--serial` to reproduce a flake one file at a time.
+
+**Five tests run on their own, after the parallel batch** (the `SERIAL` list in
+`run_all.py`). `build_test.py` is there because it runs the real build pipeline
+three times over. The other four — `fortunewheel`, `tasks`, `featurerail`,
+`dailybonus` — measure animation **dynamics**: not that a tween ended somewhere,
+but how it got there, frame by frame. Starve the renderer and there are fewer
+frames to sample, and a tween stepping on a huge frame delta really can jump one
+button through another; the failure is real, but it is a fact about the machine
+rather than about the game. Waiting on a condition cannot help when the
+condition is the frame rate itself.
+
+The line is what you **assert on**, not how you wait. Asserting on a *final*
+state belongs in the parallel batch; asserting on the frames themselves — that a
+value fell monotonically, that two things never overlapped *while* moving —
+belongs in `SERIAL`.
+
+Waiting with `requestAnimationFrame` is not just allowed, it is the right tool,
+and the reason is worth internalising: on a starved renderer two Python polls
+50ms apart can straddle **zero painted frames**, so "the value did not change"
+means "nothing was drawn", not "the animation finished". A settle-poll built on
+`time.sleep` reads a half-finished tween as final. Count frames and that mistake
+is impossible. `tray_size_test.py` has a worked example, and it was flaky in
+exactly this way until it did.
+
+**Timeouts are deliberately generous** — `wait_for_function` bounds sit around
+60s and the harness gives every page a 90s navigation timeout. That costs
+nothing when things are healthy, because a wait returns the instant its
+condition is true; the bound only decides how long a genuinely stuck test takes
+to give up. The alternative is worse than slow: under CPU pressure a tight
+timeout turns into a *red suite*, and a starved browser is indistinguishable in
+the output from a real defect. Verified by running the smoke tier at `-j 8`,
+which is deliberately more load than the default.
+
+A test exits non-zero and prints an assertion on failure. `run_all.py` captures
+each test's output and replays it in full **only for failures**, prints a
+duration per file, and ranks the slowest — that ranking is how the suite's
+remaining blind `time.sleep()` calls get found and retired. `-v` streams
+everything instead (and forces serial, since interleaved output is unreadable).
+
+**The full suite gates a deploy.** `tools/build.py` runs it before it stages a
+single file; see the root README's *Deploying* section.
+
+## Writing a new test
+
+Take the server and the browser from the harness — never start one, never name
+a port, never `time.sleep()` waiting for either:
+
+```python
+import harness
+from playwright.sync_api import sync_playwright
+
+BASE = harness.serve()                    # a free port, torn down at exit
+
+with sync_playwright() as p:
+    browser, page, errors = harness.launch(p, viewport=(780, 1334))
+    harness.boot(page, "window.__game && window.__game.lobby")
+    ...
+```
+
+**Never sleep for an animation.** `time.sleep(0.5)` after triggering a tween is
+a bet that the machine is idle; lose it and the test measures a half-finished
+layout, which reads as a game bug rather than as the starved renderer it is.
+Four separate tests failed this way the day the suite went parallel. Wait on
+something real instead: a state flag the game already exposes (`moving` on a
+rail entry, `spinning` on the wheel, `vw`/`vh` from `__game.view()`), or
+`harness.frames(page)`, which blocks until the page has actually painted two
+more frames and is therefore exactly as correct on a loaded machine as on an
+idle one. Where the settled *value* is the thing under test, poll until it stops
+changing and assert what it landed on — polling until it matches what you expect
+makes the assertion vacuous. And where a test has to observe a *transient*
+window (a fade still in flight, a lock that lifts after a beat), remember that
+its own screenshots and `evaluate` round-trips are what spend that window:
+restart the thing to reset the clock, and take the reading and the action in a
+single `evaluate` so no round-trip can land outside it.
+
+`harness.launch(..., autoplay=True)` adds the permissive autoplay flag the audio
+tests need; `harness.watch(page)` hangs the console/pageerror hooks on a page you
+built yourself; `harness.serve_dir(path)` serves somewhere other than the repo
+(only `build_test.py` needs that, for a staged artifact).
 
 ## Screenshots
 
-Tests drop PNG snapshots into `tests/output/` (gitignored) for eyeballing.
+Tests drop PNG snapshots into `tests/output/` (gitignored) for eyeballing. Every
+file namespaces its own shots, so parallel workers never fight over a filename.
 
 ## The tests
 
@@ -53,7 +142,7 @@ line per test.
 **Note:** the suite runs **in English**. Headless Chromium reports `en-US`, so a
 fresh profile's one-time language detection picks `en` and every assertion on
 on-screen wording reads the English table (`assets/lang/en.json`). A test that
-wants another language sets `localStorage['ck_language']` before loading — see
+wants another language sets `localStorage['tm3.language']` before loading — see
 `i18n_test.py`.
 
 ### Navigation & UI
@@ -410,7 +499,7 @@ Only `howtoplay_test.py` leaves it open.
   Live half: the **device-language map** including the regional variants and the
   two trap codes (`en-IN`/`hi` → **`in` = Hindi**, `en-ID`/`id` → Indonesian,
   `ja` → **`jp`**, `zh-HK` → `zh-tw`, an unrecognised tag → English); **detection
-  runs exactly once** (a `de-AT` browser boots German and writes `ck_language`,
+  runs exactly once** (a `de-AT` browser boots German and writes `tm3.language`,
   after which the stored value wins even though the device still says German, and
   an unrecognised stored code is treated as English); it **walks every screen**
   and asserts `missingKeys()` is empty, which catches a typo'd key whichever of

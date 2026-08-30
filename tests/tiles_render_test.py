@@ -16,39 +16,37 @@
 import subprocess, time, sys, os
 from playwright.sync_api import sync_playwright
 
+import harness
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
-srv = subprocess.Popen([sys.executable, "-m", "http.server", "8099"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(1.5)
-try:
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=[
-            "--use-gl=angle", "--use-angle=swiftshader",
-            "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist",
-            "--autoplay-policy=no-user-gesture-required"])
-        page = browser.new_page(viewport={"width": 780, "height": 1334})
+BASE = harness.serve()
+with sync_playwright() as p:
+    browser = p.chromium.launch(args=[
+        "--use-gl=angle", "--use-angle=swiftshader",
+        "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist",
+        "--autoplay-policy=no-user-gesture-required"])
+    page = browser.new_page(viewport={"width": 780, "height": 1334})
+    harness.patient(page)
 
-        errors = []
-        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
-        page.on("pageerror", lambda e: errors.append("PAGEERROR: " + str(e)))
+    errors = []
+    page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    page.on("pageerror", lambda e: errors.append("PAGEERROR: " + str(e)))
 
-        page.goto("http://localhost:8099/index.html")
-        page.wait_for_function("window.__game && window.__game.tileFaces", timeout=20000)
+    page.goto(f"{BASE}/index.html")
+    page.wait_for_function("window.__game && window.__game.tileFaces", timeout=60000)
 
-        faces = page.evaluate("window.__game.tileFaces()")
-        print("tileFaces:", faces["fontsReady"], faces["types"], faces["painted"])
+    faces = page.evaluate("window.__game.tileFaces()")
+    print("tileFaces:", faces["fontsReady"], faces["types"], faces["painted"])
 
-        assert faces["types"] == 20, f"expected 20 tile types, got {faces['types']}"
-        # The fix's ordering invariant: faces were generated after the font
-        # warm-up confirmed the emoji rasterizes. Reverting the async await drops
-        # this to false.
-        assert faces["fontsReady"] is True, "tile faces generated before font warm-up"
-        # Content invariant: every tile carries its fruit emoji (non-blank).
-        blank = [i for i, painted in enumerate(faces["painted"]) if not painted]
-        assert not blank, f"tile faces missing their emoji at types {blank}"
+    assert faces["types"] == 20, f"expected 20 tile types, got {faces['types']}"
+    # The fix's ordering invariant: faces were generated after the font
+    # warm-up confirmed the emoji rasterizes. Reverting the async await drops
+    # this to false.
+    assert faces["fontsReady"] is True, "tile faces generated before font warm-up"
+    # Content invariant: every tile carries its fruit emoji (non-blank).
+    blank = [i for i, painted in enumerate(faces["painted"]) if not painted]
+    assert not blank, f"tile faces missing their emoji at types {blank}"
 
-        assert not errors, f"console/page errors: {errors}"
-        print("PASS: all 20 tile faces carry their fruit; font warm-up ran first")
-finally:
-    srv.terminate()
+    assert not errors, f"console/page errors: {errors}"
+    print("PASS: all 20 tile faces carry their fruit; font warm-up ran first")

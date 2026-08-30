@@ -955,6 +955,31 @@ def list_builds(args):
               f"build record here")
 
 
+def run_tests():
+    """Run the full end-to-end suite; die if anything fails.
+
+    Uses the project virtualenv when there is one — build.py may well be invoked
+    from an interpreter with no Playwright installed, and that must say so
+    plainly rather than fail somewhere inside a test.
+    """
+    runner = os.path.join(ROOT, "tests", "run_all.py")
+    venv = os.path.join(ROOT, ".venv", "bin", "python")
+    python = venv if os.path.exists(venv) else sys.executable
+
+    check = subprocess.run([python, "-c", "import playwright"],
+                           capture_output=True)
+    if check.returncode != 0:
+        die(f"{python} cannot import playwright — the test suite gates every "
+            f"deploy.\n       install it, or pass --skip-tests to deploy anyway.")
+
+    print("running the test suite before building…", flush=True)
+    started = time.time()
+    if subprocess.run([python, runner]).returncode != 0:
+        die(f"tests failed after {time.time() - started:.0f}s — nothing was built "
+            f"or uploaded.\n       fix them, or pass --skip-tests to deploy anyway.")
+    print(f"  suite green in {time.time() - started:.0f}s\n", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Build the game into build/<commit>/ and upload it to S3.",
@@ -990,6 +1015,8 @@ def main():
     ap.add_argument("--keep-debug-api", action="store_true",
                     help="do NOT strip window.__game — for a staging build you "
                          "want to drive from the test suite")
+    ap.add_argument("--skip-tests", action="store_true",
+                    help="deploy WITHOUT running the test suite first (emergencies only)")
     ap.add_argument("--no-upload", action="store_true", help="stage locally, do not upload")
     ap.add_argument("--dry-run", action="store_true", help="show what would be uploaded")
     ap.add_argument("--latest", action="store_true",
@@ -1045,6 +1072,16 @@ def main():
         die("working tree is dirty — a build named after a commit must contain "
             "that commit.\n       commit your changes, or pass --allow-dirty to "
             "build anyway.")
+
+    # NOTHING REACHES PLAYERS WITHOUT A GREEN SUITE. The gate runs here — after
+    # the commit is pinned, before a single file is staged — so a red suite
+    # costs a test run rather than a full bundle-and-obfuscate. It tests the
+    # SOURCE; verify() further down asks a different question of the artifact.
+    # A local stage (--no-upload) and a --dry-run skip it: they ship nothing.
+    if not (args.no_upload or args.dry_run or args.skip_tests):
+        run_tests()
+    elif args.skip_tests and not (args.no_upload or args.dry_run):
+        print("  WARNING: --skip-tests — deploying code that was never tested.")
 
     build_id = info["short"] + ("-dirty" if info["dirty"] else "")
     dest = os.path.join(args.build_dir, build_id)

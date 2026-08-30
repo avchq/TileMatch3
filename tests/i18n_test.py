@@ -1,6 +1,8 @@
 import subprocess, time, sys, os, re, json, glob
 from playwright.sync_api import sync_playwright
 
+import harness
+
 # The game ships in 13 languages and every one of them is complete: the same key
 # set in all 13, no gaps, no fallback to English, no partially-translated locale.
 # The player can change language at any time from the settings screen and the
@@ -16,7 +18,7 @@ from playwright.sync_api import sync_playwright
 #   3. DETECTION — the device-language map, including the regional variants and
 #      the two trap codes (`in` is HINDI, `jp` is used for `ja`);
 #   4. THE STORED CHOICE — detection runs exactly ONCE, after which the stored
-#      `ck_language` wins outright;
+#      `tm3.language` wins outright;
 #   5. THE LIVE SWAP — changing language re-letters the scenes in place;
 #   6. THE ROUGH EDGES — a failed download still counts as a choice, a missing
 #      key displays the key itself, and nothing ever unloads a language.
@@ -178,114 +180,116 @@ assert activities <= set(tasks_cfg["titles"]), (
 # ---------------------------------------------------------------------------
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 os.makedirs(OUT, exist_ok=True)
-srv = subprocess.Popen([sys.executable, "-m", "http.server", "8099"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(1.5)
+BASE = harness.serve()
 ARGS = ["--use-gl=angle", "--use-angle=swiftshader",
         "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
-try:
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=ARGS)
+with sync_playwright() as p:
+    browser = p.chromium.launch(args=ARGS)
 
-        def new_page(locale=None):
-            ctx = browser.new_context(viewport={"width": 750, "height": 1334},
-                                      locale=locale) if locale else None
-            page = ctx.new_page() if ctx else browser.new_page(
-                viewport={"width": 750, "height": 1334})
-            page.on("pageerror", lambda e: errors.append("PAGEERROR: " + str(e)))
-            page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
-            return page
+    def new_page(locale=None):
+        ctx = browser.new_context(viewport={"width": 750, "height": 1334},
+                                  locale=locale) if locale else None
+        page = ctx.new_page() if ctx else browser.new_page(
+            viewport={"width": 750, "height": 1334})
+        harness.patient(page)
+        page.on("pageerror", lambda e: errors.append("PAGEERROR: " + str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        return page
 
-        errors = []
-        page = new_page()
+    errors = []
+    page = new_page()
 
-        def boot():
-            page.wait_for_function("window.__game && window.__game.language", timeout=20000)
-            time.sleep(0.5)
-
-        page.goto("http://localhost:8099/index.html")
-        page.evaluate("() => localStorage.clear()")
-        page.reload()
-        boot()
-
-        # ---- 3) detection ---------------------------------------------------
-        # The offered set is hard-coded in the program, in picker order, with the
-        # names written in their own language rather than translated.
-        langs = page.evaluate("window.__game.languages()")
-        assert [l["code"] for l in langs] == CODES, [l["code"] for l in langs]
-        assert [l["label"] for l in langs] == LABELS, [l["label"] for l in langs]
-
-        for tag, want in DETECT.items():
-            got = page.evaluate("(t) => window.__game.mapTag(t)", tag)
-            assert got == want, (tag, got, want)
-        print("DETECTION MAP OK -> including en-IN->in, en-ID->id, ja->jp, zh-HK->zh-tw")
-
-        # Headless Chromium reports en-US, so a fresh profile detects English —
-        # which is what keeps the rest of the suite reading English.
-        assert page.evaluate("window.__game.language()") == "en"
-        assert page.evaluate("window.__game.storedLanguage()") == "en", \
-            "detection must WRITE its result, so it never runs a second time"
-        assert page.evaluate("document.documentElement.lang") == "en"
-
-        # <html lang> must carry a VALID BCP-47 tag, not the game's internal code:
-        # `jp` and `in` are not real tags (`in` is in fact the legacy code for
-        # Indonesian, the opposite of what this game means by it), and a wrong
-        # lang skews the browser's font matching.
-        for code, tag in [("en", "en"), ("ru", "ru"), ("de", "de"),
-                          ("jp", "ja"), ("in", "hi"),
-                          ("zh", "zh-Hans"), ("zh-tw", "zh-Hant")]:
-            assert page.evaluate("(c) => window.__game.languageTag(c)", code) == tag, (code, tag)
-
-        # ---- 4) the stored choice wins --------------------------------------
-        # A device set to German boots into German — once.
-        de_page = new_page(locale="de-AT")
-        de_page.goto("http://localhost:8099/index.html")
-        de_page.evaluate("() => localStorage.clear()")
-        de_page.reload()
-        de_page.wait_for_function("window.__game && window.__game.language", timeout=20000)
+    def boot():
+        page.wait_for_function("window.__game && window.__game.language", timeout=60000)
         time.sleep(0.5)
-        assert de_page.evaluate("window.__game.detectLanguage()") == "de"
-        assert de_page.evaluate("window.__game.language()") == "de", "de-AT must boot German"
-        assert de_page.evaluate("window.__game.storedLanguage()") == "de"
-        assert de_page.evaluate("window.__game.lobby.title.text") == tables["de"]["game_title"]
-        print("DETECTED de-AT ->", de_page.evaluate("window.__game.lobby.title.text"))
 
-        # …and from then on the STORED value wins, whatever the device says. This
-        # browser still reports de-AT, but the game comes up in Russian.
-        de_page.evaluate("() => localStorage.setItem('ck_language', 'ru')")
-        de_page.reload()
-        de_page.wait_for_function("window.__game && window.__game.language", timeout=20000)
-        time.sleep(0.5)
-        assert de_page.evaluate("window.__game.detectLanguage()") == "de", \
-            "the device still says German"
-        assert de_page.evaluate("window.__game.language()") == "ru", \
-            "the stored choice must win over the device language"
+    page.goto(f"{BASE}/index.html")
+    page.evaluate("() => localStorage.clear()")
+    page.reload()
+    boot()
 
-        # A code the game doesn't recognise is silently treated as English.
-        de_page.evaluate("() => localStorage.setItem('ck_language', 'klingon')")
-        de_page.reload()
-        de_page.wait_for_function("window.__game && window.__game.language", timeout=20000)
-        time.sleep(0.5)
-        assert de_page.evaluate("window.__game.language()") == "en", "unknown code -> English"
-        de_page.context.close()
-        print("STORED CHOICE OK -> written once, then it wins; unknown code -> English")
+    # ---- 3) detection ---------------------------------------------------
+    # The offered set is hard-coded in the program, in picker order, with the
+    # names written in their own language rather than translated.
+    langs = page.evaluate("window.__game.languages()")
+    assert [l["code"] for l in langs] == CODES, [l["code"] for l in langs]
+    assert [l["label"] for l in langs] == LABELS, [l["label"] for l in langs]
 
-        # ---- 5) every screen resolves --------------------------------------
-        # Get onto the lobby past every feature gate (a fresh profile is routed
-        # into level 1 instead, and Tasks needs level 9 cleared).
-        page.evaluate("window.__game.completeLevel(9); window.__game.flushSave();")
-        page.reload()
-        boot()
-        page.evaluate("window.__game.markBoosterCoached('all')")
-        assert page.evaluate("window.__game.inLobby()") is True
+    for tag, want in DETECT.items():
+        got = page.evaluate("(t) => window.__game.mapTag(t)", tag)
+        assert got == want, (tag, got, want)
+    print("DETECTION MAP OK -> including en-IN->in, en-ID->id, ja->jp, zh-HK->zh-tw")
 
-        # Walk every screen and assert not one key came back missing. This is the
-        # route-agnostic half of the coverage check: it does not care whether a
-        # label got its key from the layout, from game logic or from a config
-        # table — if the key is not in the language file, the raw key goes on
-        # screen and it is recorded here.
-        page.evaluate("window.__game.clearMissingKeys()")
-        page.evaluate("""async () => {
+    # Headless Chromium reports en-US, so a fresh profile detects English —
+    # which is what keeps the rest of the suite reading English.
+    assert page.evaluate("window.__game.language()") == "en"
+    assert page.evaluate("window.__game.storedLanguage()") == "en", \
+        "detection must WRITE its result, so it never runs a second time"
+    assert page.evaluate("document.documentElement.lang") == "en"
+
+    # <html lang> must carry a VALID BCP-47 tag, not the game's internal code:
+    # `jp` and `in` are not real tags (`in` is in fact the legacy code for
+    # Indonesian, the opposite of what this game means by it), and a wrong
+    # lang skews the browser's font matching.
+    for code, tag in [("en", "en"), ("ru", "ru"), ("de", "de"),
+                      ("jp", "ja"), ("in", "hi"),
+                      ("zh", "zh-Hans"), ("zh-tw", "zh-Hant")]:
+        assert page.evaluate("(c) => window.__game.languageTag(c)", code) == tag, (code, tag)
+
+    # ---- 4) the stored choice wins --------------------------------------
+    # A device set to German boots into German — once.
+    de_page = new_page(locale="de-AT")
+    de_page.goto(f"{BASE}/index.html")
+    de_page.evaluate("() => localStorage.clear()")
+    de_page.reload()
+    de_page.wait_for_function("window.__game && window.__game.language", timeout=60000)
+    time.sleep(0.5)
+    assert de_page.evaluate("window.__game.detectLanguage()") == "de"
+    assert de_page.evaluate("window.__game.language()") == "de", "de-AT must boot German"
+    assert de_page.evaluate("window.__game.storedLanguage()") == "de"
+    # The detected choice lands on the namespaced key, and the legacy
+    # unprefixed one is never written.
+    assert de_page.evaluate("() => localStorage.getItem('tm3.language')") == "de"
+    assert de_page.evaluate("() => localStorage.getItem('ck_language')") is None
+    assert de_page.evaluate("window.__game.lobby.title.text") == tables["de"]["game_title"]
+    print("DETECTED de-AT ->", de_page.evaluate("window.__game.lobby.title.text"))
+
+    # …and from then on the STORED value wins, whatever the device says. This
+    # browser still reports de-AT, but the game comes up in Russian.
+    de_page.evaluate("() => localStorage.setItem('tm3.language', 'ru')")
+    de_page.reload()
+    de_page.wait_for_function("window.__game && window.__game.language", timeout=60000)
+    time.sleep(0.5)
+    assert de_page.evaluate("window.__game.detectLanguage()") == "de", \
+        "the device still says German"
+    assert de_page.evaluate("window.__game.language()") == "ru", \
+        "the stored choice must win over the device language"
+
+    # A code the game doesn't recognise is silently treated as English.
+    de_page.evaluate("() => localStorage.setItem('tm3.language', 'klingon')")
+    de_page.reload()
+    de_page.wait_for_function("window.__game && window.__game.language", timeout=60000)
+    time.sleep(0.5)
+    assert de_page.evaluate("window.__game.language()") == "en", "unknown code -> English"
+    de_page.context.close()
+    print("STORED CHOICE OK -> written once, then it wins; unknown code -> English")
+
+    # ---- 5) every screen resolves --------------------------------------
+    # Get onto the lobby past every feature gate (a fresh profile is routed
+    # into level 1 instead, and Tasks needs level 9 cleared).
+    page.evaluate("window.__game.completeLevel(9); window.__game.flushSave();")
+    page.reload()
+    boot()
+    page.evaluate("window.__game.markBoosterCoached('all')")
+    assert page.evaluate("window.__game.inLobby()") is True
+
+    # Walk every screen and assert not one key came back missing. This is the
+    # route-agnostic half of the coverage check: it does not care whether a
+    # label got its key from the layout, from game logic or from a config
+    # table — if the key is not in the language file, the raw key goes on
+    # screen and it is recorded here.
+    page.evaluate("window.__game.clearMissingKeys()")
+    page.evaluate("""async () => {
             const g = window.__game;
             g.openSettings();            g.settings._back();
             g.openLanguagePicker();      g.closeLanguagePicker();
@@ -297,37 +301,37 @@ try:
             g.setTasksTab('achievements');
             g.closeTasks();
         }""")
-        time.sleep(0.6)
-        page.evaluate("async () => { await window.__game.startLevel(2); "
-                      "window.__game.closeTutorial(); }")
-        time.sleep(0.7)
-        for kind in ("undo", "shuffle", "wand"):
-            page.evaluate("(k) => window.__game.pressBooster(k)", kind)
-            time.sleep(0.15)
-        missing = page.evaluate("window.__game.missingKeys()")
-        print("MISSING AFTER WALKING EVERY SCREEN ->", missing)
-        assert missing == [], ("a screen reached for a key no language file has", missing)
-        page.evaluate("window.__game.exitLevel()")
-        time.sleep(0.5)
+    time.sleep(0.6)
+    page.evaluate("async () => { await window.__game.startLevel(2); "
+                  "window.__game.closeTutorial(); }")
+    time.sleep(0.7)
+    for kind in ("undo", "shuffle", "wand"):
+        page.evaluate("(k) => window.__game.pressBooster(k)", kind)
+        time.sleep(0.15)
+    missing = page.evaluate("window.__game.missingKeys()")
+    print("MISSING AFTER WALKING EVERY SCREEN ->", missing)
+    assert missing == [], ("a screen reached for a key no language file has", missing)
+    page.evaluate("window.__game.exitLevel()")
+    time.sleep(0.5)
 
-        # ---- 6) the live swap -----------------------------------------------
-        assert page.evaluate("window.__game.inLobby()") is True
-        page.evaluate("() => { window.__noReload = true; }")
+    # ---- 6) the live swap -----------------------------------------------
+    assert page.evaluate("window.__game.inLobby()") is True
+    page.evaluate("() => { window.__noReload = true; }")
 
-        before = page.evaluate("""() => ({
+    before = page.evaluate("""() => ({
             title: window.__game.lobby.title.text,
             play: window.__game.lobby.playBtn.label.text,
             level: window.__game.currentLevel(),
             coins: window.__game.balance('coins'),
         })""")
-        print("BEFORE ->", before)
-        assert before["title"] == EN["game_title"]
-        page.screenshot(path=f"{OUT}/i18n_lobby_en.png")
+    print("BEFORE ->", before)
+    assert before["title"] == EN["game_title"]
+    page.screenshot(path=f"{OUT}/i18n_lobby_en.png")
 
-        swapped = page.evaluate("async () => await window.__game.setLanguage('ru')")
-        time.sleep(0.4)
-        assert swapped is True, "setLanguage must report the swap happened"
-        after = page.evaluate("""() => ({
+    swapped = page.evaluate("async () => await window.__game.setLanguage('ru')")
+    time.sleep(0.4)
+    assert swapped is True, "setLanguage must report the swap happened"
+    after = page.evaluate("""() => ({
             title: window.__game.lobby.title.text,
             play: window.__game.lobby.playBtn.label.text,
             level: window.__game.currentLevel(),
@@ -337,120 +341,118 @@ try:
             html: document.documentElement.lang,
             alive: !!window.__noReload,
         })""")
-        print("AFTER  ->", after)
-        RU = tables["ru"]
-        assert after["lang"] == "ru" and after["stored"] == "ru", after
-        assert after["html"] == "ru", after
-        assert after["alive"] is True, "the swap must not reload the page"
-        assert after["level"] == before["level"] and after["coins"] == before["coins"], \
-            "changing language must not touch progress"
-        assert after["title"] == RU["game_title"], (after["title"], RU["game_title"])
-        assert after["title"] != before["title"], "the lobby title did not re-letter"
-        # The play button is assembled in code — "Level {0}" with the level in it.
-        assert after["play"] == RU["Language1"].replace("{0}", str(after["level"])), after
-        page.screenshot(path=f"{OUT}/i18n_lobby_ru.png")
+    print("AFTER  ->", after)
+    RU = tables["ru"]
+    assert after["lang"] == "ru" and after["stored"] == "ru", after
+    assert after["html"] == "ru", after
+    assert after["alive"] is True, "the swap must not reload the page"
+    assert after["level"] == before["level"] and after["coins"] == before["coins"], \
+        "changing language must not touch progress"
+    assert after["title"] == RU["game_title"], (after["title"], RU["game_title"])
+    assert after["title"] != before["title"], "the lobby title did not re-letter"
+    # The play button is assembled in code — "Level {0}" with the level in it.
+    assert after["play"] == RU["Language1"].replace("{0}", str(after["level"])), after
+    page.screenshot(path=f"{OUT}/i18n_lobby_ru.png")
 
-        # A screen that was NOT open re-letters too, and reads correctly the next
-        # time it is opened.
-        page.evaluate("window.__game.openSettings()")
-        time.sleep(0.3)
-        row = page.evaluate("window.__game.languageRowText()")
-        print("SETTINGS ROW ->", row)
-        assert row["label"] == RU["language"], row
-        assert row["value"] == "Русский", ("the language's own name is never translated", row)
-        page.screenshot(path=f"{OUT}/i18n_settings_ru.png")
-        page.evaluate("window.__game.settings._back()")
-        time.sleep(0.2)
+    # A screen that was NOT open re-letters too, and reads correctly the next
+    # time it is opened.
+    page.evaluate("window.__game.openSettings()")
+    time.sleep(0.3)
+    row = page.evaluate("window.__game.languageRowText()")
+    print("SETTINGS ROW ->", row)
+    assert row["label"] == RU["language"], row
+    assert row["value"] == "Русский", ("the language's own name is never translated", row)
+    page.screenshot(path=f"{OUT}/i18n_settings_ru.png")
+    page.evaluate("window.__game.settings._back()")
+    time.sleep(0.2)
 
-        # Text assembled inside a level re-letters in place as well.
-        page.evaluate("async () => { await window.__game.startLevel(2); "
-                      "window.__game.closeTutorial(); }")
-        time.sleep(0.7)
-        assert page.evaluate("window.__game.scene.levelText.text") == \
-            RU["hud_level"].replace("{0}", "2")
-        page.evaluate("async () => await window.__game.setLanguage('jp')")
-        time.sleep(0.4)
-        JP = tables["jp"]
-        hud = page.evaluate("window.__game.scene.levelText.text")
-        print("IN-LEVEL HUD (jp) ->", hud)
-        assert hud == JP["hud_level"].replace("{0}", "2"), hud
-        # …and the DOM carries `ja`, the real tag for the game's internal `jp`.
-        assert page.evaluate("document.documentElement.lang") == "ja", \
-            page.evaluate("document.documentElement.lang")
-        page.screenshot(path=f"{OUT}/i18n_level_jp.png")
+    # Text assembled inside a level re-letters in place as well.
+    page.evaluate("async () => { await window.__game.startLevel(2); "
+                  "window.__game.closeTutorial(); }")
+    time.sleep(0.7)
+    assert page.evaluate("window.__game.scene.levelText.text") == \
+        RU["hud_level"].replace("{0}", "2")
+    page.evaluate("async () => await window.__game.setLanguage('jp')")
+    time.sleep(0.4)
+    JP = tables["jp"]
+    hud = page.evaluate("window.__game.scene.levelText.text")
+    print("IN-LEVEL HUD (jp) ->", hud)
+    assert hud == JP["hud_level"].replace("{0}", "2"), hud
+    # …and the DOM carries `ja`, the real tag for the game's internal `jp`.
+    assert page.evaluate("document.documentElement.lang") == "ja", \
+        page.evaluate("document.documentElement.lang")
+    page.screenshot(path=f"{OUT}/i18n_level_jp.png")
 
-        # The placeholder rules, driven through the live lookup.
-        assert page.evaluate("window.__game.t('Language1', 7)") == \
-            JP["Language1"].replace("{0}", "7")
-        assert page.evaluate("window.__game.t('title_task_1', 12)") == \
-            JP["title_task_1"].replace("%value", "12")
-        assert page.evaluate("window.__game.t('reset_in_dh', 2, 14)") == \
-            JP["reset_in_dh"].replace("{0}", "2").replace("{1}", "14")
-        # A string with no placeholder is returned untouched, extra values or not.
-        assert page.evaluate("window.__game.t('claim', 5)") == JP["claim"]
+    # The placeholder rules, driven through the live lookup.
+    assert page.evaluate("window.__game.t('Language1', 7)") == \
+        JP["Language1"].replace("{0}", "7")
+    assert page.evaluate("window.__game.t('title_task_1', 12)") == \
+        JP["title_task_1"].replace("%value", "12")
+    assert page.evaluate("window.__game.t('reset_in_dh', 2, 14)") == \
+        JP["reset_in_dh"].replace("{0}", "2").replace("{1}", "14")
+    # A string with no placeholder is returned untouched, extra values or not.
+    assert page.evaluate("window.__game.t('claim', 5)") == JP["claim"]
 
-        # ---- 7) the rough edges ---------------------------------------------
-        # A MISSING KEY DISPLAYS THE KEY ITSELF — there is no fallback to English.
-        for key in ("bonus_desc4", "level_up_desc", "level_down_desc"):
-            assert page.evaluate("(k) => window.__game.hasKey(k)", key) is False, key
-            assert page.evaluate("(k) => window.__game.t(k)", key) == key, key
-        print("MISSING KEY OK -> the label shows the key")
+    # ---- 7) the rough edges ---------------------------------------------
+    # A MISSING KEY DISPLAYS THE KEY ITSELF — there is no fallback to English.
+    for key in ("bonus_desc4", "level_up_desc", "level_down_desc"):
+        assert page.evaluate("(k) => window.__game.hasKey(k)", key) is False, key
+        assert page.evaluate("(k) => window.__game.t(k)", key) == key, key
+    print("MISSING KEY OK -> the label shows the key")
 
-        # A FAILED DOWNLOAD STILL COUNTS AS A CHOICE: the text on screen stays as
-        # it was, but the new language is written to storage, so the next launch
-        # comes up in it (or fails to, again).
-        # Aborting the request makes the browser log a net::ERR_FAILED of its
-        # own. That is the condition under test, not a fault — so remember how
-        # many errors were legitimate up to here and ignore the induced one.
-        expected_errors = len(errors) + 1
-        page.route("**/assets/lang/it.json", lambda route: route.abort())
-        held = page.evaluate("window.__game.scene.levelText.text")
-        ok = page.evaluate("async () => await window.__game.setLanguage('it')")
-        time.sleep(0.3)
-        state = page.evaluate("""() => ({
+    # A FAILED DOWNLOAD STILL COUNTS AS A CHOICE: the text on screen stays as
+    # it was, but the new language is written to storage, so the next launch
+    # comes up in it (or fails to, again).
+    # Aborting the request makes the browser log a net::ERR_FAILED of its
+    # own. That is the condition under test, not a fault — so remember how
+    # many errors were legitimate up to here and ignore the induced one.
+    expected_errors = len(errors) + 1
+    page.route("**/assets/lang/it.json", lambda route: route.abort())
+    held = page.evaluate("window.__game.scene.levelText.text")
+    ok = page.evaluate("async () => await window.__game.setLanguage('it')")
+    time.sleep(0.3)
+    state = page.evaluate("""() => ({
             lang: window.__game.language(),
             stored: window.__game.storedLanguage(),
             hud: window.__game.scene.levelText.text,
         })""")
-        print("FAILED DOWNLOAD ->", ok, state)
-        assert ok is False, "a failed download is not a swap"
-        assert state["lang"] == "jp" and state["hud"] == held, \
-            "the on-screen text must stay as it was"
-        assert state["stored"] == "it", \
-            "the choice is remembered even though the download failed"
-        page.unroute("**/assets/lang/it.json")
+    print("FAILED DOWNLOAD ->", ok, state)
+    assert ok is False, "a failed download is not a swap"
+    assert state["lang"] == "jp" and state["hud"] == held, \
+        "the on-screen text must stay as it was"
+    assert state["stored"] == "it", \
+        "the choice is remembered even though the download failed"
+    page.unroute("**/assets/lang/it.json")
 
-        # NOTHING EVER UNLOADS A LANGUAGE: every one visited this session stays
-        # resident. The release path exists but is not on any code path.
-        page.evaluate("async () => { await window.__game.setLanguage('de'); "
-                      "await window.__game.setLanguage('ko'); }")
-        time.sleep(0.4)
-        loaded = page.evaluate("window.__game.loadedLanguages()")
-        print("RESIDENT ->", loaded)
-        assert set(loaded) >= {"en", "ru", "jp", "de", "ko"}, loaded
+    # NOTHING EVER UNLOADS A LANGUAGE: every one visited this session stays
+    # resident. The release path exists but is not on any code path.
+    page.evaluate("async () => { await window.__game.setLanguage('de'); "
+                  "await window.__game.setLanguage('ko'); }")
+    time.sleep(0.4)
+    loaded = page.evaluate("window.__game.loadedLanguages()")
+    print("RESIDENT ->", loaded)
+    assert set(loaded) >= {"en", "ru", "jp", "de", "ko"}, loaded
 
-        # Re-picking the language already in use is a no-op.
-        assert page.evaluate("async () => await window.__game.setLanguage('ko')") is False
+    # Re-picking the language already in use is a no-op.
+    assert page.evaluate("async () => await window.__game.setLanguage('ko')") is False
 
-        # The choice survives a reload, with progress intact.
-        page.evaluate("window.__game.flushSave()")
-        page.reload()
-        boot()
-        assert page.evaluate("window.__game.language()") == "ko"
-        assert page.evaluate("window.__game.lobby.title.text") == tables["ko"]["game_title"]
-        assert page.evaluate("window.__game.user().progress.completed") == 9, \
-            "progress must survive every language change"
-        print("RELOAD OK -> came back in", page.evaluate("window.__game.language()"))
+    # The choice survives a reload, with progress intact.
+    page.evaluate("window.__game.flushSave()")
+    page.reload()
+    boot()
+    assert page.evaluate("window.__game.language()") == "ko"
+    assert page.evaluate("window.__game.lobby.title.text") == tables["ko"]["game_title"]
+    assert page.evaluate("window.__game.user().progress.completed") == 9, \
+        "progress must survive every language change"
+    print("RELOAD OK -> came back in", page.evaluate("window.__game.language()"))
 
-        print("PAGE ERRORS:", len(errors), errors[:5])
-        # Everything except the one net::ERR_FAILED the aborted fetch above
-        # necessarily produces.
-        unexpected = [e for e in errors if "ERR_FAILED" not in e]
-        assert not unexpected, ("console errors during the localization checks",
-                                unexpected)
-        assert len(errors) <= expected_errors, ("more failed requests than the one "
-                                                "the test induced", errors)
-        print("ALL LOCALIZATION CHECKS PASSED")
-        browser.close()
-finally:
-    srv.terminate()
+    print("PAGE ERRORS:", len(errors), errors[:5])
+    # Everything except the one net::ERR_FAILED the aborted fetch above
+    # necessarily produces.
+    unexpected = [e for e in errors if "ERR_FAILED" not in e]
+    assert not unexpected, ("console errors during the localization checks",
+                            unexpected)
+    assert len(errors) <= expected_errors, ("more failed requests than the one "
+                                            "the test induced", errors)
+    print("ALL LOCALIZATION CHECKS PASSED")
+    browser.close()

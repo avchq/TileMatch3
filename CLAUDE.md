@@ -47,9 +47,14 @@ constants stay with their scene, and large data tables stay in
 change done until the suite passes.**
 
 ```bash
-python3 tests/run_all.py           # full suite
+python3 tests/run_all.py           # full suite (runs 4 files at a time)
+python3 tests/run_all.py --smoke   # fast tier, for the inner loop
 python3 tests/run_all.py settings  # subset (substring match on filename)
 ```
+
+The suite runs in parallel and gates a deploy — `tools/build.py` runs all of it
+before staging anything. A new test takes its server, browser and boot sequence
+from `tests/harness.py`; it must never start a server or name a port itself.
 
 The tests are Playwright-Python end-to-end tests that drive the real game in
 headless Chromium via the `window.__game` debug API (defined in `src/main.js`).

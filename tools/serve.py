@@ -14,9 +14,9 @@ see on the device is what is on disk.
 
     python3 tools/serve.py [port]      # default 8099, serves the repo root
 
-The test suite deliberately keeps using plain `http.server`: each run gets a
-fresh browser profile, so caching never bites it, and the tests should exercise
-the same server anyone else would.
+The test suite deliberately keeps using plain `http.server` too (on its own free
+port, from `tests/harness.py`): each run gets a fresh browser profile, so caching
+never bites it, and the tests should exercise the same server anyone else would.
 """
 import functools
 import http.server

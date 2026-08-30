@@ -1,6 +1,8 @@
 import subprocess, time, sys, os, re, json
 from playwright.sync_api import sync_playwright
 
+import harness
+
 # Every KEY PARAMETER of the game — feature gates, unlock schedules, progression
 # thresholds and economy amounts — lives in ONE file, `src/config.js`, exposed to
 # the debug API as `window.__game.config()`.
@@ -48,219 +50,208 @@ EXPECT = {
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
-srv = subprocess.Popen([sys.executable, "-m", "http.server", "8099"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(1.5)
-try:
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=[
-            "--use-gl=angle", "--use-angle=swiftshader",
-            "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"])
-        page = browser.new_page(viewport={"width": 750, "height": 1334})
-        errors = []
-        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
-        page.on("pageerror", lambda e: errors.append("PAGEERROR: " + str(e)))
+BASE = harness.serve()
+with sync_playwright() as p:
+    browser, page, errors = harness.launch(p, viewport=(750, 1334))
 
-        OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
-        os.makedirs(OUT, exist_ok=True)
+    OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+    os.makedirs(OUT, exist_ok=True)
 
-        def boot():
-            page.wait_for_function("window.__game && window.__game.config", timeout=20000)
-            time.sleep(0.6)
+    def boot():
+        page.wait_for_function("window.__game && window.__game.config", timeout=60000)
+        time.sleep(0.6)
 
-        def cfg():   return page.evaluate("window.__game.config()")
-        def st():    return page.evaluate("window.__game.state()")
-        def text(path): return page.evaluate(
-            f"async () => (await fetch('{path}')).text()")
+    def cfg():   return page.evaluate("window.__game.config()")
+    def st():    return page.evaluate("window.__game.state()")
+    def text(path): return page.evaluate(
+        f"async () => (await fetch('{path}')).text()")
 
-        page.goto("http://localhost:8099/index.html")
-        page.evaluate("() => localStorage.clear()")
-        page.reload()
-        boot()
+    page.goto(f"{BASE}/index.html")
+    page.evaluate("() => localStorage.clear()")
+    page.reload()
+    boot()
 
-        # ---- 1) the config is there, and ships the intended values -----------
-        C = cfg()
-        print("CONFIG SECTIONS ->", sorted(C.keys()))
-        assert set(C.keys()) == set(EXPECT.keys()), (sorted(C.keys()), sorted(EXPECT.keys()))
-        for section, want in EXPECT.items():
-            assert C[section] == want, (section, C[section], want)
+    # ---- 1) the config is there, and ships the intended values -----------
+    C = cfg()
+    print("CONFIG SECTIONS ->", sorted(C.keys()))
+    assert set(C.keys()) == set(EXPECT.keys()), (sorted(C.keys()), sorted(EXPECT.keys()))
+    for section, want in EXPECT.items():
+        assert C[section] == want, (section, C[section], want)
 
-        # It is read-only: a stray assignment must not re-balance the game live.
-        frozen = page.evaluate("""() => {
+    # It is read-only: a stray assignment must not re-balance the game live.
+    frozen = page.evaluate("""() => {
             const c = window.__game.config();
             try { c.features.shop.unlockLevel = 99; } catch (e) { return true; }
             return c.features.shop.unlockLevel !== 99;
         }""")
-        assert frozen, "CONFIG must be frozen (deep) — it is read-only at runtime"
+    assert frozen, "CONFIG must be frozen (deep) — it is read-only at runtime"
 
-        # ---- 2) the live game reads those values ----------------------------
-        # A brand-new player: wallet + helper inventory are exactly the config's
-        # starting values, and every helper is locked behind its scheduled level.
-        prof = page.evaluate("() => window.__game.store.user.toJSON()")
-        print("NEW PROFILE ->", prof["wallet"], prof["boosters"])
-        assert prof["wallet"] == C["economy"]["startingWallet"], prof["wallet"]
-        assert prof["boosters"] == C["boosters"]["startingInventory"], prof["boosters"]
-        for kind, u in C["boosters"]["unlocks"].items():
-            lvl = page.evaluate(f"window.__game.boosterUnlockLevel('{kind}')")
-            assert lvl == u["level"], (kind, lvl, u)
-            assert page.evaluate(f"window.__game.boosterUnlocked('{kind}')") is False, kind
+    # ---- 2) the live game reads those values ----------------------------
+    # A brand-new player: wallet + helper inventory are exactly the config's
+    # starting values, and every helper is locked behind its scheduled level.
+    prof = page.evaluate("() => window.__game.store.user.toJSON()")
+    print("NEW PROFILE ->", prof["wallet"], prof["boosters"])
+    assert prof["wallet"] == C["economy"]["startingWallet"], prof["wallet"]
+    assert prof["boosters"] == C["boosters"]["startingInventory"], prof["boosters"]
+    for kind, u in C["boosters"]["unlocks"].items():
+        lvl = page.evaluate(f"window.__game.boosterUnlockLevel('{kind}')")
+        assert lvl == u["level"], (kind, lvl, u)
+        assert page.evaluate(f"window.__game.boosterUnlocked('{kind}')") is False, kind
 
-        # The shop's gate is the config's, not a constant of its own.
-        s = page.evaluate("window.__game.shopState()")
-        assert s["unlockLevel"] == C["features"]["shop"]["unlockLevel"], s
+    # The shop's gate is the config's, not a constant of its own.
+    s = page.evaluate("window.__game.shopState()")
+    assert s["unlockLevel"] == C["features"]["shop"]["unlockLevel"], s
 
-        # A brand-new player boots into the tutorial level, and that level (not
-        # "is a new player") is what opens the How To Play popup.
-        assert st()["level"] == C["progression"]["tutorialLevel"], st()
-        assert page.evaluate("window.__game.tutorialState()")["visible"] is True
-        page.evaluate("window.__game.closeTutorial()")
-        time.sleep(0.4)
+    # A brand-new player boots into the tutorial level, and that level (not
+    # "is a new player") is what opens the How To Play popup.
+    assert st()["level"] == C["progression"]["tutorialLevel"], st()
+    assert page.evaluate("window.__game.tutorialState()")["visible"] is True
+    page.evaluate("window.__game.closeTutorial()")
+    time.sleep(0.4)
 
-        # The tray really has `traySlots` slots laid out.
-        slots = page.evaluate("window.__game.traySize()")["slotXs"]
-        assert len(slots) == C["board"]["traySlots"], (len(slots), C["board"]["traySlots"])
+    # The tray really has `traySlots` slots laid out.
+    slots = page.evaluate("window.__game.traySize()")["slotXs"]
+    assert len(slots) == C["board"]["traySlots"], (len(slots), C["board"]["traySlots"])
 
-        # …because the 8th slot's own gate is still shut. Below it the extra cell
-        # does not exist at all and the capacity is the configured base.
-        xslot = C["board"]["extraSlot"]
-        e = page.evaluate("window.__game.extraSlotState()")
-        print("EXTRA SLOT BELOW GATE ->", e["unlocked"], e["drawn"], e["capacity"])
-        assert e["unlockLevel"] == xslot["unlockLevel"], e
-        assert e["unlocked"] is False and e["drawn"] is False, e
-        assert e["capacity"] == C["board"]["traySlots"], e
+    # …because the 8th slot's own gate is still shut. Below it the extra cell
+    # does not exist at all and the capacity is the configured base.
+    xslot = C["board"]["extraSlot"]
+    e = page.evaluate("window.__game.extraSlotState()")
+    print("EXTRA SLOT BELOW GATE ->", e["unlocked"], e["drawn"], e["capacity"])
+    assert e["unlockLevel"] == xslot["unlockLevel"], e
+    assert e["unlocked"] is False and e["drawn"] is False, e
+    assert e["capacity"] == C["board"]["traySlots"], e
 
-        # Clearing enough levels pays out each helper's scheduled grant, exactly.
-        page.evaluate("window.__game.completeLevel(5)")
-        page.evaluate("window.__game.flushSave()")
-        time.sleep(0.4)
-        # Those helpers are now unlocked but never taught, so the next level would
-        # open a coached first use and park the board (boostercoach_test.py owns
-        # that). Mark it seen — this test is about the config, not the lesson.
-        page.evaluate("window.__game.markBoosterCoached('all')")
-        for kind, u in C["boosters"]["unlocks"].items():
-            assert page.evaluate(f"window.__game.boosterUnlocked('{kind}')") is True, kind
-            n = page.evaluate(f"window.__game.boosterCount('{kind}')")
-            assert n == u["grant"], ("scheduled grant", kind, n, u["grant"])
+    # Clearing enough levels pays out each helper's scheduled grant, exactly.
+    page.evaluate("window.__game.completeLevel(5)")
+    page.evaluate("window.__game.flushSave()")
+    time.sleep(0.4)
+    # Those helpers are now unlocked but never taught, so the next level would
+    # open a coached first use and park the board (boostercoach_test.py owns
+    # that). Mark it seen — this test is about the config, not the lesson.
+    page.evaluate("window.__game.markBoosterCoached('all')")
+    for kind, u in C["boosters"]["unlocks"].items():
+        assert page.evaluate(f"window.__game.boosterUnlocked('{kind}')") is True, kind
+        n = page.evaluate(f"window.__game.boosterCount('{kind}')")
+        assert n == u["grant"], ("scheduled grant", kind, n, u["grant"])
 
-        # The Fortune Wheel's gate + spin budget come from the config too.
-        page.evaluate("window.__game.exitLevel()")
-        time.sleep(0.5)
-        wheel_lvl = C["features"]["fortuneWheel"]["unlockLevel"]
-        page.evaluate(f"window.__game.setLevel({wheel_lvl - 1})")
-        time.sleep(0.3)
-        w = page.evaluate("window.__game.wheelState()")
-        print("WHEEL BELOW GATE ->", w["unlocked"], w["buttonVisible"])
-        assert w["unlocked"] is False and w["buttonVisible"] is False, w
-        page.evaluate(f"window.__game.setLevel({wheel_lvl})")
-        time.sleep(0.3)
-        w = page.evaluate("window.__game.wheelState()")
-        print("WHEEL AT GATE ->", w["unlocked"], w["spinsLeft"])
-        assert w["unlocked"] is True, w
-        assert w["spinsLeft"] == C["features"]["fortuneWheel"]["spinsPerCycle"], w
+    # The Fortune Wheel's gate + spin budget come from the config too.
+    page.evaluate("window.__game.exitLevel()")
+    time.sleep(0.5)
+    wheel_lvl = C["features"]["fortuneWheel"]["unlockLevel"]
+    page.evaluate(f"window.__game.setLevel({wheel_lvl - 1})")
+    time.sleep(0.3)
+    w = page.evaluate("window.__game.wheelState()")
+    print("WHEEL BELOW GATE ->", w["unlocked"], w["buttonVisible"])
+    assert w["unlocked"] is False and w["buttonVisible"] is False, w
+    page.evaluate(f"window.__game.setLevel({wheel_lvl})")
+    time.sleep(0.3)
+    w = page.evaluate("window.__game.wheelState()")
+    print("WHEEL AT GATE ->", w["unlocked"], w["spinsLeft"])
+    assert w["unlocked"] is True, w
+    assert w["spinsLeft"] == C["features"]["fortuneWheel"]["spinsPerCycle"], w
 
-        # The language layer reads its fallback and its folder from the config —
-        # a brand-new player in an unrecognised locale lands on `defaultLanguage`
-        # and the table really came from `textDir` (i18n_test.py owns the rest).
-        lang = C["language"]
-        assert page.evaluate("window.__game.mapTag('xx-YY')") is None
-        assert page.evaluate("window.__game.detectLanguage()") == lang["defaultLanguage"]
-        assert page.evaluate("window.__game.language()") == lang["defaultLanguage"]
-        assert json.loads(text(f"{lang['textDir']}/{lang['defaultLanguage']}.json"))
+    # The language layer reads its fallback and its folder from the config —
+    # a brand-new player in an unrecognised locale lands on `defaultLanguage`
+    # and the table really came from `textDir` (i18n_test.py owns the rest).
+    lang = C["language"]
+    assert page.evaluate("window.__game.mapTag('xx-YY')") is None
+    assert page.evaluate("window.__game.detectLanguage()") == lang["defaultLanguage"]
+    assert page.evaluate("window.__game.language()") == lang["defaultLanguage"]
+    assert json.loads(text(f"{lang['textDir']}/{lang['defaultLanguage']}.json"))
 
-        # The Daily Bonus is gated the same way (shipped as 1 = from the start).
-        d = page.evaluate("window.__game.dailyBonusState()")
-        assert d["unlocked"] is (wheel_lvl >= C["features"]["dailyBonus"]["unlockLevel"]), d
+    # The Daily Bonus is gated the same way (shipped as 1 = from the start).
+    d = page.evaluate("window.__game.dailyBonusState()")
+    assert d["unlocked"] is (wheel_lvl >= C["features"]["dailyBonus"]["unlockLevel"]), d
 
-        # Tasks reads its gate + weekly reset weekday from the config too. Its gate
-        # follows the documented "cleared level N-1" convention (like the shop),
-        # not the wheel's "reached level N" — so drive it with completeLevel.
-        tasks_lvl = C["features"]["tasks"]["unlockLevel"]
-        t = page.evaluate("window.__game.tasksState()")
-        assert t["unlockLevel"] == tasks_lvl, t
-        assert t["resetDay"] == C["features"]["tasks"]["weeklyResetDay"], t
-        print("TASKS BELOW GATE ->", t["unlocked"], t["buttonVisible"])
-        assert t["unlocked"] is False and t["buttonVisible"] is False, t
-        page.evaluate(f"window.__game.completeLevel({tasks_lvl - 1})")
-        time.sleep(0.3)
-        t = page.evaluate("window.__game.tasksState()")
-        print("TASKS AT GATE ->", t["unlocked"], t["buttonVisible"])
-        assert t["unlocked"] is True and t["buttonVisible"] is True, t
+    # Tasks reads its gate + weekly reset weekday from the config too. Its gate
+    # follows the documented "cleared level N-1" convention (like the shop),
+    # not the wheel's "reached level N" — so drive it with completeLevel.
+    tasks_lvl = C["features"]["tasks"]["unlockLevel"]
+    t = page.evaluate("window.__game.tasksState()")
+    assert t["unlockLevel"] == tasks_lvl, t
+    assert t["resetDay"] == C["features"]["tasks"]["weeklyResetDay"], t
+    print("TASKS BELOW GATE ->", t["unlocked"], t["buttonVisible"])
+    assert t["unlocked"] is False and t["buttonVisible"] is False, t
+    page.evaluate(f"window.__game.completeLevel({tasks_lvl - 1})")
+    time.sleep(0.3)
+    t = page.evaluate("window.__game.tasksState()")
+    print("TASKS AT GATE ->", t["unlocked"], t["buttonVisible"])
+    assert t["unlocked"] is True and t["buttonVisible"] is True, t
 
-        # Winning a level pays exactly `economy.coinWinReward`, and Auto Complete
-        # is only ever offered inside the configured window.
-        auto = C["progression"]["autoComplete"]
-        page.evaluate("window.__game.credit('coins', 0)")
-        before = page.evaluate("window.__game.balance('coins')")
-        page.evaluate("async () => { await window.__game.startLevel(2); "
-                      "window.__game.closeTutorial(); }")
-        time.sleep(0.8)
+    # Winning a level pays exactly `economy.coinWinReward`, and Auto Complete
+    # is only ever offered inside the configured window.
+    auto = C["progression"]["autoComplete"]
+    page.evaluate("window.__game.credit('coins', 0)")
+    before = page.evaluate("window.__game.balance('coins')")
+    page.evaluate("async () => { await window.__game.startLevel(2); "
+                  "window.__game.closeTutorial(); }")
+    time.sleep(0.8)
 
-        # The Tasks gate above cleared level 9, which is past the 8th slot's gate
-        # too — so the extra cell is now DRAWN (traySlots + grant cells) while the
-        # capacity is still the base: the "+1" video is what raises it, and the
-        # gate reads campaign progress, not the level 2 board on screen.
-        e = page.evaluate("window.__game.extraSlotState()")
-        t = page.evaluate("window.__game.traySize()")
-        print("EXTRA SLOT AT GATE ->", e["unlocked"], e["drawn"], e["capacity"],
-              "cells:", len(t["slotXs"]))
-        assert e["unlocked"] is True and e["drawn"] is True, e
-        assert e["capacity"] == C["board"]["traySlots"], ("still the base capacity", e)
-        assert len(t["slotXs"]) == C["board"]["traySlots"] + xslot["grant"], t
+    # The Tasks gate above cleared level 9, which is past the 8th slot's gate
+    # too — so the extra cell is now DRAWN (traySlots + grant cells) while the
+    # capacity is still the base: the "+1" video is what raises it, and the
+    # gate reads campaign progress, not the level 2 board on screen.
+    e = page.evaluate("window.__game.extraSlotState()")
+    t = page.evaluate("window.__game.traySize()")
+    print("EXTRA SLOT AT GATE ->", e["unlocked"], e["drawn"], e["capacity"],
+          "cells:", len(t["slotXs"]))
+    assert e["unlocked"] is True and e["drawn"] is True, e
+    assert e["capacity"] == C["board"]["traySlots"], ("still the base capacity", e)
+    assert len(t["slotXs"]) == C["board"]["traySlots"] + xslot["grant"], t
 
-        seen_auto = False
-        for _ in range(400):
-            a = page.evaluate("window.__game.autoState()")
-            if a["available"]:
-                seen_auto = True
-                assert a["level"] >= auto["minLevel"], ("offered below minLevel", a)
-                assert a["total"] <= auto["maxTiles"], ("offered above maxTiles", a)
-                assert a["covered"] == 0, ("offered with covered tiles", a)
-            if page.evaluate("window.__game.solveTap()") < 0:
-                break
-            time.sleep(0.02)
-        page.wait_for_function("window.__game.state().boardCount === 0", timeout=15000)
-        time.sleep(1.0)
-        after = page.evaluate("window.__game.balance('coins')")
-        print("WIN REWARD ->", before, "->", after)
-        assert seen_auto, "the level-2 descent should pass through the Auto Complete window"
-        assert after - before == C["economy"]["coinWinReward"], (before, after)
-        page.screenshot(path=f"{OUT}/config_win.png")
+    seen_auto = False
+    for _ in range(400):
+        a = page.evaluate("window.__game.autoState()")
+        if a["available"]:
+            seen_auto = True
+            assert a["level"] >= auto["minLevel"], ("offered below minLevel", a)
+            assert a["total"] <= auto["maxTiles"], ("offered above maxTiles", a)
+            assert a["covered"] == 0, ("offered with covered tiles", a)
+        if page.evaluate("window.__game.solveTap()") < 0:
+            break
+        time.sleep(0.02)
+    page.wait_for_function("window.__game.state().boardCount === 0", timeout=45000)
+    time.sleep(1.0)
+    after = page.evaluate("window.__game.balance('coins')")
+    print("WIN REWARD ->", before, "->", after)
+    assert seen_auto, "the level-2 descent should pass through the Auto Complete window"
+    assert after - before == C["economy"]["coinWinReward"], (before, after)
+    page.screenshot(path=f"{OUT}/config_win.png")
 
-        # ---- 3) no second source of truth -----------------------------------
-        # The JSON prize tables hold prize DATA only; their gates moved to config.js.
-        turntable = json.loads(text("assets/config/turntable.json"))
-        daily_cfg = json.loads(text("assets/config/dailybonus.json"))
-        for key in ("unlockLevel", "spinsPerCycle", "headlinePrize"):
-            assert key not in turntable, ("turntable.json must not re-declare " + key)
-        assert "unlockLevel" not in daily_cfg, "dailybonus.json must not re-declare unlockLevel"
-        tasks_cfg = json.loads(text("assets/config/tasks.json"))
-        for key in ("unlockLevel", "weeklyResetDay"):
-            assert key not in tasks_cfg, ("tasks.json must not re-declare " + key)
+    # ---- 3) no second source of truth -----------------------------------
+    # The JSON prize tables hold prize DATA only; their gates moved to config.js.
+    turntable = json.loads(text("assets/config/turntable.json"))
+    daily_cfg = json.loads(text("assets/config/dailybonus.json"))
+    for key in ("unlockLevel", "spinsPerCycle", "headlinePrize"):
+        assert key not in turntable, ("turntable.json must not re-declare " + key)
+    assert "unlockLevel" not in daily_cfg, "dailybonus.json must not re-declare unlockLevel"
+    tasks_cfg = json.loads(text("assets/config/tasks.json"))
+    for key in ("unlockLevel", "weeklyResetDay"):
+        assert key not in tasks_cfg, ("tasks.json must not re-declare " + key)
 
-        # …and the modules the constants came from must not re-declare them
-        # either: a new tunable belongs in config.js, never inline in a module.
-        FORBIDDEN = {
-            "src/game.js": ["COIN_WIN_REWARD", "AUTO_MIN_LEVEL", "AUTO_MAX_TILES",
-                            "TUTORIAL_LEVEL", "TRAY_SLOTS"],
-            "src/user/User.js": ["BOOSTER_UNLOCKS", "SHOP_UNLOCK_LEVEL", "TASKS_UNLOCK_LEVEL",
-                                 "EXTRA_SLOT_UNLOCK_LEVEL"],
-            "src/user/UserStore.js": ["SAVE_DEBOUNCE_MS"],
-        }
-        for path, names in FORBIDDEN.items():
-            src = text(path)
-            for name in names:
-                m = re.search(r"^\s*(?:export\s+)?const\s+" + name + r"\s*=\s*(.+)$",
-                              src, re.M)
-                assert m, (path, name, "constant vanished — update this test")
-                assert "CONFIG" in m.group(1), (
-                    path, name, "must be derived from CONFIG (src/config.js), got: "
-                    + m.group(1).strip())
+    # …and the modules the constants came from must not re-declare them
+    # either: a new tunable belongs in config.js, never inline in a module.
+    FORBIDDEN = {
+        "src/game.js": ["COIN_WIN_REWARD", "AUTO_MIN_LEVEL", "AUTO_MAX_TILES",
+                        "TUTORIAL_LEVEL", "TRAY_SLOTS"],
+        "src/user/User.js": ["BOOSTER_UNLOCKS", "SHOP_UNLOCK_LEVEL", "TASKS_UNLOCK_LEVEL",
+                             "EXTRA_SLOT_UNLOCK_LEVEL"],
+        "src/user/UserStore.js": ["SAVE_DEBOUNCE_MS"],
+    }
+    for path, names in FORBIDDEN.items():
+        src = text(path)
+        for name in names:
+            m = re.search(r"^\s*(?:export\s+)?const\s+" + name + r"\s*=\s*(.+)$",
+                          src, re.M)
+            assert m, (path, name, "constant vanished — update this test")
+            assert "CONFIG" in m.group(1), (
+                path, name, "must be derived from CONFIG (src/config.js), got: "
+                + m.group(1).strip())
 
-        print("ERRORS:", len(errors))
-        for e in errors[:10]:
-            print("  ", e)
-        assert not errors, "console errors during the config checks"
-        print("ALL CONFIG CHECKS PASSED")
-        browser.close()
-finally:
-    srv.terminate()
+    print("ERRORS:", len(errors))
+    for e in errors[:10]:
+        print("  ", e)
+    assert not errors, "console errors during the config checks"
+    print("ALL CONFIG CHECKS PASSED")
+    browser.close()

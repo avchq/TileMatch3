@@ -1,6 +1,8 @@
 import subprocess, time, sys, os, json
 from playwright.sync_api import sync_playwright
 
+import harness
+
 # EVERY TRANSLATION MUST FIT THE BUTTON IT SITS ON.
 #
 # The game's buttons are fixed-width pills with the label centred on top: the
@@ -44,56 +46,52 @@ CHECKS = """() => {
   return out;
 }"""
 
-srv = subprocess.Popen([sys.executable, "-m", "http.server", "8099"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(1.5)
-try:
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=[
-            "--use-gl=angle", "--use-angle=swiftshader",
-            "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"])
-        page = browser.new_page(viewport={"width": 750, "height": 1334})
-        errors = []
-        page.on("pageerror", lambda e: errors.append(str(e)))
+BASE = harness.serve()
+with sync_playwright() as p:
+    browser = p.chromium.launch(args=[
+        "--use-gl=angle", "--use-angle=swiftshader",
+        "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"])
+    page = browser.new_page(viewport={"width": 750, "height": 1334})
+    harness.patient(page)
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
 
-        overflow = []
-        for code in CODES:
-            page.goto("http://localhost:8099/index.html")
-            page.evaluate("(c) => { localStorage.clear();"
-                          " localStorage.setItem('ck_language', c); }", code)
-            page.reload()
-            page.wait_for_function("window.__game && window.__game.language", timeout=20000)
-            # Past every gate, so the whole interface is built and reachable.
-            page.evaluate("window.__game.completeLevel(9); window.__game.flushSave();")
-            page.reload()
-            page.wait_for_function("window.__game && window.__game.language", timeout=20000)
-            page.evaluate("window.__game.markBoosterCoached('all')")
-            assert page.evaluate("window.__game.language()") == code, code
-            # Build the in-level widgets too, then come back for the overlays.
-            page.evaluate("async () => { await window.__game.startLevel(2);"
-                          " window.__game.closeTutorial(); }")
-            time.sleep(0.6)
-            page.evaluate("window.__game.openSettings()")
-            page.evaluate("window.__game.openLanguagePicker()")
-            time.sleep(0.4)
+    overflow = []
+    for code in CODES:
+        page.goto(f"{BASE}/index.html")
+        page.evaluate("(c) => { localStorage.clear();"
+                      " localStorage.setItem('tm3.language', c); }", code)
+        page.reload()
+        page.wait_for_function("window.__game && window.__game.language", timeout=60000)
+        # Past every gate, so the whole interface is built and reachable.
+        page.evaluate("window.__game.completeLevel(9); window.__game.flushSave();")
+        page.reload()
+        page.wait_for_function("window.__game && window.__game.language", timeout=60000)
+        page.evaluate("window.__game.markBoosterCoached('all')")
+        assert page.evaluate("window.__game.language()") == code, code
+        # Build the in-level widgets too, then come back for the overlays.
+        page.evaluate("async () => { await window.__game.startLevel(2);"
+                      " window.__game.closeTutorial(); }")
+        time.sleep(0.6)
+        page.evaluate("window.__game.openSettings()")
+        page.evaluate("window.__game.openLanguagePicker()")
+        time.sleep(0.4)
 
-            rows = page.evaluate(CHECKS)
-            worst = max((wd / lim) for _, _, wd, lim in rows)
-            print(f"{code:6} widest {worst*100:5.1f}% of its widget", end="")
-            bad = [(code, n, txt, wd, lim) for n, txt, wd, lim in rows if wd > lim]
-            print("   OVERFLOW" if bad else "")
-            for b in bad:
-                print(f"        {b[1]}: {b[2]!r} = {b[3]}px > {b[4]}px")
-            overflow += bad
-            page.screenshot(path=os.path.join(ROOT, "tests", "output", f"langfit_{code}.png"))
-            page.evaluate("window.__game.closeLanguagePicker();"
-                          " window.__game.settings._back();"
-                          " window.__game.exitLevel();")
+        rows = page.evaluate(CHECKS)
+        worst = max((wd / lim) for _, _, wd, lim in rows)
+        print(f"{code:6} widest {worst*100:5.1f}% of its widget", end="")
+        bad = [(code, n, txt, wd, lim) for n, txt, wd, lim in rows if wd > lim]
+        print("   OVERFLOW" if bad else "")
+        for b in bad:
+            print(f"        {b[1]}: {b[2]!r} = {b[3]}px > {b[4]}px")
+        overflow += bad
+        page.screenshot(path=os.path.join(ROOT, "tests", "output", f"langfit_{code}.png"))
+        page.evaluate("window.__game.closeLanguagePicker();"
+                      " window.__game.settings._back();"
+                      " window.__game.exitLevel();")
 
-        assert not overflow, ("a translation overflows its button — shorten the "
-                              "string in assets/lang/<code>.json", overflow)
-        assert not errors, errors[:5]
-        print("ALL LANGUAGE FIT CHECKS PASSED")
-        browser.close()
-finally:
-    srv.terminate()
+    assert not overflow, ("a translation overflows its button — shorten the "
+                          "string in assets/lang/<code>.json", overflow)
+    assert not errors, errors[:5]
+    print("ALL LANGUAGE FIT CHECKS PASSED")
+    browser.close()

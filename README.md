@@ -613,9 +613,9 @@ Two details worth knowing:
   not any platform account language. On Facebook Instant the two normally agree,
   but they are not the same signal — the Facebook locale is never consulted.
 - Detection runs **exactly once**. The result is written into browser storage
-  under the key **`ck_language`** (unprefixed — it predates the `tm3.`
-  convention), and from then on that stored value wins. Changing the device
-  language later has no effect; the player must change it in-game.
+  under the key **`tm3.language`**, and from then on that stored value wins.
+  Changing the device language later has no effect; the player must change it
+  in-game.
 
 #### Afterwards — the language picker
 Settings carries a **Language** row showing the current language's own name.
@@ -761,14 +761,14 @@ Three edits, not one — otherwise the language exists but nothing can reach it:
    the same file).
 
 ### Testing another language locally
-The stored choice is the browser-storage key **`ck_language`**. Setting it to any
+The stored choice is the browser-storage key **`tm3.language`**. Setting it to any
 of the 13 codes before loading the page starts the game in that language;
 clearing it makes the game re-detect from the browser. The in-game picker writes
 the same key, so the two are interchangeable. A code the game doesn't recognise
 is silently treated as English.
 
 ```js
-localStorage.setItem("ck_language", "jp");  // then reload
+localStorage.setItem("tm3.language", "jp");  // then reload
 ```
 
 ## Run it
@@ -1012,7 +1012,17 @@ the next time it is deployed. No `--force`, nothing to remember.
   JSONs.
 
 ### The gate before anything is uploaded
-The staged tree is verified first, and a failure **deletes the artifact and
+There are two gates, and they ask different questions.
+
+**First, the test suite — is the source correct?** Before a single file is
+staged, a deploy runs the whole of `tests/run_all.py`. A red suite stops the
+build there, so a failure costs a test run rather than a full
+bundle-and-obfuscate. It is skipped where nothing can reach players — a local
+`--no-upload` stage or a `--dry-run` — and `--skip-tests` overrides it for an
+emergency, loudly. Note the ordering: the suite tests `src/`, not the artifact,
+which is why the second gate still has work to do.
+
+**Second, the staged tree is verified**, and a failure **deletes the artifact and
 uploads nothing**:
 
 - `index.html`, `src/main.js` and `vendor/pixi.min.js` exist;

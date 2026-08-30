@@ -1,6 +1,8 @@
 import importlib.util, json, os, shutil, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
 
+import harness
+
 # THE PRODUCTION ARTIFACT MUST BE MINIFIED, OBFUSCATED, STRIPPED — AND STILL BOOT.
 #
 # `tools/build.py` bundles the 28 ES modules into one file, minifies it,
@@ -50,20 +52,22 @@ def build(tmp, *flags):
 
 
 def boot(dest, then):
-    """Serve THE BUILD (not the repo) on 8099 and run `then(page)` against it."""
-    srv = subprocess.Popen([sys.executable, "-m", "http.server", "8099"], cwd=dest,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(1.5)
+    """Serve THE BUILD (not the repo) and run `then(page)` against it.
+
+    This test cannot use the suite's shared server: that one serves the repo
+    root, and the whole point here is to drive the staged artifact instead. It
+    gets its own, on its own free port, so it still runs alongside the rest.
+    """
+    base, srv = harness.serve_dir(dest)
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(args=[
-                "--use-gl=angle", "--use-angle=swiftshader",
-                "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"])
+            browser = p.chromium.launch(args=harness.LAUNCH_ARGS)
             page = browser.new_page(viewport={"width": 750, "height": 1334})
+            harness.patient(page)
             errors, failed = [], []
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.on("requestfailed", lambda r: failed.append(r.url))
-            page.goto("http://localhost:8099/index.html")
+            page.goto(f"{base}/index.html")
             then(page, errors, failed)
             browser.close()
     finally:
@@ -159,7 +163,7 @@ try:
           "the staging build is obfuscated but keeps the debug API")
 
     def check_debug(page, errors, failed):
-        page.wait_for_function("window.__game !== undefined", timeout=30000)
+        page.wait_for_function("window.__game !== undefined", timeout=90000)
         page.wait_for_timeout(1500)
         state = page.evaluate("() => window.__game.state()")
         lang = page.evaluate("() => window.__game.language()")

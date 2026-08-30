@@ -43,7 +43,7 @@ async function boot() {
   // active language's string table has to be resident before any of them exist
   // — and before the splash writes its own status lines. This is also where the
   // one-and-only device-language detection happens on a brand-new player (see
-  // src/i18n.js); from then on the stored `ck_language` wins.
+  // src/i18n.js); from then on the stored `tm3.language` wins.
   // Say what stage this is BEFORE awaiting it: this is the first await in boot()
   // and it runs ahead of the renderer, so a slow language fetch would otherwise
   // look like a dead screen frozen at 0%. English, necessarily — there is no

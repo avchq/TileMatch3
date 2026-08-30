@@ -23,11 +23,11 @@
 
 import { CONFIG } from "./config.js";
 
-// The browser-storage key holding the player's choice. `ck` is the game's
-// internal short name; the key is deliberately unprefixed (it predates the
-// `tm3.` convention) so an existing choice keeps working. Setting it by hand
-// before loading the page is how you start the game in another language.
-export const STORAGE_KEY = "ck_language";
+// The browser-storage key holding the player's choice, namespaced like every
+// other key the game writes (`tm3.uid`, `tm3.user`, `tm3.tutorialDone`).
+// Setting it by hand before loading the page is how you start the game in
+// another language.
+export const STORAGE_KEY = "tm3.language";
 
 // --------------------------------------------------------------------------
 //  Reading the config — defensively, on purpose
