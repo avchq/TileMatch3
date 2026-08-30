@@ -15,6 +15,14 @@ enforces that. Two more build rules the tests enforce: a new top-level file or
 directory must be classified in `tools/build.py` (`SHIP_DIRS`/`SHIP_GLOBS` or
 `NOT_SHIPPED`), and a new asset file extension needs a `CONTENT_TYPES` entry.
 
+A deploy also repoints a CloudFront distribution's origin at the new build and
+invalidates the edge cache, so the key layout and the `Cache-Control` headers in
+`tools/build.py` are load-bearing beyond S3. In particular: players fetch stable
+URLs (`/src/main.js` is the same for every build, because the commit is in the
+*origin path*), so assets must never be marked `immutable` — that would strand
+them on an old build past any invalidation. `tests/cloudfront_test.py` guards
+this.
+
 ## Read the docs before changing code
 
 **Before making any change, read `README.md`** (root) to understand the current

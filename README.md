@@ -816,14 +816,26 @@ build/<commit>/build-info.json   commit, toolchain, and what was done to the cod
 
 Nothing else in the repo ships — no `tests/`, `tools/`, `.venv/`, READMEs.
 
+A deploy runs strictly in this order, and stops at the first failure:
+
+```
+build → verify → upload → (every object OK?) → move the CloudFront origin → invalidate
+```
+
 ```bash
 npm --prefix tools install                           # once: esbuild + obfuscator
 
 python3 tools/build.py --no-upload                   # build locally
 python3 tools/build.py --bucket my-bucket            # build, verify and upload
-python3 tools/build.py --bucket my-bucket --dry-run  # show the upload plan
-python3 tools/build.py --bucket my-bucket --prefix game --latest
+python3 tools/build.py --bucket my-bucket --dry-run  # show the plan, call nothing
+
+# the full thing: upload, repoint the distribution, clear the edge cache
+python3 tools/build.py --bucket my-bucket --prefix game \
+                       --distribution-id E2ABCDEF12345 --wait
 ```
+
+Without `--distribution-id` (or `GAME_CF_DISTRIBUTION_ID`) the script uploads and
+stops, exactly as it did before — nothing points at the new build.
 
 `build/` is gitignored. Uploading needs `boto3` (`.venv/bin/python -m pip install
 boto3`) and credentials from the usual chain — env vars, `~/.aws/credentials`, an
@@ -886,10 +898,91 @@ change rather than a re-upload. It also makes the stale-module-graph failure
 described above *impossible in production* — a given URL's bytes never change,
 and after bundling there is only one script that could be stale anyway.
 
-That is what lets the uploader cache aggressively: everything under the commit
-prefix goes up as `public, max-age=31536000, immutable`, and only `index.html`
-and `build-info.json` are sent `no-cache, must-revalidate`, so re-uploading the
-same commit is still picked up.
+It is also what makes rollback cheap and the ETag skip work: the same commit
+always produces the same bytes at the same key, so re-deploying it uploads
+nothing. Note that this immutability is a property of the **S3 keys**, not of the
+URLs players use — those are stable, because the commit lives in the CloudFront
+origin path. See *Cache headers* below for what that means for caching, which is
+the one place the distinction really bites.
+
+### Going live — the CloudFront origin switch
+Uploading a build does not make it visible; something has to point at it. That
+something is the distribution's **origin path**. After a clean upload the script
+reads the distribution config, moves `OriginPath` to `/<prefix>/<commit>`, writes
+the whole config back guarded by the ETag it read (CloudFront has no partial
+update, and the ETag is what stops it clobbering a concurrent console edit), and
+then invalidates the edge cache.
+
+**Origin first, invalidation second.** The reverse order would clear the edge and
+immediately refill it from the *old* origin path in the seconds before the update
+lands, leaving the site serving the previous build out of a freshly warmed cache.
+
+| flag | env | |
+|---|---|---|
+| `--distribution-id` | `GAME_CF_DISTRIBUTION_ID` | the distribution to repoint |
+| `--cf-origin-id` | | which origin, when there are several |
+| `--no-cloudfront` | | upload only, leave the distribution alone |
+| `--invalidate PATH` | | repeatable, defaults to `/*` |
+| `--wait` | | block until deployed, then verify through the CDN |
+| `--rollback COMMIT` | | repoint at an older build; no build, no upload |
+| `--list-builds` | | what is in the bucket, and which one is live |
+
+With `--wait` the script blocks on the `distribution_deployed` and
+`invalidation_completed` waiters, then fetches `build-info.json` **through the
+distribution** and checks the commit matches. That is the only check here that
+exercises the whole chain — origin path, invalidation, cache headers — rather
+than trusting that a successful API call means a correct deployment.
+
+The distribution needs `cloudfront:GetDistributionConfig`, `UpdateDistribution`
+and `CreateInvalidation`, plus `GetDistribution` and `GetInvalidation` for
+`--wait`. An `AccessDenied` from any of them says so and lists the actions.
+
+### Rolling back
+Every build ever deployed is still in the bucket under its own commit prefix, so
+a rollback is a pointer change measured in seconds — no checkout, no build
+toolchain, nothing re-uploaded:
+
+```bash
+python3 tools/build.py --bucket my-bucket --prefix game \
+                       --distribution-id E2ABCDEF12345 --list-builds
+
+builds in s3://my-bucket/game/
+
+  def4567890ab         2026-08-29T18:04:11+00:00  Adds Localization      <- live
+  abc1234567de         2026-08-28T11:20:03+00:00  Adds Level Chest
+
+python3 tools/build.py --bucket my-bucket --prefix game \
+                       --distribution-id E2ABCDEF12345 --rollback abc1234567de
+```
+
+Rollback refuses a commit that has no `build-info.json` in the bucket, and it
+checks that *before* touching CloudFront — the failure it exists to prevent is a
+live distribution pointed at a prefix that was never uploaded, serving 404s.
+
+### Cache headers, and why they are not `immutable`
+The commit hash lives in the *origin* path, not in the URL a browser asks for:
+every build serves `/src/main.js` at the same address. That makes `immutable`
+actively dangerous. A returning player would find the bundle in local disk cache,
+marked good for a year, and **never contact CloudFront at all** — so the deploy's
+invalidation could not reach them, and they would keep running the old build.
+`index.html` cannot rescue them either: it is copied verbatim and is byte-
+identical between builds.
+
+So the two caches get different instructions:
+
+| | |
+|---|---|
+| `index.html`, `build-info.json` | `no-cache, must-revalidate` |
+| everything else | `public, max-age=0, must-revalidate, s-maxage=31536000` |
+
+The browser revalidates every request — a 304 from a nearby edge is quick — while
+`s-maxage` lets CloudFront hold the object for a year, until the deploy
+invalidates it. The origin is barely touched either way.
+
+**One-time migration:** the ETag skip compares object *bodies*, not headers, so
+objects uploaded before this change would be skipped and keep their old
+`immutable` header forever. Run once with `--force` to rewrite them. The script
+prints a reminder whenever it skips objects.
 
 ### What the script does that S3 will not do for you
 - **Content-Type per extension.** S3 guesses nothing; an object uploaded without

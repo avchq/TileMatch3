@@ -269,8 +269,20 @@ try:
           "the bundle uploads as text/javascript (a browser refuses anything else)")
     check(gamebuild.content_type("a.json").startswith("application/json"), "JSON content type")
     check(gamebuild.content_type("a.mp3") == "audio/mpeg", "mp3 content type")
-    check(gamebuild.CACHE_IMMUTABLE.startswith("public, max-age=31536000"),
-          "commit-addressed objects are cached immutably")
+    # Deploys switch the CloudFront ORIGIN PATH, so the commit hash is no longer
+    # in the URL the browser asks for — /src/main.js is the same string for
+    # every build. `immutable` would therefore park the old bundle in a player's
+    # disk cache where no invalidation can reach it. Browsers revalidate;
+    # CloudFront holds the object at the edge until the deploy clears it.
+    check("immutable" not in gamebuild.CACHE_EDGE,
+          "assets are NOT marked immutable (viewer URLs are stable now)")
+    check("max-age=0" in gamebuild.CACHE_EDGE
+          and "must-revalidate" in gamebuild.CACHE_EDGE,
+          "browsers revalidate every asset request")
+    check("s-maxage=31536000" in gamebuild.CACHE_EDGE,
+          "…while CloudFront caches at the edge for a year")
+    check(gamebuild.CACHE_REVALIDATE == "no-cache, must-revalidate",
+          "index.html and build-info.json are never cached")
 
     # The obfuscator seed is derived from the commit, so a rebuild of the same
     # commit is byte-identical — which is what keeps the S3 ETag skip working.

@@ -144,10 +144,25 @@ CONTENT_TYPES = {
     ".map":  "application/json; charset=utf-8",
 }
 
-# Everything under build/<commit>/ is immutable by construction. The HTML entry
-# point still revalidates so that a re-upload of the same commit (or a CDN
-# invalidation) is picked up rather than pinned for a year.
-CACHE_IMMUTABLE = "public, max-age=31536000, immutable"
+# Cache-Control, and why it is not simply `immutable`.
+#
+# The bytes under build/<commit>/ never change, so `immutable, max-age=1y` looks
+# right — and it WAS right while the commit hash sat in the URL the browser
+# asked for. It stopped being right when deploys started switching the
+# CloudFront ORIGIN PATH instead: the viewer now always requests /src/main.js,
+# and only the origin behind that name moves. Mark it immutable and a returning
+# player finds it in local disk cache, never contacts CloudFront at all, and
+# keeps running the old build — an invalidation cannot reach them, because
+# invalidation clears the EDGE, not browsers.
+#
+# So the two caches are given different instructions. `max-age=0,
+# must-revalidate` makes the browser check every time (a 304 against a nearby
+# edge is quick), while `s-maxage` lets CloudFront itself hold the object for a
+# year, until a deploy invalidates it. The origin is barely touched either way.
+CACHE_EDGE = "public, max-age=0, must-revalidate, s-maxage=31536000"
+
+# The entry point and the deploy record are never cached anywhere: they are how
+# a client discovers which build it is looking at.
 CACHE_REVALIDATE = "no-cache, must-revalidate"
 
 
@@ -525,13 +540,37 @@ def s3_client(region, profile):
         die("boto3 is required to upload.\n"
             "       install it:  .venv/bin/python -m pip install boto3\n"
             "       or stage the build only:  python3 tools/build.py --no-upload")
+    return _session_client("s3", region, profile)
+
+
+def _session_client(service, region, profile):
+    """A boto3 client, or a one-line error — never a botocore traceback."""
+    import boto3
+    from botocore.exceptions import BotoCoreError, ProfileNotFound
+
     try:
         session = boto3.Session(profile_name=profile) if profile else boto3.Session()
-        return session.client("s3", region_name=region)
+        return session.client(service, region_name=region)
     except ProfileNotFound:
-        die(f"AWS profile '{profile}' not found in ~/.aws/config")
+        # The profile is not always the one that was asked for on the command
+        # line: an ambient AWS_PROFILE makes botocore resolve that profile FIRST
+        # and raise before it ever reaches the credentials in the environment.
+        # Saying "profile 'None' not found" — which this used to do — sends
+        # people looking in entirely the wrong place.
+        env = os.environ.get("AWS_PROFILE") or os.environ.get("AWS_DEFAULT_PROFILE")
+        if profile:
+            die(f"AWS profile '{profile}' (from --profile) not found in ~/.aws/config")
+        die(f"AWS profile '{env}' (from AWS_PROFILE) not found in ~/.aws/config\n"
+            f"       botocore resolves a named profile before it looks at the\n"
+            f"       environment, so any AWS_ACCESS_KEY_ID you have set is being\n"
+            f"       ignored. `unset AWS_PROFILE` to use it.")
     except BotoCoreError as e:
-        die(f"could not create an S3 client: {e}")
+        die(f"could not create a {service} client: {e}")
+
+
+def cf_client(region, profile):
+    """A CloudFront client. CloudFront is global; its endpoint lives in us-east-1."""
+    return _session_client("cloudfront", "us-east-1", profile)
 
 
 def upload(dest, bucket, key_prefix, region, profile, jobs, force, dry_run):
@@ -574,7 +613,7 @@ def upload(dest, bucket, key_prefix, region, profile, jobs, force, dry_run):
         local, key = item
         ctype = content_type(local)
         cache = CACHE_REVALIDATE if local.endswith((".html", "build-info.json")) \
-            else CACHE_IMMUTABLE
+            else CACHE_EDGE
         digest = md5_of(local)
         if not force:
             # A single-part upload's ETag is the MD5 of the body, so an exact
@@ -613,6 +652,243 @@ def upload(dest, bucket, key_prefix, region, profile, jobs, force, dry_run):
     for line in lock_out[:10]:
         print(line, file=sys.stderr)
     return uploaded, skipped, failed
+
+
+def cf_pick_origin(config, origin_id):
+    """The origin whose path we are about to move, and its index."""
+    items = config.get("Origins", {}).get("Items", [])
+    if not items:
+        die("the distribution has no origins")
+    if origin_id:
+        for i, o in enumerate(items):
+            if o.get("Id") == origin_id:
+                return i, o
+        die(f"no origin with id '{origin_id}' — the distribution has: "
+            + ", ".join(repr(o.get("Id")) for o in items))
+    if len(items) > 1:
+        die("the distribution has several origins, so I will not guess which one "
+            "serves the game:\n"
+            + "".join(f"         {o.get('Id')!r}  ({o.get('DomainName')}, "
+                      f"path {o.get('OriginPath') or '(root)'})\n" for o in items)
+            + "       pass --cf-origin-id ID")
+    return 0, items[0]
+
+
+def cf_set_origin_path(cf, dist_id, origin_id, new_path):
+    """Point the distribution's origin at `new_path`.
+
+    Read-modify-write: CloudFront has no partial update, so the whole
+    DistributionConfig goes back, guarded by the ETag we read it with — that
+    ETag is the only thing standing between this and clobbering a concurrent
+    edit from the console.
+
+    Returns (old_path, changed).
+    """
+    from botocore.exceptions import ClientError
+
+    for attempt in (1, 2):
+        try:
+            got = cf.get_distribution_config(Id=dist_id)
+        except ClientError as e:
+            die(f"cannot read distribution {dist_id}: {_aws_reason(e)}")
+
+        etag, config = got["ETag"], got["DistributionConfig"]
+        idx, origin = cf_pick_origin(config, origin_id)
+        old_path = origin.get("OriginPath", "")
+
+        if old_path == new_path:
+            return old_path, False
+
+        config["Origins"]["Items"][idx]["OriginPath"] = new_path
+        try:
+            cf.update_distribution(Id=dist_id, DistributionConfig=config, IfMatch=etag)
+            return old_path, True
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            # Someone changed the distribution between our read and our write.
+            # Re-read once and retry; twice would be a loop, not a strategy.
+            if code == "PreconditionFailed" and attempt == 1:
+                print("  distribution changed under us, re-reading and retrying…")
+                continue
+            die(f"cannot update distribution {dist_id}: {_aws_reason(e)}")
+
+
+def cf_invalidate(cf, dist_id, paths, reference):
+    """Clear the edge cache. Returns the invalidation id."""
+    from botocore.exceptions import ClientError
+    try:
+        r = cf.create_invalidation(
+            DistributionId=dist_id,
+            InvalidationBatch={
+                "Paths": {"Quantity": len(paths), "Items": list(paths)},
+                # Unique per call: CloudFront de-duplicates by CallerReference,
+                # so a fixed one would silently return the previous
+                # invalidation instead of running a new one.
+                "CallerReference": reference,
+            })
+        return r["Invalidation"]["Id"]
+    except ClientError as e:
+        die(f"cannot create an invalidation: {_aws_reason(e)}")
+
+
+def _aws_reason(e):
+    """The bit of a ClientError worth reading — including which action was denied."""
+    err = e.response.get("Error", {})
+    code = err.get("Code", "?")
+    msg = err.get("Message", str(e))
+    if code in ("AccessDenied", "AccessDeniedException"):
+        return (f"{code}: {msg}\n"
+                "       this step needs cloudfront:GetDistributionConfig, "
+                "UpdateDistribution,\n"
+                "       CreateInvalidation (and GetInvalidation/GetDistribution "
+                "for --wait)")
+    return f"{code}: {msg}"
+
+
+def cf_deploy(args, key_prefix, build_id, commit):
+    """Point the distribution at this build, then clear the edge cache.
+
+    Order matters and is not negotiable: the origin moves first, the cache is
+    cleared second. The reverse would invalidate the edge, refill it from the
+    OLD origin path in the seconds before the update lands, and leave the site
+    serving the previous build from a freshly warmed cache.
+    """
+    cf = cf_client(args.region, args.profile)
+    new_path = "/" + key_prefix.strip("/")      # leading slash, no trailing one
+
+    old_path, changed = cf_set_origin_path(cf, args.distribution_id,
+                                           args.cf_origin_id, new_path)
+    if changed:
+        print(f"  origin {old_path or '(root)'} → {new_path}")
+    else:
+        print(f"  origin already {new_path} (no change)")
+
+    paths = args.invalidate or ["/*"]
+    inv = cf_invalidate(cf, args.distribution_id, paths,
+                        f"{build_id}-{int(time.time())}")
+    print(f"  invalidation {inv} submitted for {' '.join(paths)}")
+
+    if not args.wait:
+        print("  not waiting — CloudFront usually propagates within a few minutes")
+        return
+
+    print("  waiting for the distribution to deploy…", end="", flush=True)
+    cf.get_waiter("distribution_deployed").wait(Id=args.distribution_id)
+    print(" done")
+    print("  waiting for the invalidation to complete…", end="", flush=True)
+    cf.get_waiter("invalidation_completed").wait(
+        DistributionId=args.distribution_id, Id=inv)
+    print(" done")
+
+    cf_verify_live(cf, args.distribution_id, commit)
+
+
+def cf_verify_live(cf, dist_id, commit):
+    """Fetch build-info.json through the CDN and check which build answers.
+
+    The only check in this script that exercises the whole chain — origin path,
+    invalidation, cache headers and all — rather than trusting that a successful
+    API call means a correct deployment.
+    """
+    import urllib.error
+    import urllib.request
+    from botocore.exceptions import ClientError
+
+    try:
+        domain = cf.get_distribution(Id=dist_id)["Distribution"]["DomainName"]
+    except ClientError as e:
+        print(f"  could not read the distribution domain: {_aws_reason(e)}")
+        return
+
+    url = f"https://{domain}/build-info.json"
+    try:
+        with urllib.request.urlopen(url, timeout=30) as r:
+            live = json.load(r)
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+        die(f"the origin was updated, but {url} did not answer with a build "
+            f"record: {e}\n"
+            f"       check the distribution's default root object and that "
+            f"index.html is reachable")
+
+    if live.get("commit") != commit:
+        die(f"{url} reports commit {live.get('commit')}, expected {commit} — "
+            f"the deploy did not take")
+    print(f"  verified {url} → {live.get('build')}")
+
+
+def cf_rollback(args):
+    """Repoint the distribution at an earlier build. No build, no upload.
+
+    Every past build is still in the bucket under its own commit prefix, so a
+    rollback is a pointer change that takes seconds.
+    """
+    from botocore.exceptions import ClientError
+
+    commit = args.rollback.strip().strip("/")
+    key_prefix = f"{args.prefix.strip('/')}/{commit}" if args.prefix.strip("/") else commit
+
+    # Refuse to point the site at a prefix that was never uploaded — the failure
+    # mode otherwise is a live distribution serving 404s.
+    s3 = s3_client(args.region, args.profile)
+    try:
+        obj = s3.get_object(Bucket=args.bucket, Key=f"{key_prefix}/build-info.json")
+        info = json.load(obj["Body"])
+    except ClientError as e:
+        die(f"no build at s3://{args.bucket}/{key_prefix}/ "
+            f"({_aws_reason(e)})\n"
+            f"       run --list-builds to see what is deployable")
+
+    print(f"rolling back to {info.get('build')} "
+          f"({info.get('branch')}: {info.get('subject')}, built {info.get('built_at')})")
+    cf_deploy(args, key_prefix, info.get("build", commit), info.get("commit", ""))
+
+
+def list_builds(args):
+    """Every build in the bucket, newest first, marking the one that is live."""
+    from botocore.exceptions import ClientError
+
+    s3 = s3_client(args.region, args.profile)
+    root = f"{args.prefix.strip('/')}/" if args.prefix.strip("/") else ""
+
+    live = None
+    if args.distribution_id:
+        cf = cf_client(args.region, args.profile)
+        try:
+            cfg = cf.get_distribution_config(Id=args.distribution_id)["DistributionConfig"]
+            _, origin = cf_pick_origin(cfg, args.cf_origin_id)
+            live = (origin.get("OriginPath", "") or "").strip("/").split("/")[-1]
+        except ClientError as e:
+            print(f"  (could not read the live origin: {_aws_reason(e)})")
+
+    try:
+        pages = s3.get_paginator("list_objects_v2").paginate(
+            Bucket=args.bucket, Prefix=root, Delimiter="/")
+        prefixes = [p["Prefix"] for page in pages
+                    for p in page.get("CommonPrefixes", [])]
+    except ClientError as e:
+        die(f"cannot list s3://{args.bucket}/{root}: {_aws_reason(e)}")
+
+    rows = []
+    for pref in prefixes:
+        try:
+            obj = s3.get_object(Bucket=args.bucket, Key=f"{pref}build-info.json")
+            info = json.load(obj["Body"])
+        except (ClientError, json.JSONDecodeError):
+            continue        # a prefix that is not a build; ignore it
+        rows.append(info)
+
+    if not rows:
+        die(f"no builds found under s3://{args.bucket}/{root}")
+
+    rows.sort(key=lambda i: i.get("built_at", ""), reverse=True)
+    print(f"builds in s3://{args.bucket}/{root}\n")
+    for info in rows:
+        mark = "  <- live" if info.get("build") == live else ""
+        print(f"  {info.get('build', '?'):<20} {info.get('built_at', '?'):<22}"
+              f" {info.get('subject', '')[:40]}{mark}")
+    if live and not any(i.get("build") == live for i in rows):
+        print(f"\n  note: the distribution points at {live!r}, which has no "
+              f"build record here")
 
 
 def main():
@@ -658,7 +934,45 @@ def main():
                     help="re-upload every object even if unchanged")
     ap.add_argument("-j", "--jobs", type=int, default=16,
                     help="parallel uploads (default 16)")
+
+    cf = ap.add_argument_group(
+        "CloudFront",
+        "After a successful upload, point a distribution's origin at the new "
+        "build and clear the edge cache. Omit --distribution-id and the script "
+        "behaves exactly as before: it uploads and stops.")
+    cf.add_argument("--distribution-id",
+                    default=os.environ.get("GAME_CF_DISTRIBUTION_ID"),
+                    help="distribution to repoint (or set GAME_CF_DISTRIBUTION_ID)")
+    cf.add_argument("--cf-origin-id", default=None,
+                    help="which origin to move, when the distribution has several")
+    cf.add_argument("--no-cloudfront", dest="cloudfront", action="store_false",
+                    help="upload only; leave the distribution alone")
+    cf.add_argument("--invalidate", action="append", metavar="PATH",
+                    help="invalidation path, repeatable (default /*)")
+    cf.add_argument("--wait", action="store_true",
+                    help="block until the distribution is deployed and the "
+                         "invalidation has completed, then fetch build-info.json "
+                         "through the CDN and check the commit matches")
+    cf.add_argument("--rollback", metavar="COMMIT",
+                    help="point the distribution at an earlier build already in "
+                         "the bucket, and stop — no build, no upload")
+    cf.add_argument("--list-builds", action="store_true",
+                    help="list the builds in the bucket, marking the live one")
+
     args = ap.parse_args()
+
+    # --- modes that never build -------------------------------------------
+    if args.list_builds or args.rollback:
+        if not args.bucket:
+            die("no bucket — pass --bucket NAME or set GAME_S3_BUCKET")
+        if args.list_builds:
+            list_builds(args)
+            return
+        if not args.distribution_id:
+            die("--rollback needs a distribution to repoint — pass "
+                "--distribution-id or set GAME_CF_DISTRIBUTION_ID")
+        cf_rollback(args)
+        return
 
     started = time.time()
     info = commit_info(args.full_hash)
@@ -743,7 +1057,10 @@ def main():
         s3 = s3_client(args.region, args.profile)
         pointer = json.dumps({"build": build_id, "commit": info["commit"],
                               "prefix": key_prefix,
-                              "built_at": manifest["built_at"]}, indent=2) + "\n"
+                              "built_at": manifest["built_at"],
+                              "distribution_id": args.distribution_id,
+                              "origin_path": "/" + key_prefix.strip("/")},
+                             indent=2) + "\n"
         latest_key = (f"{args.prefix.strip('/')}/latest.json"
                       if args.prefix.strip("/") else "latest.json")
         s3.put_object(Bucket=args.bucket, Key=latest_key,
@@ -752,10 +1069,34 @@ def main():
                       CacheControl=CACHE_REVALIDATE)
         print(f"  latest.json → {build_id}")
 
-    if not args.dry_run:
-        print(f"\ndeployed s3://{args.bucket}/{key_prefix}/index.html")
-        print(f"  {uploaded} uploaded, {skipped} unchanged, "
-              f"{time.time() - started:.1f}s")
+    if args.dry_run:
+        if args.distribution_id and args.cloudfront:
+            print(f"\n  DRY RUN — would point distribution "
+                  f"{args.distribution_id} at /{key_prefix}")
+            print(f"    then invalidate {' '.join(args.invalidate or ['/*'])}")
+        return
+
+    print(f"\ndeployed s3://{args.bucket}/{key_prefix}/index.html")
+    print(f"  {uploaded} uploaded, {skipped} unchanged, "
+          f"{time.time() - started:.1f}s")
+
+    # Only now — after every object is up and verified — is it safe to point
+    # the world at this prefix.
+    if args.cloudfront and args.distribution_id:
+        cf_deploy(args, key_prefix, build_id, info["commit"])
+        print(f"\nlive: build {build_id} in {time.time() - started:.1f}s")
+    elif args.cloudfront and not args.rollback:
+        print("  (no --distribution-id: nothing is pointing at this build yet)")
+
+    # An object already in the bucket is skipped by ETag, which compares bodies
+    # and not headers — so a build uploaded before the cache model changed keeps
+    # its old `immutable` header, and the browsers holding it never come back.
+    if skipped and not args.force:
+        print(f"\n  note: {skipped} object(s) were already in the bucket and were "
+              f"left untouched.\n"
+              f"  If any of them predate the s-maxage cache model, re-run once "
+              f"with --force\n"
+              f"  to rewrite their Cache-Control headers.")
 
 
 if __name__ == "__main__":

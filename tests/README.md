@@ -594,3 +594,22 @@ Only `howtoplay_test.py` leaves it open.
   are present *and* guarded — so dropping a label is caught as readily as adding
   an unguarded seam — and that `tools/build.py` really does pass
   `--drop-labels=DEBUG`. No browser, no server; runs in milliseconds.
+
+- **`cloudfront_test.py`** — a deploy finishes by pointing a CloudFront
+  distribution's `OriginPath` at the build just uploaded and invalidating the
+  edge cache, and none of that can be exercised against real AWS from here (no
+  credentials, no network). So the real functions are driven against a **stubbed**
+  client (`botocore.stub.Stubber`), which validates every request against the
+  actual service model — a malformed `InvalidationBatch` or a missing `IfMatch`
+  fails here exactly as it would at AWS. Pins down: the whole
+  `DistributionConfig` is written back with only `OriginPath` moved, guarded by
+  the ETag it was read with; the **order** — `update_distribution` strictly
+  before `create_invalidation`, since the reverse would clear the edge and
+  immediately refill it from the old path; that a distribution with several
+  origins is never guessed at; that a concurrent edit (`PreconditionFailed`) is
+  retried exactly once and not looped; that a rollback to a commit with no
+  `build-info.json` in the bucket stops *before* touching CloudFront; and that
+  the cache constants still say what the origin switch depends on — assets not
+  `immutable`, browsers revalidating, `s-maxage` for the edge. No browser, no
+  server, no network.
+
