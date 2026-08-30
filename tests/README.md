@@ -429,7 +429,14 @@ Only `howtoplay_test.py` leaves it open.
   language again. **Confirm** applies, closes, re-letters the screen underneath
   and translates the popup heading while leaving the list's names alone;
   re-picking the current language just closes. The choice survives a reload with
-  progress intact, and the popup reflows on a narrow viewport.
+  progress intact, and the popup reflows on a narrow viewport. It also checks the
+  **panel's own layout** through the `languagePickerGeometry()` seam, which reports
+  the panel, the masked list viewport and both footer buttons as design-space
+  rects: the list must end a **clear gap (≥ 24) above Confirm**, the two buttons
+  must not collide, and all three must stay inside the panel. Confirm used to be
+  drawn **on top of** the bottom of the list (list bottom +300 vs Confirm top
+  +275); `LIST_H` is now derived from the footer geometry in
+  `src/languagepicker.js`, so it cannot grow back into the buttons.
 
 - **`langfit_test.py`** — **every translation fits the button it sits on.** The
   game's buttons are fixed-width pills with the label centred on top: the text is

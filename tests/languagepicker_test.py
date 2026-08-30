@@ -13,6 +13,9 @@ from playwright.sync_api import sync_playwright
 #     word in the popup that changes with the language.
 #   * Tapping a row moves the tick and changes NOTHING ELSE. The choice applies
 #     on CONFIRM; closing the popup any other way discards it.
+#   * The panel's own layout holds together: the list viewport ends a clear gap
+#     above the Confirm button (which used to be drawn over the bottom row), the
+#     two buttons don't collide, and all three stay inside the panel.
 #
 # The engine behind it (detection, storage, the swap, the rough edges) is
 # i18n_test.py's subject.
@@ -89,6 +92,32 @@ try:
         assert s["scroll"]["scrollable"] is True, s["scroll"]
         assert s["picked"] == "en" and s["pickedVisible"] is True, s
         snap("open_en")
+
+        # ---- the panel's layout ---------------------------------------------
+        # The list is a masked viewport with the two buttons pinned below it. The
+        # Confirm button used to be drawn ON TOP of the bottom of the list (list
+        # bottom +300 vs Confirm top +275), slicing the last visible language row.
+        # Nothing inside the panel may overlap anything else, and the list must
+        # end a real gap above Confirm, not merely touch it.
+        g = page.evaluate("window.__game.languagePickerGeometry()")
+        print("GEOMETRY ->", g)
+        list_bottom = g["list"]["y"] + g["list"]["h"]
+        confirm_top = g["confirm"]["y"]
+        gap = confirm_top - list_bottom
+        print(f"LIST BOTTOM {list_bottom} / CONFIRM TOP {confirm_top} / GAP {gap}")
+        assert list_bottom <= confirm_top, \
+            ("Confirm must not overlap the language list", list_bottom, confirm_top)
+        assert gap >= 24, ("the list needs real clearance above Confirm, not a "
+                           "hairline", gap)
+        assert g["confirm"]["y"] + g["confirm"]["h"] <= g["back"]["y"], \
+            ("Confirm must not overlap Back", g["confirm"], g["back"])
+        # Everything the panel draws stays inside the panel.
+        pan = g["panel"]
+        for name in ("list", "confirm", "back"):
+            r = g[name]
+            assert r["x"] >= pan["x"] and r["x"] + r["w"] <= pan["x"] + pan["w"], (name, r, pan)
+            assert r["y"] >= pan["y"] and r["y"] + r["h"] <= pan["y"] + pan["h"], (name, r, pan)
+        snap("layout")
 
         # ---- tapping a row moves the tick and NOTHING else -------------------
         before = page.evaluate("""() => ({

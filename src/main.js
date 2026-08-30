@@ -439,6 +439,9 @@ async function boot() {
         pickedVisible: langPicker.rowVisible(langPicker.picked()),
         scroll: langPicker.scrollState(),
       }),
+      // Panel-local rects of the picker's panel, list viewport and footer buttons,
+      // so a test can assert the list ends clear above Confirm.
+      languagePickerGeometry: () => langPicker.geometry(),
       tapLanguageRow: (code) => langPicker.pick(code),
       confirmLanguage: () => langPicker._confirm(),
       // The settings screen's Language row, as it reads on screen.

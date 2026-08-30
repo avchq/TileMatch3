@@ -21,9 +21,19 @@ const DESIGN_H = 1334;
 // Panel + list geometry (layout constants, so they live with the scene that
 // draws them rather than in config.js).
 const PANEL_W = 620, PANEL_H = 940;
-const LIST_W = 540, LIST_H = 620;
+const LIST_W = 540;
 const LIST_TOP = -PANEL_H / 2 + 150;
 const ROW_W = 520, ROW_H = 66, ROW_PITCH = 74;
+
+// The two footer buttons are pinned to the panel's BOTTOM edge, so the list gets
+// whatever height is left above them. LIST_H is derived rather than hard-coded:
+// as three independent constants they drifted, and Confirm ended up drawn over
+// the bottom of the list. This way the list can never grow back into the buttons
+// when the panel or the footer is retuned (languagepicker_test.py checks it).
+const CONFIRM_W = 300, CONFIRM_H = 86, CONFIRM_CY = PANEL_H / 2 - 152;
+const BACK_W = 220, BACK_H = 74, BACK_CY = PANEL_H / 2 - 58;
+const FOOTER_GAP = 40;  // clear space between the list's bottom edge and Confirm
+const LIST_H = (CONFIRM_CY - CONFIRM_H / 2 - FOOTER_GAP) - LIST_TOP;
 
 export class LanguagePickerScene extends PIXI.Container {
   constructor(app, audio) {
@@ -131,11 +141,11 @@ export class LanguagePickerScene extends PIXI.Container {
     this._contentH = y - ROW_PITCH + ROW_H / 2 + 8;
 
     // Confirm is the only thing that applies the choice.
-    this.confirmBtn = this._makeButton("btn_confirm", 300, 86, 0, PANEL_H / 2 - 152, 0x39c06a,
-      () => this._confirm());
+    this.confirmBtn = this._makeButton("btn_confirm", CONFIRM_W, CONFIRM_H, 0, CONFIRM_CY,
+      0x39c06a, () => this._confirm());
     this.panel.addChild(this.confirmBtn);
 
-    this.backBtn = this._makeButton("btn_back", 220, 74, 0, PANEL_H / 2 - 58, 0x3a4a72,
+    this.backBtn = this._makeButton("btn_back", BACK_W, BACK_H, 0, BACK_CY, 0x3a4a72,
       () => this._close());
     this.panel.addChild(this.backBtn);
   }
@@ -193,6 +203,9 @@ export class LanguagePickerScene extends PIXI.Container {
   _makeButton(key, w, h, cx, cy, color, onClick) {
     const c = new PIXI.Container();
     c.position.set(cx, cy);
+    // The drawn size, kept on the container so geometry() can measure the button
+    // without re-deriving it from the constants it is meant to be checking.
+    c.__w = w; c.__h = h;
     const g = new PIXI.Graphics();
     g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
     g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
@@ -247,6 +260,24 @@ export class LanguagePickerScene extends PIXI.Container {
       contentH: this._contentH,
       viewH: LIST_H,
       scrollable: this._contentH > LIST_H,
+    };
+  }
+
+  /**
+   * Panel-local rects of the panel, the masked list viewport and the two footer
+   * buttons, read off the LIVE display objects (test hook). The list viewport is
+   * the drag hitArea, which is drawn to match the mask; the buttons carry their
+   * own size. languagepicker_test.py asserts the list ends clear above Confirm —
+   * Confirm used to be drawn over the bottom of the list.
+   */
+  geometry() {
+    const r = this.listView.hitArea;
+    const btn = (b) => ({ x: b.x - b.__w / 2, y: b.y - b.__h / 2, w: b.__w, h: b.__h });
+    return {
+      panel: { x: -PANEL_W / 2, y: -PANEL_H / 2, w: PANEL_W, h: PANEL_H },
+      list: { x: r.x, y: this.listView.y + r.y, w: r.width, h: r.height },
+      confirm: btn(this.confirmBtn),
+      back: btn(this.backBtn),
     };
   }
 
