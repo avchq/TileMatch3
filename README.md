@@ -909,9 +909,41 @@ uploads nothing**:
 - every local path `index.html` references is present in the build;
 - the bundle has no relative imports left, and no unbundled module survived
   next to it;
-- all five asset groups are present and non-empty;
+- every asset group in `assets/` arrived, non-empty and with its full file
+  count — the groups are **read off the source tree, not hardcoded**, so a new
+  one is checked the day it is added rather than deploying half-copied;
+- every shipped extension has an explicit `Content-Type` mapping;
 - the 13 language tables are all there and at full key parity with `en.json`;
 - all 1019 JSON files parse.
+
+### Adding files to the game
+Two rules exist so that a new feature cannot quietly ship broken:
+
+**Every top-level entry in the repo must be classified.** `SHIP_DIRS` /
+`SHIP_GLOBS` say what ships (`src/`, `vendor/`, `assets/`, and any top-level
+`*.html`), `NOT_SHIPPED` says what deliberately does not (`tests/`, `tools/`,
+`build/`, the READMEs…). An entry in neither **stops the build**. Without this, a
+`sw.js`, a `manifest.webmanifest` or a `shaders/` directory works perfectly
+against the local server and is simply absent in production — a failure that
+costs an afternoon to find, versus a build error that costs a minute.
+
+**Every new file extension needs a `CONTENT_TYPES` entry.** Python's `mimetypes`
+fallback covers the standard web formats (`.webm`, `.mp4`, `.wasm`, `.avif`,
+`.ktx2`), but engine-specific ones — `.atlas`, `.fnt`, `.skel`, `.basis` —
+resolve to nothing and would upload as `application/octet-stream`. `verify()`
+refuses rather than guessing.
+
+Everything else about adding a feature needs no build change at all: esbuild
+walks the import graph from `src/main.js`, so a new scene module is bundled
+automatically, and `assets/` is copied wholesale, so new levels, languages, art
+and audio ship on their own. The one thing to remember is the `DEBUG:` rule
+below.
+
+### Debug seams
+Any test or debug hook hung off `window` **must** live inside a `DEBUG: { … }`
+block, because `--drop-labels=DEBUG` is the only thing that strips it from a
+production bundle. `tests/debugseam_test.py` enforces this by reading the source:
+an unguarded `window.x =` anywhere under `src/` fails the suite.
 
 A **dirty working tree is refused** — a build named after a commit must contain
 that commit. `--allow-dirty` overrides and tags the build `<commit>-dirty`, which

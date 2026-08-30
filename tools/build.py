@@ -95,9 +95,22 @@ NODE_BIN = os.path.join(HERE, "node_modules", ".bin")
 ENTRY = "src/main.js"
 BUNDLE = "src/main.js"   # deliberately the same path, so index.html is unchanged
 
-# What ships. Everything else in the repo — tests/, tools/, .venv/, .git/,
-# .claude/, the READMEs, CLAUDE.md — is deliberately absent from the artifact.
-SHIP = ["index.html", "src", "vendor", "assets"]
+# What ships, and what is deliberately left behind.
+#
+# Every top-level entry in the repo must be named in one of these two lists. One
+# that is in neither STOPS THE BUILD, on purpose: the alternative is that someone
+# adds a service worker, a `manifest.webmanifest` or a `shaders/` directory,
+# finds it works perfectly against the local server, and discovers only in
+# production that it was never uploaded. A build that fails with "I do not know
+# whether this ships" costs a minute; that discovery costs an afternoon.
+SHIP_DIRS = ["src", "vendor", "assets"]
+SHIP_GLOBS = ["*.html"]          # top-level entry points, by pattern
+NOT_SHIPPED = {
+    "tests", "tools", "build", "node_modules", "__pycache__",
+    ".git", ".venv", ".claude", ".idea", ".vscode", ".github",
+    ".gitignore", ".gitattributes", ".DS_Store",
+    "README.md", "CLAUDE.md", "LICENSE",
+}
 
 # Never copied, even from inside a shipped directory.
 EXCLUDE_DIRS = {"__pycache__", ".git", "node_modules"}
@@ -170,10 +183,41 @@ def commit_info(full_hash):
     }
 
 
-def walk_ship(src_root):
-    """Every file that ships, as paths relative to the repo root."""
+def walk_ship(src_root, build_dir=None):
+    """Every file that ships, as paths relative to the repo root.
+
+    Also the place where an unclassified top-level entry stops the build.
+    """
+    import fnmatch
+
+    ships = list(SHIP_DIRS)
+    unknown = []
+    skip = set(NOT_SHIPPED)
+    # The output directory itself is never an input, wherever it was pointed.
+    if build_dir:
+        rel = os.path.relpath(os.path.abspath(build_dir), src_root)
+        if not rel.startswith(".."):
+            skip.add(rel.split(os.sep)[0])
+
+    for entry in sorted(os.listdir(src_root)):
+        if entry in ships or entry in skip:
+            continue
+        if any(fnmatch.fnmatch(entry, g) for g in SHIP_GLOBS):
+            ships.append(entry)
+            continue
+        unknown.append(entry)
+
+    if unknown:
+        die("unclassified top-level entries — I do not know whether these ship:\n"
+            + "".join(f"         {e}\n" for e in unknown)
+            + "       add each to SHIP_DIRS/SHIP_GLOBS or NOT_SHIPPED in "
+              "tools/build.py.")
+
+    if not any(e == "index.html" for e in ships):
+        die("index.html is missing from the tree, cannot build")
+
     out = []
-    for entry in SHIP:
+    for entry in ships:
         path = os.path.join(src_root, entry)
         if not os.path.exists(path):
             die(f"missing from the tree, cannot build: {entry}")
@@ -382,12 +426,25 @@ def verify(dest, bundled=True):
                 problems.append(f"index.html references {ref}, which is not in the build")
 
     # The asset tree, which is the whole point of shipping a copy rather than a
-    # bundle. Empty directories here mean a deploy that boots and then fails.
-    for group in ("assets/audio", "assets/bg", "assets/config",
-                  "assets/lang", "assets/levels"):
-        path = os.path.join(dest, group)
-        if not os.path.isdir(path) or not os.listdir(path):
-            problems.append(f"asset group missing or empty: {group}")
+    # bundle. The groups are read off the source tree rather than hardcoded, so a
+    # new one — assets/video/, say — is checked the day it is added instead of
+    # deploying unnoticed and half-empty.
+    src_assets = os.path.join(ROOT, "assets")
+    dst_assets = os.path.join(dest, "assets")
+    expected = sorted(d for d in os.listdir(src_assets)
+                      if os.path.isdir(os.path.join(src_assets, d)))
+    for group in expected:
+        path = os.path.join(dst_assets, group)
+        if not os.path.isdir(path):
+            problems.append(f"asset group missing from the build: assets/{group}")
+        elif not os.listdir(path):
+            problems.append(f"asset group is empty: assets/{group}")
+        else:
+            want = len(os.listdir(os.path.join(src_assets, group)))
+            got = len(os.listdir(path))
+            if got < want:
+                problems.append(
+                    f"assets/{group} is short: {got} of {want} files copied")
 
     langs = os.path.join(dest, "assets/lang")
     if os.path.isdir(langs):
@@ -407,6 +464,24 @@ def verify(dest, bundled=True):
                         f"{', '.join(missing[:5])}")
         except (json.JSONDecodeError, OSError) as e:
             problems.append(f"language tables unreadable: {e}")
+
+    # S3 stores whatever it is handed and guesses nothing, so an extension with
+    # no explicit mapping would go up as application/octet-stream. Python's
+    # mimetypes fallback covers the standard web formats, but engine-specific
+    # ones (.atlas, .fnt, .skel, .basis) resolve to nothing at all — and a
+    # silently mistyped asset is the kind of bug that only ever reproduces in
+    # production. Make the author decide instead.
+    unmapped = {}
+    for dirpath, _, filenames in os.walk(dest):
+        for name in filenames:
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in CONTENT_TYPES:
+                rel = os.path.relpath(os.path.join(dirpath, name), dest)
+                unmapped.setdefault(ext, rel)
+    for ext, example in sorted(unmapped.items()):
+        problems.append(
+            f"no Content-Type mapping for '{ext or '(no extension)'}' "
+            f"(e.g. {example}) — add it to CONTENT_TYPES in tools/build.py")
 
     bad_json = 0
     for dirpath, _, filenames in os.walk(dest):
@@ -598,7 +673,7 @@ def main():
 
     print(f"building {build_id}  ({info['branch']}: {info['subject']})")
 
-    files = walk_ship(ROOT)
+    files = walk_ship(ROOT, args.build_dir)
     stage(dest, files)
 
     if args.bundle:

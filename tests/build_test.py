@@ -208,6 +208,62 @@ try:
     check(any("malformed JSON" in p for p in gamebuild.verify(dest)),
           "verify() rejects a build containing malformed JSON")
 
+    # An extension with no explicit Content-Type would go to S3 as
+    # application/octet-stream, which is the sort of thing that only ever
+    # reproduces in production.
+    with open(os.path.join(dest, "assets", "config", "sprites.atlas"), "w") as f:
+        f.write("atlas")
+    check(any("Content-Type mapping for '.atlas'" in p for p in gamebuild.verify(dest)),
+          "verify() rejects an asset whose extension has no Content-Type mapping")
+
+    # ---- the top-level classification --------------------------------------
+    # Every entry in the repo root must be known to ship or known not to. Tested
+    # against a fabricated tree so the real repo is never touched.
+    fake = tempfile.mkdtemp(prefix="tm3-root-")
+    try:
+        for d in ("src", "vendor", "assets"):
+            os.makedirs(os.path.join(fake, d))
+        open(os.path.join(fake, "index.html"), "w").write("<html></html>")
+        open(os.path.join(fake, "src", "main.js"), "w").write("")
+
+        got = gamebuild.walk_ship(fake)
+        check("index.html" in got and "src/main.js" in got,
+              f"walk_ship ships index.html and src/ from a clean tree ({got})")
+
+        open(os.path.join(fake, "privacy.html"), "w").write("<html></html>")
+        check("privacy.html" in gamebuild.walk_ship(fake),
+              "a second top-level .html entry point ships automatically")
+        os.remove(os.path.join(fake, "privacy.html"))
+
+        os.makedirs(os.path.join(fake, "tests"))          # known: never ships
+        open(os.path.join(fake, "README.md"), "w").write("")
+        check("tests" not in " ".join(gamebuild.walk_ship(fake)),
+              "known dev directories are still left out")
+
+        open(os.path.join(fake, "sw.js"), "w").write("")  # unknown: must stop
+        stopped = False
+        try:
+            gamebuild.walk_ship(fake)
+        except SystemExit:
+            stopped = True
+        check(stopped, "an unclassified top-level file stops the build "
+                       "(rather than silently not shipping)")
+        os.remove(os.path.join(fake, "sw.js"))
+
+        os.makedirs(os.path.join(fake, "shaders"))
+        stopped = False
+        try:
+            gamebuild.walk_ship(fake)
+        except SystemExit:
+            stopped = True
+        check(stopped, "an unclassified top-level directory stops the build")
+
+        # ...unless it is the output directory itself, wherever it was pointed.
+        check("shaders" not in " ".join(gamebuild.walk_ship(fake, os.path.join(fake, "shaders"))),
+              "the build directory is never treated as an input")
+    finally:
+        shutil.rmtree(fake, ignore_errors=True)
+
     # ======== upload metadata a browser is strict about =====================
     check(gamebuild.content_type("src/main.js").startswith("text/javascript"),
           "the bundle uploads as text/javascript (a browser refuses anything else)")

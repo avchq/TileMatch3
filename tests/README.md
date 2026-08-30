@@ -581,3 +581,16 @@ Only `howtoplay_test.py` leaves it open.
   asserted absent: they also occur inside asset URLs like
   `assets/config/dailybonus.json`, which must survive for the game to fetch
   anything.
+
+- **`debugseam_test.py`** — every debug seam hung off `window` must sit inside a
+  `DEBUG: { … }` block, since `--drop-labels=DEBUG` is the only thing that keeps
+  it out of a production bundle. Reads the source rather than running the game:
+  strings and comments are blanked out (so a seam in a comment or a string is not
+  a false positive), `DEBUG:` blocks are located by brace matching, and any
+  `window.x =` or `globalThis.x =` under `src/` outside one fails. It first runs
+  the detector over a fabricated file containing two real violations and three
+  lookalikes, because a source check that has never seen a violation proves
+  nothing; then it asserts the two seams that exist today (`__game`, `__splash`)
+  are present *and* guarded — so dropping a label is caught as readily as adding
+  an unguarded seam — and that `tools/build.py` really does pass
+  `--drop-labels=DEBUG`. No browser, no server; runs in milliseconds.
