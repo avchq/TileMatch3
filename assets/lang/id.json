@@ -94,5 +94,9 @@
   "tutorial_line": "Kumpulkan 3 ubin yang sama untuk menghapusnya",
   "coach_undo": "Urungkan langkah terakhir",
   "coach_wand": "Cocokkan sekelompok ubin otomatis",
-  "coach_shuffle": "Atur ulang ubin yang tersisa di level ini"
+  "coach_shuffle": "Atur ulang ubin yang tersisa di level ini",
+  "superwand_streak": "Selesaikan %value level berturut-turut!",
+  "superwand_ready": "Tongkat Super siap!",
+  "superwand_streak_risk": "Rentetan berisiko — Lanjutkan untuk mempertahankannya",
+  "superwand_streak_lost": "Rentetan terputus"
 }

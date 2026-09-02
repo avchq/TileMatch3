@@ -6,13 +6,14 @@
 
 import { CONFIG } from "../config.js";
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 // Every tunable this model reads — the starting wallet and booster inventory,
 // the helper unlock schedule and the shop's gate — lives in src/config.js,
 // documented there. The two tables are pulled out as local aliases so the logic
 // below stays readable; config.js remains the only place to EDIT them.
 const BOOSTER_UNLOCKS = CONFIG.boosters.unlocks;
+const SUPER_WAND = CONFIG.boosters.superWand;
 const SHOP_UNLOCK_LEVEL = CONFIG.features.shop.unlockLevel;
 const TASKS_UNLOCK_LEVEL = CONFIG.features.tasks.unlockLevel;
 const EXTRA_SLOT_UNLOCK_LEVEL = CONFIG.board.extraSlot.unlockLevel;
@@ -44,6 +45,21 @@ const defaults = () => ({
   // the gate opens, the lesson waits until the player is actually in a level.
   boosterCoach: [],
   settings: { music: true, sound: true },
+  // THE SUPER WAND — the Wand's earned upgrade (see CONFIG.boosters.superWand
+  // and src/game.js). Three fields, and no inventory entry: it is not a
+  // consumable, so it never appears in `boosters` above.
+  //   streak    — consecutive NEW clears banked toward the next charge. While
+  //               `charged` is true this is PINNED at streakLength, so the bar on
+  //               the level-complete screen (and the lobby rail's pill) reads full
+  //               for as long as the streak lives. ACCEPTING A LOSS is the only
+  //               thing that empties either field: using a Super Wand takes
+  //               nothing away, because the reward is the streak itself.
+  //   charged   — a Super Wand is banked and the Wand's button is upgraded. It
+  //               stays upgraded across uses, wins, levels and restarts.
+  //   announced — its arrival has already been celebrated on a board. Kept
+  //               per-charge rather than per-level so the flourish plays once,
+  //               not again on every Replay and re-entry while it sits banked.
+  superWand: { streak: 0, charged: false, announced: false },
   // Fortune Wheel per-cycle state (see src/fortunewheel.js). group: active prize
   // group (1-based; 0 = never cycled). day: the day-key (YYYY-MM-DD) of the
   // current cycle — a change of calendar day rolls the cycle over. spinsUsed:
@@ -92,6 +108,7 @@ export class User {
     this.boosterUnlocks = (data.boosterUnlocks || d.boosterUnlocks).slice();
     this.boosterCoach = (data.boosterCoach || d.boosterCoach).slice();
     this.settings = { ...d.settings, ...(data.settings || {}) };
+    this.superWand = { ...d.superWand, ...(data.superWand || {}) };
     this.fortuneWheel = { ...d.fortuneWheel, ...(data.fortuneWheel || {}) };
     this.dailyBonus = { ...d.dailyBonus, ...(data.dailyBonus || {}) };
     // Nested maps and arrays can't ride the shallow sub-object merge, so the
@@ -111,7 +128,7 @@ export class User {
   }
 
   // ---- change events -------------------------------------------------------
-  /** Subscribe. Callback is fn(domain, user) where domain ∈ progress|wallet|boosters|settings|fortuneWheel|dailyBonus|tasks.
+  /** Subscribe. Callback is fn(domain, user) where domain ∈ progress|wallet|boosters|superWand|settings|fortuneWheel|dailyBonus|tasks.
    *  Returns an unsubscribe function. */
   on(fn) { this._listeners.add(fn); return () => this._listeners.delete(fn); }
   off(fn) { this._listeners.delete(fn); }
@@ -197,6 +214,64 @@ export class User {
     this.bumpStat("boostersUsed");
     this._emit("boosters");
     return true;
+  }
+
+  // ---- the Super Wand (the Wand's earned upgrade) --------------------------
+  /** Consecutive new clears banked toward the next charge (pinned at the full
+   *  streak length while one is already banked). */
+  superWandStreak() { return this.superWand.streak || 0; }
+  /** Is a Super Wand banked? While it is, the Wand's button IS the upgraded one
+   *  and every press sweeps — using it takes nothing away. */
+  superWandCharged() { return !!this.superWand.charged; }
+  /** Has the streak started accruing yet? Derived from progress like every other
+   *  gate here, so a QA jump straight to a later level is honoured with nothing
+   *  to repair. */
+  isSuperWandUnlocked() { return this.completedLevel() >= SUPER_WAND.unlockLevel - 1; }
+
+  /** Count one win toward the streak, charging a Super Wand when it completes.
+   *  Returns `{ from, to, needed, justCharged }` so the level-complete screen can
+   *  animate the notch that was just filled — or null when the gate is still shut
+   *  or a charge is already banked (the caller then shows no bar and no notch).
+   *  Only GENUINELY NEW clears should reach here; see GameScene._win. */
+  recordSuperWandWin() {
+    if (!this.isSuperWandUnlocked() || this.superWandCharged()) return null;
+    const needed = SUPER_WAND.streakLength;
+    const from = this.superWandStreak();
+    const to = Math.min(needed, from + 1);
+    this.superWand.streak = to;
+    const justCharged = to >= needed;
+    if (justCharged) {
+      this.superWand.charged = true;
+      this.superWand.announced = false; // a fresh charge is owed its celebration
+    }
+    this._emit("superWand");
+    return { from, to, needed, justCharged };
+  }
+
+  /** A loss the player has accepted — the ONE thing that clears any of this.
+   *  Empties the streak AND the banked charge together.
+   *
+   *  USING a Super Wand does NOT clear it: while the win streak is alive the Wand's
+   *  button simply IS the upgraded one, and every press sweeps. The reward is the
+   *  STATE of being on a streak, not a single-shot token, so the only way to lose
+   *  it is to break the streak — which is exactly what accepting a loss does.
+   *
+   *  Returns true only when something actually reset, so the caller can show the
+   *  break rather than animating a bar that was already empty. */
+  breakSuperWandStreak() {
+    if (!this.superWandCharged() && !this.superWandStreak()) return false;
+    this.superWand = { streak: 0, charged: false, announced: false };
+    this._emit("superWand");
+    return true;
+  }
+
+  /** Is a banked charge still owed its arrival celebration? */
+  superWandNeedsAnnounce() { return this.superWandCharged() && !this.superWand.announced; }
+  /** Record that the arrival has been celebrated (once per charge, not per level). */
+  markSuperWandAnnounced() {
+    if (this.superWand.announced) return;
+    this.superWand.announced = true;
+    this._emit("superWand");
   }
 
   // ---- booster progression (helpers unlock over the first levels) ----------
@@ -376,12 +451,14 @@ export class User {
     this.boosterUnlocks = d.boosterUnlocks.slice();
     this.boosterCoach = d.boosterCoach.slice();
     this.settings = { ...d.settings };
+    this.superWand = { ...d.superWand };
     this.fortuneWheel = { ...d.fortuneWheel };
     this.dailyBonus = { ...d.dailyBonus };
     this.tasks = { stats: {}, claimed: [], weekly: { week: "", claimed: [], base: {} } };
     this._emit("progress");
     this._emit("wallet");
     this._emit("boosters");
+    this._emit("superWand");
     this._emit("settings");
     this._emit("fortuneWheel");
     this._emit("dailyBonus");
@@ -401,6 +478,7 @@ export class User {
       boosterUnlocks: this.boosterUnlocks.slice(),
       boosterCoach: this.boosterCoach.slice(),
       settings: { ...this.settings },
+      superWand: { ...this.superWand },
       fortuneWheel: { ...this.fortuneWheel, won: (this.fortuneWheel.won || []).slice() },
       dailyBonus: { ...this.dailyBonus },
       tasks: {
@@ -481,6 +559,16 @@ export class User {
       o.tasks = { stats, claimed: [], weekly: { week: "", claimed: [], base: { ...stats } } };
       o.version = 7;
     }
+    // v7 -> v8: adds `superWand` — the win-streak state behind the Wand's earned
+    // upgrade. Nothing here is reconstructible: win streaks were never recorded,
+    // and a player's streak is by definition about their RECENT run, not their
+    // history, so seeding one off `progress.completed` would be inventing a fact
+    // rather than deriving it (contrast v3->v4 and v6->v7, where the old field
+    // genuinely implied the new one). Every existing player therefore starts the
+    // feature at zero and earns their first Super Wand honestly. The constructor
+    // shallow-merges the sub-object from defaults(), so this step only has to
+    // stamp the version — the same shape as v1->v2 and v2->v3.
+    if (o.version === 7) o.version = 8;
     return o;
   }
 }

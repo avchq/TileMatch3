@@ -453,7 +453,7 @@ with sync_playwright() as p:
     time.sleep(0.6)
     prof = page.evaluate("window.__game.user()")
     print("MIGRATED ->", prof["version"], prof["tasks"])
-    assert prof["version"] == 7, ("the profile migrated to v7", prof["version"])
+    assert prof["version"] == 8, ("the profile migrated to v8", prof["version"])
     assert prof["tasks"]["stats"]["levelsCompleted"] == 7, (
         "levels completed is derived from progress.completed", prof["tasks"])
     assert prof["tasks"]["claimed"] == [], ("nothing is pre-claimed", prof["tasks"])

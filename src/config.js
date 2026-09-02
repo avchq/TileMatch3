@@ -248,6 +248,54 @@ export const CONFIG = deepFreeze({
       // animation. The other two coach the moment the board finishes building.
       undoDelayMs: 250,
     },
+
+    // THE SUPER WAND — the Wand's upgraded form, and the one helper that is
+    // EARNED rather than bought. Consecutive level wins charge it; once charged
+    // it takes the Wand's own button over (upgraded face, and the tap sweeps
+    // several complete sets off the board instead of completing one triple),
+    // stays banked until used, and reverts the moment it is spent. There is no
+    // inventory entry and no price for it — it never appears in `kinds`,
+    // `startingInventory` or `unlocks`, because it is not a consumable: see
+    // `user.superWand` for the state it does keep.
+    superWand: {
+      // The campaign level from which the streak accrues at all — the usual
+      // "from level N onward" convention, so it opens once level N-1 is cleared.
+      // Below it, wins simply do not count and no bar is shown, which keeps the
+      // early game about learning the ordinary helpers.
+      //
+      // The original ships this at 20. This port's campaign is currently 20
+      // levels long (`assets/config/levels.json`), and only a GENUINELY NEW
+      // clear counts toward the streak — so a gate of 20 would leave exactly one
+      // qualifying win and the reward could never be earned at all. 10 is the
+      // nearest value that keeps the feature reachable (clear 10-14 to charge it,
+      // then 15-20 to spend it) without making it farmable. Raise it back toward
+      // 20 as the level table grows.
+      unlockLevel: 10,
+
+      // Consecutive NEW clears that charge one Super Wand. Replays and levels
+      // already beaten do not count (the same "pushes your furthest level
+      // higher" rule the Level Chest uses), so the streak cannot be farmed on an
+      // easy level. A loss the player accepts empties it; a banked charge
+      // survives a loss. This number is also what the player-facing label reads
+      // ("Clear 5 levels in a row!") — the copy takes it from here, so retuning
+      // the streak re-letters the label rather than contradicting it.
+      streakLength: 5,
+
+      // How many tiles one sweep gathers before it stops looking. 6 = two
+      // complete sets, the whole point of the upgrade: where the ordinary Wand
+      // is a small favour, this is a board-clearing event. It is only ever a
+      // whole multiple of 3 — the sweep completes SETS and never sweeps a
+      // partial one away, because that would delete progress rather than cash it
+      // in. Raising this by 3 asks for another set per sweep.
+      minTiles: 6,
+
+      // When the tray runs out of colours to complete before `minTiles` is
+      // reached, the batch is topped up with WHOLE fresh triples taken straight
+      // off the board — at most this many rounds. 2 is the exact budget needed
+      // to reach two sets from an empty tray, so a sweep on a fresh board still
+      // clears six.
+      extraRounds: 2,
+    },
   },
 
   // --------------------------------------------------------------------------

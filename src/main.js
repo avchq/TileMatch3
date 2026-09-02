@@ -580,6 +580,69 @@ async function boot() {
           tiles: pick.tiles.map((t) => ({ id: t.id, cov: t.aliveCovers, free: t.aliveCovers === 0 })),
         };
       },
+      // ---- the Super Wand (the Wand's win-streak upgrade) ----
+      superWand: () => scene.superWand(),
+      // What the sweep would clear next: a pure read of _superWandPick, with each
+      // set's colour, how many were already waiting in the tray (`have`) and how
+      // many it would pull (`need`), plus the availability of every pulled tile.
+      // Lets a test assert the cheapest-first ordering, the whole-sets rule and the
+      // availability-first draw without relying on animation timing. null when
+      // nothing at all can be completed.
+      superWandPreview: () => {
+        const p = scene._superWandPick();
+        if (!p) return null;
+        const tile = (t) => ({ id: t.id, cov: t.aliveCovers, free: t.aliveCovers === 0 });
+        return {
+          total: p.sets.length * 3,
+          sets: p.sets.map((s) => ({
+            type: s.type, need: s.need, have: s.have, tiles: s.tiles.map(tile),
+          })),
+          tiles: p.tiles.map(tile),
+        };
+      },
+      superWandState: () => ({
+        unlocked: user.isSuperWandUnlocked(),
+        unlockLevel: CONFIG.boosters.superWand.unlockLevel,
+        streak: user.superWandStreak(),
+        needed: CONFIG.boosters.superWand.streakLength,
+        charged: user.superWandCharged(),
+        announced: !user.superWandNeedsAnnounce(),
+        // Is the shared button in its upgraded mode right now?
+        active: scene._superWandActive(),
+        running: !!scene._superWandRunning,
+        // "super" | "stock" | "buy" | "ad" | "locked" — the same seam the other
+        // helpers report through, so the takeover is visible to boosterState too.
+        mode: scene.wandBtn._boosterMode,
+        icon: scene.wandBtn.label.text,
+        badge: scene.wandBadge.text.text,
+        usable: scene.wandBtn.eventMode === "static",
+      }),
+      // Charge one WITHOUT grinding five levels, through the real mutator (so the
+      // unlock gate still applies and the change event still fires).
+      chargeSuperWand: () => {
+        for (let i = 0; i < CONFIG.boosters.superWand.streakLength; i++) user.recordSuperWandWin();
+        return user.superWandCharged();
+      },
+      // One counted win, same path a real level clear takes.
+      superWandWin: () => user.recordSuperWandWin(),
+      // The streak bar on the win overlay (and its "at risk" twin on the lose
+      // overlay). Shaped like chestState(): a zero object when none is up.
+      superWandBar: () => ({ ...(scene._superWandBar || { shown: false }) }),
+      // The lobby rail's Super Wand read-out: its gate, where the rail parked it,
+      // and the face it is wearing. `label` is the pill text ("3/5"); `charged`
+      // is the gold/upgraded look. Shaped like featureRail()'s entries so a test
+      // can assert the slot and the copy from one call.
+      superWandRail: () => {
+        const b = lobby.superWandBtn;
+        return {
+          available: lobby.featureAvailable("superWand"),
+          visible: b.visible,
+          y: b.y, alpha: b.alpha,
+          label: b.label.text,
+          icon: b.icon.text,
+          charged: !!b._charged,
+        };
+      },
       autoComplete: () => scene.autoComplete(),
       autoState: () => ({
         available: scene._autoAvailable(),

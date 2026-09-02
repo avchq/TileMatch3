@@ -94,5 +94,9 @@
   "tutorial_line": "Reúne 3 fichas iguales para eliminarlas",
   "coach_undo": "Deshaz el último movimiento",
   "coach_wand": "Combina un grupo de fichas al instante",
-  "coach_shuffle": "Mezcla las fichas restantes del nivel"
+  "coach_shuffle": "Mezcla las fichas restantes del nivel",
+  "superwand_streak": "¡Supera %value niveles seguidos!",
+  "superwand_ready": "¡Súper Varita lista!",
+  "superwand_streak_risk": "Racha en riesgo, continúa para conservarla",
+  "superwand_streak_lost": "Racha perdida"
 }

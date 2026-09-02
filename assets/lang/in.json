@@ -94,5 +94,9 @@
   "tutorial_line": "एक जैसी 3 टाइलें जमा कर उन्हें हटाएं",
   "coach_undo": "पिछली चाल वापस लें",
   "coach_wand": "टाइलों का समूह अपने आप मिलाएं",
-  "coach_shuffle": "इस लेवल की बची टाइलें फिर से जमाएं"
+  "coach_shuffle": "इस लेवल की बची टाइलें फिर से जमाएं",
+  "superwand_streak": "लगातार %value स्तर पूरे करें!",
+  "superwand_ready": "सुपर छड़ी तैयार है!",
+  "superwand_streak_risk": "सिलसिला खतरे में — जारी रखें और बचाएं",
+  "superwand_streak_lost": "सिलसिला टूटा"
 }

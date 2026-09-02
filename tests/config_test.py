@@ -34,6 +34,12 @@ EXPECT = {
                     "wand": {"level": 3, "grant": 2},
                     "shuffle": {"level": 5, "grant": 2}},
         "coach": {"enabled": True, "undoDelayMs": 250},
+        # The Super Wand — the Wand's win-streak upgrade. unlockLevel is 10 rather
+        # than the original's 20: only a genuinely NEW clear counts toward the
+        # streak, and this port's campaign is 20 levels long, so a gate of 20 would
+        # leave one qualifying win and the reward could never be earned at all.
+        "superWand": {"unlockLevel": 10, "streakLength": 5,
+                      "minTiles": 6, "extraRounds": 2},
     },
     "economy": {"currencies": ["coins", "gems"],
                 "startingWallet": {"coins": 0, "gems": 0},

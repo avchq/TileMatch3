@@ -94,5 +94,9 @@
   "tutorial_line": "Collect 3 identical tiles to remove them",
   "coach_undo": "Undo the last move",
   "coach_wand": "Auto match a group of tiles",
-  "coach_shuffle": "Reset the remaining tiles in this level"
+  "coach_shuffle": "Reset the remaining tiles in this level",
+  "superwand_streak": "Clear %value levels in a row!",
+  "superwand_ready": "Super Wand ready!",
+  "superwand_streak_risk": "Streak at risk — Continue to keep it",
+  "superwand_streak_lost": "Streak lost"
 }

@@ -94,5 +94,9 @@
   "tutorial_line": "收集 3 個相同的方塊即可消除",
   "coach_undo": "復原上一步",
   "coach_wand": "自動配對一組方塊",
-  "coach_shuffle": "重新排列本關剩餘的方塊"
+  "coach_shuffle": "重新排列本關剩餘的方塊",
+  "superwand_streak": "連續過關 %value 關！",
+  "superwand_ready": "超級魔杖已就緒！",
+  "superwand_streak_risk": "連勝有風險，繼續保持連勝",
+  "superwand_streak_lost": "連勝中斷"
 }

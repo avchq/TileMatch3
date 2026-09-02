@@ -267,6 +267,20 @@ Only `howtoplay_test.py` leaves it open.
   an empty rail re-populating when a new day re-arms the gift, and the arrangement
   surviving a round trip through a level. Drives it via `window.__game.featureRail()`
   plus the live `lobby.wheelBtn`/`lobby.dailyBtn` display objects.
+- **`superwandrail_test.py`** — the lobby's **Super Wand read-out**, the third
+  entry on the left-edge feature rail below Free Spin and Daily Bonus (see
+  `superwand_test.py` for the sweep itself). Covers the **unlock gate** (hidden
+  below `unlockLevel`, offered from it on); that it always takes the slot
+  **below** whatever else is offered and sits correctly on the rail's slot
+  ladder as those other entries come and go; that a counted streak win moves the
+  pill's "streak/needed" label live with no scene rebuild; that a banked charge
+  pins the pill full and repaints the face to the gold/upgraded look; that it
+  **survives a reload**; that **using** the charge in a real level — sweeping,
+  then returning to the lobby — changes **nothing**, since a Super Wand is the
+  win streak itself and not a single-shot token, so the read-out still reads
+  `N/N` in the charged face; and that an **accepted loss** is the one thing that
+  ever empties it, dropping the meter to `0/N` and the face back to the ordinary
+  glyph on return to the lobby. Drives it via `window.__game.superWandRail()`.
 - **`tray_size_test.py`** — the bottom tray is sized to the **current level's tile
   size**, not a fixed 84px slot: the slot equals `clamp(TILE_DRAW*boardScale,
   slotMin, slotMax)` across levels, the 7 slots stay evenly spaced and the panel
@@ -349,6 +363,44 @@ Only `howtoplay_test.py` leaves it open.
   across a reload. At zero stock (board up, no coins) it falls back to the **ad
   tier** rather than disabling — a tap watches a stubbed rewarded ad to complete a
   triple for free.
+- **`superwand_test.py`** — the **Super Wand**, the Wand's earned upgrade. Covers
+  the **unlock gate** (a new player and one level short of it get no streak at
+  all; wins below the gate count for nothing); **charging** (each counted win
+  fills one notch, the last one banks a charge, and further wins leave it
+  **pinned** at the top rather than overflowing) and the pinned-full-while-banked
+  rule; **persistence** of a banked charge and the streak across a reload; the
+  **button takeover** — the ordinary Wand's face on entry, then the announced
+  swap to the upgraded glyph/badge with its own sound, once per charge — and that
+  the ordinary Wand stays inert while charged even when called directly
+  (`window.__game.wand()`); the picker's **cheapest-first ordering** (a waiting
+  pair completed before a lone single) and its **availability-first** tile draw
+  (free tiles before covered ones, matching the ordinary Wand); **whole-sets-only**
+  batching (always a multiple of 3, never a partial set); the **top-up rounds**
+  that pull whole fresh triples off the board from an empty tray; the **combined
+  sweep** clearing both sets in one elimination and freeing the tray (proved by
+  the cue log: exactly **one** `super_hint` and **one** `merge_click` for the
+  whole batch, not one per set); that a sweep **consumes nothing** — the charge
+  and streak are untouched afterwards, the button is still the upgraded one, the
+  Wand's own stock is untouched, and a **second press sweeps a second batch off
+  the same board**; a **double-tap firing the sweep once**, not twice, and still
+  leaving the charge banked; a sweep into a **near-full tray** not losing the
+  level, not tripping the "Insufficient space!" warning on the way through, and
+  leaving the tray smaller than it started; a sweep that can **gather nothing**
+  leaving the charge intact (a no-op — there is nothing left to consume anyway);
+  a **replay** of an already-beaten level not advancing the streak, not showing
+  the bar, and the button doing nothing; a **profile reset** wiping the streak
+  and any banked charge (unlike a loss, which used to leave a banked charge
+  alone — it no longer does, see below); a **genuinely new clear** filling one
+  notch and showing the gold streak bar on the level-complete screen,
+  **coexisting** with the Level Chest's bar without overlapping it; a **loss**
+  breaking the streak only when the player accepts it (Home/Replay), never when
+  they Continue; and that accepting a loss while a charge is **banked** clears
+  the charge too — the lose overlay shows a full 5/5 "at risk" meter for a
+  banked charge exactly as it shows a partial one, and Home/Replay empties both
+  together. A final section (13) guards a coaching regression: the ordinary
+  Wand's coached first use must actually run (one triple, tiles off the board)
+  rather than be swallowed by the charged-mode guard when a charge is banked
+  underneath the lesson.
 - **`continue_test.py`** — filling the tray no longer dead-ends: it opens a modal
   **"Out of Moves"** overlay (Home / Replay / Continue). The overlay dim is modal
   (`eventMode:"static"`). **Continue** follows the booster waterfall — a broke player
@@ -615,7 +667,7 @@ Only `howtoplay_test.py` leaves it open.
   canvas click on the lobby cog reaches the game. Aborting
   `assets/config/levels.json` leaves the splash up in its **error** state with the
   message shown, rather than fading onto a blank canvas.
-- **`assets_test.py`** — the preload fetches and decodes all 8 audio files exactly
+- **`assets_test.py`** — the preload fetches and decodes all 9 audio files exactly
   once, and starting play triggers no asset re-fetch.
 - **`tiles_render_test.py`** — the runtime-drawn **tile faces** carry their fruit.
   Regression guard for the iOS "white tiles, no fruit" bug: on iOS/WebKit

@@ -94,5 +94,9 @@
   "tutorial_line": "Junte 3 peças iguais para removê-las",
   "coach_undo": "Desfaz a última jogada",
   "coach_wand": "Combina um grupo de peças sozinho",
-  "coach_shuffle": "Reembaralha as peças restantes do nível"
+  "coach_shuffle": "Reembaralha as peças restantes do nível",
+  "superwand_streak": "Vença %value níveis seguidos!",
+  "superwand_ready": "Super Varinha pronta!",
+  "superwand_streak_risk": "Sequência em risco — continue para mantê-la",
+  "superwand_streak_lost": "Sequência perdida"
 }

@@ -9,17 +9,24 @@ import { makeCoinPill } from "./shop.js";
 import { buildColumnBackground, fitTextWidth } from "./layout.js";
 import { FeatureRail, RAIL_LEFT_X, RAIL_RIGHT_X } from "./featurerail.js";
 import { t, locText } from "./i18n.js";
+import { CONFIG } from "./config.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
 // The corner chrome occupies a column down EACH outer edge — the settings cog and
-// the left rail (fortune wheel / daily bonus) on one side, the coin pill and the
-// right rail (Tasks) on the other — each up to ~x155 wide (button + caption). Keep
+// the left rail (fortune wheel / daily bonus / super wand) on one side, the coin
+// pill and the right rail (Tasks) on the other — each up to ~x155 wide (button + caption). Keep
 // the centred title and subtitle inside the clear centre band so wide text can
 // never overlap either column, no matter how far the vertically-centred UI block
 // slides on a tall screen.
 const CHROME_COL = 175;
+
+// The Super Wand's two faces on its lobby progress button — the same pair the
+// shared helper-row button wears inside a level (WAND_FACE / SUPER_WAND_FACE in
+// game.js), so the banked reward is recognisable in both places.
+const WAND_GLYPH = "🪄";
+const SUPER_WAND_GLYPH = "✨";
 const CENTER_MAX_W = DESIGN_W - 2 * CHROME_COL; // 400
 
 export class LobbyScene extends PIXI.Container {
@@ -81,6 +88,7 @@ export class LobbyScene extends PIXI.Container {
       { name: "coinPill", obj: this.coinPill },
       { name: "wheelBtn", obj: this.wheelBtn },
       { name: "dailyBtn", obj: this.dailyBtn },
+      { name: "superWandBtn", obj: this.superWandBtn },
       { name: "tasksBtn", obj: this.tasksBtn },
     ];
   }
@@ -109,10 +117,14 @@ export class LobbyScene extends PIXI.Container {
     fitTextWidth(this.subtitle, CENTER_MAX_W);
     this.uiLayer.addChild(this.subtitle);
 
-    // A little fruity flourish
+    // A little fruity flourish. Fitted to the clear centre band like the title
+    // and subtitle above it: at full size the row is ~509 wide and reaches into
+    // the left chrome column, which collides with a rail button once the rail is
+    // three deep (Free Spin + Daily Bonus + the Super Wand read-out).
     const fruits = new PIXI.Text("🍉  🍓  🍊  🍇  🍋", { fontFamily: "Arial", fontSize: 60 });
     fruits.anchor.set(0.5);
     fruits.position.set(DESIGN_W / 2, 520);
+    fitTextWidth(fruits, CENTER_MAX_W);
     this.uiLayer.addChild(fruits);
     this.fruits = fruits;
 
@@ -175,13 +187,26 @@ export class LobbyScene extends PIXI.Container {
     this.topHud.addChild(this.dailyBtn);
     this._startDailyPulse();
 
-    // Neither button owns a position: they are entries on the left-edge FEATURE
-    // RAIL, which packs whichever ones are available into consecutive slots in
-    // THIS registration order — Free Spin first, Daily Bonus second — and
-    // animates them between slots as availability changes (see featurerail.js).
+    // Super Wand progress — how far along the win streak that charges the Wand's
+    // earned upgrade is. Unlike the two above it is a READ-OUT, not a doorway:
+    // there is no Super Wand screen, the reward is used on the helper row inside
+    // a level (see GameScene.superWand). So it carries no caption and no tap —
+    // the "streak / needed" pill under the wand says everything.
+    this.superWandBtn = this._makeSuperWandButton();
+    this.superWandBtn.visible = false;
+    this.topHud.addChild(this.superWandBtn);
+    this._startSuperWandPulse();
+
+    // None of these buttons owns a position: they are entries on the left-edge
+    // FEATURE RAIL, which packs whichever ones are available into consecutive
+    // slots in THIS registration order — Free Spin first, Daily Bonus second,
+    // Super Wand third — and animates them between slots as availability changes
+    // (see featurerail.js). The read-out goes last so a claimable daily gift is
+    // never pushed down the column by it.
     this.rail = new FeatureRail(this.app.ticker, { x: RAIL_LEFT_X });
     this.rail.add("freeSpin", this.wheelBtn, () => this._freeSpinAvailable());
     this.rail.add("dailyBonus", this.dailyBtn, () => this._dailyBonusAvailable());
+    this.rail.add("superWand", this.superWandBtn, () => this._superWandAvailable());
 
     // Tasks — the checklist of goals. It sits on a SECOND rail down the right
     // edge, under the coin pill, rather than sharing the left one: it is a
@@ -202,7 +227,7 @@ export class LobbyScene extends PIXI.Container {
     // a counter ticking over a target, or a reward being collected.
     this.user.on((domain) => {
       if (domain === "fortuneWheel" || domain === "dailyBonus" ||
-          domain === "progress" || domain === "tasks") {
+          domain === "progress" || domain === "tasks" || domain === "superWand") {
         this.refreshFeatures();
       }
       if (domain === "progress") { this._refreshShopGate(); this._refreshChestBar(); }
@@ -418,6 +443,13 @@ export class LobbyScene extends PIXI.Container {
     return !!d && this.user.progress.level >= d.unlockLevel && d.canClaim();
   }
 
+  // The streak read-out is offered from its unlock level on, and then always:
+  // it is progress, so it stays on the rail whether the meter is empty, filling
+  // or full. Nothing about it is "used up for today".
+  _superWandAvailable() {
+    return !!this.user && this.user.isSuperWandUnlocked();
+  }
+
   // Tasks is offered from its unlock level on, and then permanently — unlike the
   // two daily features there is no "used up for today" state to hide it again.
   // The gate is the profile's (completedLevel() >= N-1), the same derived rule the
@@ -435,6 +467,7 @@ export class LobbyScene extends PIXI.Container {
   refreshFeatures({ animate = true } = {}) {
     if (!this.rail) return;
     this._updateWheelBadges();
+    this._updateSuperWandButton();
     this._updateTasksBadge();
     this.rail.refresh({ animate });
     if (this.railRight) this.railRight.refresh({ animate });
@@ -547,6 +580,78 @@ export class LobbyScene extends PIXI.Container {
       }
     };
     this._dailyAnim = fn;
+    this.app.ticker.add(fn);
+  }
+
+  // The Super Wand's lobby face: the same round disc the other rail buttons use,
+  // a wand glyph, and a "streak / needed" pill where they put their caption (y74,
+  // so the slot ladder's spacing is unchanged). It has no pointer handlers — the
+  // rail still turns eventMode on for whichever entries are showing, but with
+  // nothing listening a tap on the read-out simply does nothing.
+  _makeSuperWandButton() {
+    const c = new PIXI.Container();
+    const disc = new PIXI.Graphics();
+    c.addChild(disc);
+    c.disc = disc;
+
+    const icon = new PIXI.Text(WAND_GLYPH, { fontFamily: "Arial", fontSize: 54 });
+    icon.anchor.set(0.5);
+    c.addChild(icon);
+    c.icon = icon;
+
+    // The progress pill. Numbers only, so it needs no language key and no
+    // fitting pass — it reads the same in all 13 (cf. the NEW badge above).
+    const pill = new PIXI.Graphics();
+    pill.beginFill(0x0a1226, 0.78).drawRoundedRect(-56, -19, 112, 38, 19).endFill();
+    pill.lineStyle(3, 0xffffff, 0.18).drawRoundedRect(-56, -19, 112, 38, 19);
+    pill.position.set(0, 76);
+    c.addChild(pill);
+
+    const label = new PIXI.Text("", {
+      fontFamily: "Arial", fontSize: 24, fontWeight: "900", fill: 0xffffff,
+      stroke: 0x122043, strokeThickness: 3,
+    });
+    label.anchor.set(0.5);
+    label.position.set(0, 76);
+    c.addChild(label);
+    c.label = label;
+
+    c._charged = null; // no face painted yet — the first refresh draws the disc
+    return c;
+  }
+
+  // Repaint the read-out from the profile. The pill always shows the streak out
+  // of what a charge costs; a BANKED charge pins it full and swaps the whole
+  // face to gold + the upgraded glyph, so the lobby says "your reward is waiting"
+  // in the same visual language the helper-row button uses inside a level.
+  _updateSuperWandButton() {
+    const btn = this.superWandBtn;
+    if (!btn || !this.user) return;
+    const needed = CONFIG.boosters.superWand.streakLength;
+    const charged = this.user.superWandCharged();
+    const streak = charged ? needed : Math.min(needed, this.user.superWandStreak());
+    btn.label.text = `${streak}/${needed}`;
+    if (btn._charged === charged) return; // the disc and glyph only change on a flip
+    btn._charged = charged;
+    btn.icon.text = charged ? SUPER_WAND_GLYPH : WAND_GLYPH;
+    btn.disc.clear();
+    btn.disc.beginFill(charged ? 0xb8791a : 0x1f4f9e).drawCircle(0, 0, 54).endFill();
+    btn.disc.lineStyle(5, 0xffe27a, 0.9).drawCircle(0, 0, 54);
+  }
+
+  // A charged Super Wand breathes; a filling one sits still. Same idiom as the
+  // gift's pulse — the animation IS the "ready" indicator, so there is no badge
+  // and no red dot to clear.
+  _startSuperWandPulse() {
+    if (this._superWandAnim) this.app.ticker.remove(this._superWandAnim);
+    let beat = 0;
+    const fn = () => {
+      const btn = this.superWandBtn;
+      if (!btn || !btn.visible || !btn._charged) { if (btn) btn.scale.set(1); return; }
+      beat += this.app.ticker.deltaMS;
+      btn.scale.set(1 + 0.06 * Math.sin(beat / 420));
+    };
+    this._superWandAnim = fn;
     this.app.ticker.add(fn);
   }
 

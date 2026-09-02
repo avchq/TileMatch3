@@ -35,6 +35,10 @@ export const MANIFEST = {
       { name: "btn_01", url: "assets/audio/btn_01.mp3", volume: 0.6 },
       // The Level Chest bursting open on the level-complete screen (src/game.js).
       { name: "openbox", url: "assets/audio/openbox.mp3", volume: 0.8 },
+      // The Super Wand: its arrival on the helper button, and the board-clearing
+      // sweep itself. Louder than `merge_click` on purpose — the sweep has to
+      // read as a bigger event than the ordinary match it upgrades.
+      { name: "super_hint", url: "assets/audio/super_hint.mp3", volume: 0.9 },
       // The Fortune Wheel's spin clicks. Looped (over its head only) and pitched
       // to the wheel's live speed by FortuneWheelScene — see playLoop().
       { name: "wheel_spin", url: "assets/audio/wheel-spin-click-slow-down-fast-101154.mp3", volume: 0.7 },

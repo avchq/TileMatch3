@@ -94,5 +94,9 @@
   "tutorial_line": "같은 타일 3개를 모으면 사라져요",
   "coach_undo": "마지막 이동을 되돌려요",
   "coach_wand": "타일 한 조를 자동으로 맞춰요",
-  "coach_shuffle": "이 레벨의 남은 타일을 다시 섞어요"
+  "coach_shuffle": "이 레벨의 남은 타일을 다시 섞어요",
+  "superwand_streak": "%value레벨 연속 클리어!",
+  "superwand_ready": "슈퍼 마법봉 준비 완료!",
+  "superwand_streak_risk": "연승 위험 — 계속해서 지키세요",
+  "superwand_streak_lost": "연승 끊김"
 }

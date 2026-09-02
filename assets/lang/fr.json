@@ -94,5 +94,9 @@
   "tutorial_line": "Réunissez 3 tuiles identiques pour les retirer",
   "coach_undo": "Annulez le dernier coup",
   "coach_wand": "Associez automatiquement un groupe de tuiles",
-  "coach_shuffle": "Réinitialisez les tuiles restantes du niveau"
+  "coach_shuffle": "Réinitialisez les tuiles restantes du niveau",
+  "superwand_streak": "Terminez %value niveaux d'affilée !",
+  "superwand_ready": "Baguette Suprême prête !",
+  "superwand_streak_risk": "Série en péril — continuez pour la conserver",
+  "superwand_streak_lost": "Série perdue"
 }

@@ -94,5 +94,9 @@
   "tutorial_line": "Sammle 3 gleiche Kacheln, um sie zu entfernen",
   "coach_undo": "Den letzten Zug zurücknehmen",
   "coach_wand": "Eine Kachelgruppe automatisch lösen",
-  "coach_shuffle": "Restliche Kacheln neu mischen"
+  "coach_shuffle": "Restliche Kacheln neu mischen",
+  "superwand_streak": "Gewinne %value Level in Folge!",
+  "superwand_ready": "Super-Zauberstab bereit!",
+  "superwand_streak_risk": "Serie in Gefahr — weiterspielen, um sie zu retten",
+  "superwand_streak_lost": "Serie verloren"
 }

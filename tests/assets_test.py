@@ -39,13 +39,13 @@ with sync_playwright() as p:
 
     sounds = page.evaluate("window.__game.soundNames()")
     print("decoded sounds:", sounds)
-    assert len(sounds) == 8, f"expected 8 decoded sounds, got {sounds}"
+    assert len(sounds) == 9, f"expected 9 decoded sounds, got {sounds}"
 
     # every audio file fetched exactly once during preload
     audio_loads = {u: c for u, c in reqs.items() if u.startswith("assets/audio/")}
     print("audio fetches during preload:", audio_loads)
     assert all(c == 1 for c in audio_loads.values()), "audio should be fetched once"
-    assert len(audio_loads) == 8, "all 8 audio files preloaded"
+    assert len(audio_loads) == 9, "all 9 audio files preloaded"
 
     # NOW the key test: play each sound 20 times; expect ZERO new network reqs
     reqs.clear()

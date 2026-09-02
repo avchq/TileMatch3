@@ -3,7 +3,7 @@ import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill, makeCoinIcon } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
-import { buildColumnBackground, makeHintPill } from "./layout.js";
+import { buildColumnBackground, makeHintPill, fitTextWidth } from "./layout.js";
 import { HowToPlayPopup } from "./tutorial.js";
 import { BoosterCoach } from "./boostercoach.js";
 import { rewardIsCoins } from "./levelchest.js";
@@ -25,6 +25,9 @@ const EXTRA_SLOT = CONFIG.board.extraSlot;               // the ad-funded 8th sl
 const TRAY_WARNINGS = CONFIG.board.warnings;             // free-slot thresholds for the pulse + bubble
 const BOOSTER_UNLOCKS = CONFIG.boosters.unlocks;         // helper -> { level, grant }
 const COACH = CONFIG.boosters.coach;                     // the guided first use of each helper
+const SUPER_WAND = CONFIG.boosters.superWand;            // the Wand's win-streak upgrade
+const SUPER_MIN_TILES = SUPER_WAND.minTiles;             // a sweep gathers at least this many
+const SUPER_EXTRA_ROUNDS = SUPER_WAND.extraRounds;       // fresh board triples used to top a batch up
 
 // ---- Layout (presentation, deliberately NOT in config.js) ------------------
 const CELL = 88;          // tile footprint in board units (px at scale 1)
@@ -50,6 +53,17 @@ const TRAY_Y = 1140;
 // emoji (see makeCoinIcon), matching how the wheel and daily gift show them.
 // The WORDS that go with them are localized — see itemName() in src/i18n.js.
 const CHEST_REWARD_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀", lightning: "⚡" };
+
+// The Wand button's two faces. The upgraded one is deliberately a different
+// GLYPH and a different disc colour, not just a tint: the swap has to be
+// unmistakable across a 108px button at a glance (see _paintWandButton).
+const WAND_FACE = { icon: "🪄", color: 0x9b59f6 };
+const SUPER_WAND_FACE = { icon: "✨", color: 0xffb02e };
+// Super Wand timings (presentation, so they live here rather than in config.js).
+const SUPER_FLY_MS = 420;        // pulled tiles fly into the tray
+const SUPER_BURST_MS = 460;      // the combined elimination's own beat
+const SUPER_ANNOUNCE_MS = 450;   // the brief beat before the upgrade celebration
+const SUPER_BAR_H = 100;         // room the streak bar adds to the win overlay
 
 export class GameScene extends PIXI.Container {
   constructor(app, tileTextures, slotTexture, backgrounds, audio, user, prices, levelChest) {
@@ -152,7 +166,9 @@ export class GameScene extends PIXI.Container {
     // reward grant), not just when we spend one during a level — and when the coin
     // wallet changes, since that flips whether an empty helper is affordable to buy.
     if (this.user) this.user.on((domain) => {
-      if (domain === "boosters" || domain === "wallet") this._updateBoosters();
+      // "superWand" is here for the same reason: a charge landing (or a loss
+      // taking one away) has to repaint the shared Wand button live.
+      if (domain === "boosters" || domain === "wallet" || domain === "superWand") this._updateBoosters();
       // Clearing a level can unlock the shop — light the pill's cart up live
       // rather than waiting for the next loadLevel.
       if (domain === "progress") this._applyFirstRunChrome();
@@ -164,8 +180,10 @@ export class GameScene extends PIXI.Container {
   // remaining-uses count in a bubble, and is disabled (greyed-out, ignores taps)
   // when the player has none left — or, for Undo, when there's nothing to undo.
   _updateBoosters() {
-    // The Auto Complete sweep owns the HUD row while it runs — leave it alone.
-    if (this._autoRunning) return;
+    // The Auto Complete sweep and the Super Wand's own sweep each own the HUD row
+    // while they run — leave it alone, so nothing repaints the button underneath a
+    // celebration that is still playing.
+    if (this._autoRunning || this._superWandRunning) return;
     // When the endgame is trivially solvable, Auto Complete REPLACES the three
     // helpers in the row: hide them (buttons + badges) and show the wide button.
     const avail = this._autoAvailable();
@@ -184,9 +202,44 @@ export class GameScene extends PIXI.Container {
     // watch an ad) supplies a use on tap (see _setBoosterButton / _acquireBooster).
     this._setBoosterButton(this.undoBtn, this.undoBadge, "undo", undoLeft, this.history.length > 0);
     this._setBoosterButton(this.shuffleBtn, this.shuffleBadge, "shuffle", shuffleLeft, this.boardCount > 0);
-    // Wand completes one triple from the board, so it needs at least one tile still
-    // on the board to have anything to bring in.
-    this._setBoosterButton(this.wandBtn, this.wandBadge, "wand", wandLeft, this.boardCount > 0);
+    // The Wand's button is SHARED. Charged, it wears the Super Wand's face and a
+    // tap fires the upgraded sweep; otherwise it is the ordinary helper, which
+    // completes one triple from the board and so needs at least one tile still on
+    // the board to have anything to bring in. One decision, made in one place, so
+    // the two modes can never be half-applied. A charge banked mid-level lands
+    // here live, via the user's "superWand" change event.
+    if (this._superWandActive() && !this.user.superWandNeedsAnnounce()) {
+      this._setSuperWandButton();
+    } else {
+      this._paintWandButton(false);
+      this._setBoosterButton(this.wandBtn, this.wandBadge, "wand", wandLeft, this.boardCount > 0);
+    }
+  }
+
+  // The Wand button in its upgraded mode. Same shape as _setBoosterButton — it
+  // just answers to a banked charge rather than to the acquisition ladder, which
+  // is why it is a branch beside it rather than a fifth tier inside it: there is
+  // nothing to buy and no stock to count.
+  _setSuperWandButton() {
+    const ok = this.boardCount > 0;   // nothing to sweep on an empty board
+    this.wandBtn._boosterMode = "super";
+    this.wandBtn.eventMode = ok ? "static" : "none";
+    this.wandBtn.cursor = ok ? "pointer" : "default";
+    this.wandBtn.alpha = ok ? 1 : 0.4;
+    this._paintWandButton(true);
+    this.wandBadge.visible = true;
+    this.wandBadge.setBadge("super", 0, null);
+  }
+
+  // Swap the Wand button between its two faces. The glyph and the disc colour are
+  // the whole visual difference, so one call reverses it.
+  _paintWandButton(sup) {
+    const face = sup ? SUPER_WAND_FACE : WAND_FACE;
+    if (this.wandBtn.label.text !== face.icon) this.wandBtn.label.text = face.icon;
+    const g = this.wandBtn.disc, r = this.wandBtn.radius;
+    g.clear();
+    g.beginFill(face.color).drawCircle(0, 0, r).endFill();
+    g.lineStyle(4, 0xffffff, sup ? 0.7 : 0.35).drawCircle(0, 0, r);
   }
 
   // Coin price to buy one use of a helper when its stock is empty (null if the
@@ -415,6 +468,12 @@ export class GameScene extends PIXI.Container {
   // makes taking the 8th slot shift each of them up by exactly one tile.
   _updateTrayWarning() {
     if (!this.trayGlow || this.trayGlow.destroyed) return;
+    // A Super Wand sweep briefly parks six-plus tiles in the tray on their way to
+    // being eliminated. That is not the danger this warning is about — the tiles
+    // are already spoken for — so the whole state machine sits the sweep out
+    // (leaving `_trayWarnFree` untouched, so the crossing test still compares the
+    // settled tray against the settled tray) and superWand() re-runs it at the end.
+    if (this._superWandRunning) return;
     const free = Math.max(0, this.traySlots - this.tray.length);
     if (free > 0 && free <= TRAY_WARNINGS.pulseAtFree) this._startTrayPulse();
     else this._stopTrayPulse();
@@ -673,7 +732,10 @@ export class GameScene extends PIXI.Container {
     // (see _updateBoosters).
     const by = 1266;
     this.shuffleBtn = this._makeRoundButton("🔀", 54, 175, by, 0xff8a3d, () => this.reshuffle());
-    this.wandBtn = this._makeRoundButton("🪄", 54, 375, by, 0x9b59f6, () => this.wand());
+    // The Wand's button is shared with its upgraded form: _tapWand dispatches to
+    // whichever mode is live, so the row never grows a fourth button.
+    this.wandBtn = this._makeRoundButton(WAND_FACE.icon, 54, 375, by, WAND_FACE.color,
+      () => this._tapWand());
     this.undoBtn = this._makeRoundButton("⤺", 54, 575, by, 0x4d8dff, () => this.undo());
     this.shuffleBadge = this._makeCountBadge(175 + 38, by - 38);
     this.wandBadge = this._makeCountBadge(375 + 38, by - 38);
@@ -745,6 +807,10 @@ export class GameScene extends PIXI.Container {
     t.anchor.set(0.5);
     c.addChild(g, t);
     c.label = t;
+    // The disc + its radius, so a button's face can be REPAINTED later (the Wand's
+    // is, when the Super Wand takes it over — see _paintWandButton).
+    c.disc = g;
+    c.radius = r;
     c.eventMode = "static";
     c.cursor = "pointer";
     c.hitArea = new PIXI.Circle(0, 0, r);
@@ -781,19 +847,30 @@ export class GameScene extends PIXI.Container {
     ad.anchor.set(0.5);
     const lock = new PIXI.Text("🔒", { fontFamily: "Arial", fontSize: 22 });
     lock.anchor.set(0.5);
+    const star = new PIXI.Text("★", { fontFamily: "Arial", fontSize: 24, fill: 0x5a3a00 });
+    star.anchor.set(0.5);
     const t = new PIXI.Text("0", {
       fontFamily: "Arial", fontSize: 26, fontWeight: "900", fill: 0xffffff,
       stroke: 0x14361f, strokeThickness: 4,
     });
     t.anchor.set(0.5);
-    c.addChild(g, coin, ad, lock, t);
+    c.addChild(g, coin, ad, lock, star, t);
     c.text = t;
     c.setBadge = (mode, count, price) => {
       g.clear();
       coin.visible = false;
       ad.visible = false;
       lock.visible = false;
-      if (mode === "locked") {
+      star.visible = false;
+      if (mode === "super") {
+        // A banked Super Wand: a gold star bubble. No count and no price — it is
+        // earned rather than stocked or bought, so there is no tier to show.
+        t.text = "";
+        star.visible = true;
+        const r = 20;
+        g.beginFill(0xffcf4d).drawCircle(0, 0, r).endFill();
+        g.lineStyle(3, 0xffffff, 0.95).drawCircle(0, 0, r);
+      } else if (mode === "locked") {
         // Not unlocked yet: a padlock in a muted bubble. No count — the player
         // owns none and can't buy their way past a progression gate.
         t.text = "";
@@ -915,6 +992,7 @@ export class GameScene extends PIXI.Container {
     this.history = [];
     this.locked = false;
     this._autoRunning = false; // clear in case a prior level ended via Auto Complete
+    this._superWandRunning = false; // …and in case a level was swapped out mid-sweep
     this._loseBtns = null;     // drop any stale Out-of-Moves overlay refs
     // The 8th slot is scoped to a single level: capacity returns to the base on
     // EVERY board build — next level, Replay, retry after a loss — and the "+1"
@@ -958,6 +1036,14 @@ export class GameScene extends PIXI.Container {
     // coached first use here. Level 1 never reaches this branch, and nothing is
     // owed there anyway — every helper is still locked.
     else this._maybeCoachBooster();
+
+    // …and a Super Wand charged on the LAST level's complete screen is announced
+    // here, on the first board where it can actually be spent. It rides after the
+    // coaching deliberately: a helper still owed its lesson gets taught the
+    // ordinary Wand first (_superWandActive is false while a coaching is up).
+    if (this.user && this.user.superWandNeedsAnnounce() && this._superWandActive()) {
+      this._playSuperWandUpgrade();
+    }
   }
 
   // ---- the "How To Play" popup ---------------------------------------------
@@ -1474,10 +1560,21 @@ export class GameScene extends PIXI.Container {
   // hasn't enough free tiles to finish — see _wandPick for the waterfall. It
   // flies the missing tiles from the board into the tray and lets them resolve
   // and clear — freeing tray space. A consumable like the other helpers: one
-  // charge per use, disabled at zero. (The upgraded "super" wand that clears
-  // several sets shares this button but is out of scope here.)
+  // charge per use, disabled at zero. While a Super Wand is banked this button
+  // belongs to the upgraded sweep instead — see _tapWand / superWand().
   wand() {
-    if (this.locked) return;                       // won/lost, or a wand animation in flight
+    if (this.locked || this._superWandRunning) return; // won/lost, or an animation in flight
+    // The charged mode owns this button outright. Guarding here rather than only
+    // in the tap handler is what makes the two modes mutually exclusive for a
+    // SCRIPTED call too (window.__game.wand()), so they can never interleave.
+    //
+    // It has to be read BEFORE the coaching gate, not after: _blockedByCoach
+    // CLOSES the lesson it lets through, which clears `_coach` — and `_coach` is
+    // one of the terms of _superWandActive(). Read afterwards, the predicate flips
+    // from false to true inside this very call, and the coached first use of the
+    // ordinary Wand is swallowed: the lesson is spent, the button turns gold, and
+    // the press the player was being taught to make does nothing.
+    if (this._superWandActive()) return;
     if (this._blockedByCoach("wand")) return;      // another helper is being taught
     if (this._rejectIfLocked("wand", this.wandBtn)) return; // not unlocked yet
     if (!this.user) return;
@@ -1491,30 +1588,7 @@ export class GameScene extends PIXI.Container {
     // Lock out further input (incl. a second wand tap) until the tiles land and
     // the triple resolves, so a rapid double-tap can't spend two charges.
     this.locked = true;
-    for (const t of pick.tiles) {
-      t.inTray = true;
-      this.boardCount--;
-      // free up tiles beneath, exactly as a manual collect would
-      for (const belowId of t.covered) {
-        const b = this.tiles[belowId];
-        if (!b.inTray && !b.matched) b.aliveCovers = Math.max(0, b.aliveCovers - 1);
-      }
-      // reparent to the tray keeping world position, then group with its kind
-      const gp = t.container.getGlobalPosition();
-      this.boardLayer.removeChild(t.container);
-      this.trayGroup.addChild(t.container);
-      const local = this.trayGroup.toLocal(gp);
-      t.container.position.set(local.x, local.y);
-      t.sprite.tint = 0xffffff;
-      t.container.eventMode = "none";
-      let lastMatch = -1;
-      for (let i = this.tray.length - 1; i >= 0; i--) {
-        if (this.tray[i].type === t.type) { lastMatch = i; break; }
-      }
-      if (lastMatch >= 0) this.tray.splice(lastMatch + 1, 0, t);
-      else this.tray.push(t);
-      this.history.push(t);
-    }
+    for (const t of pick.tiles) this._pullTileToTray(t);
     this._refreshFreeStates();
     this.audio.play("tile_bop");
     this._layoutTray();
@@ -1525,6 +1599,36 @@ export class GameScene extends PIXI.Container {
       this._settle();
       this._updateBoosters();
     }, 360);
+  }
+
+  // Move ONE board tile into the tray the way a hand-collect does: board state,
+  // coverage, reparent-keeping-world-position, grouped insertion, history. It
+  // deliberately does NOT refresh free states, lay the tray out or settle — the
+  // caller batches all three, which is what lets the Super Wand bring several
+  // tiles in as a single beat. Shared by wand() (one triple) and superWand().
+  _pullTileToTray(t) {
+    t.inTray = true;
+    this.boardCount--;
+    // free up tiles beneath, exactly as a manual collect would
+    for (const belowId of t.covered) {
+      const b = this.tiles[belowId];
+      if (!b.inTray && !b.matched) b.aliveCovers = Math.max(0, b.aliveCovers - 1);
+    }
+    // reparent to the tray keeping world position, then group with its kind
+    const gp = t.container.getGlobalPosition();
+    this.boardLayer.removeChild(t.container);
+    this.trayGroup.addChild(t.container);
+    const local = this.trayGroup.toLocal(gp);
+    t.container.position.set(local.x, local.y);
+    t.sprite.tint = 0xffffff;
+    t.container.eventMode = "none";
+    let lastMatch = -1;
+    for (let i = this.tray.length - 1; i >= 0; i--) {
+      if (this.tray[i].type === t.type) { lastMatch = i; break; }
+    }
+    if (lastMatch >= 0) this.tray.splice(lastMatch + 1, 0, t);
+    else this.tray.push(t);
+    this.history.push(t);
   }
 
   // Choose the colour the Wand completes and the board tiles it pulls in.
@@ -1609,6 +1713,304 @@ export class GameScene extends PIXI.Container {
     }
 
     return { type: chosen.ty, tiles: boardByType.get(chosen.ty).slice(0, chosen.need) };
+  }
+
+  // ---- the Super Wand (the Wand's win-streak upgrade) ----------------------
+
+  // Choose the SETS the Super Wand clears and the board tiles it pulls in.
+  //
+  // It works from the TRAY OUTWARD, cheapest completions first — the same
+  // instinct behind the ordinary Wand's "finish the waiting pair", and it matters
+  // for the same reason: it does the most for tray space exactly when the player
+  // is most cornered. The tray's colours are ordered by how close each is to a
+  // triple (a waiting PAIR before a lone single), each is finished off with just
+  // enough board tiles, and sets are banked until the batch holds SUPER_MIN_TILES.
+  // If the tray runs dry first, the batch is topped up with WHOLE fresh triples
+  // off the board — a colour not already in the batch, at most SUPER_EXTRA_ROUNDS
+  // of them.
+  //
+  // NOTHING PARTIAL IS EVER BANKED. A colour the board cannot finish is skipped
+  // outright rather than half-taken, so every entry in `sets` is a finished triple
+  // and the batch is always a whole multiple of three — sweeping a partial set
+  // away would delete the player's progress instead of cashing it in.
+  //
+  // Board tiles are drawn most-accessible-first (free — aliveCovers 0 — ahead of
+  // covered, then by id), the identical deterministic order _wandPick uses, so the
+  // sweep reads as an extraordinarily good run of play rather than tiles conjured
+  // out of the pile.
+  //
+  // Returns { sets: [{ type, need, have, tiles }], tiles: [...] } — `tiles` is
+  // every board tile to pull, in set order — or null when nothing at all can be
+  // completed (the caller then no-ops and leaves the board untouched).
+  _superWandPick() {
+    const boardTiles = this.tiles.filter((t) => !t.matched && !t.inTray);
+    if (boardTiles.length === 0) return null;
+
+    // Board tiles grouped by face, each list MOST-ACCESSIBLE first.
+    const byType = new Map();
+    for (const t of boardTiles) {
+      if (!byType.has(t.type)) byType.set(t.type, []);
+      byType.get(t.type).push(t);
+    }
+    for (const list of byType.values()) {
+      list.sort((a, b) => a.aliveCovers - b.aliveCovers || a.id - b.id);
+    }
+    const freeCount = (ty) => byType.get(ty).filter((t) => t.aliveCovers === 0).length;
+
+    // Tray composition, remembering first-appearance order (the stable tiebreak).
+    const trayCount = new Map();
+    const trayRank = new Map();
+    for (const t of this.tray) {
+      if (!trayCount.has(t.type)) { trayRank.set(t.type, trayRank.size); trayCount.set(t.type, 0); }
+      trayCount.set(t.type, trayCount.get(t.type) + 1);
+    }
+
+    const sets = [];
+    const tiles = [];
+    const taken = new Map(); // face -> how many of its list this batch already claimed
+    // Bank one complete set of `ty`, pulling `need` tiles off the board. Refuses
+    // (changing nothing) when the board cannot supply them — that colour is then
+    // simply skipped, never half-taken.
+    const bank = (ty, need) => {
+      const list = byType.get(ty);
+      const from = taken.get(ty) || 0;
+      if (!list || list.length - from < need) return false;
+      const got = list.slice(from, from + need);
+      taken.set(ty, from + need);
+      sets.push({ type: ty, need, have: 3 - need, tiles: got });
+      for (const t of got) tiles.push(t);
+      return true;
+    };
+    const short = () => sets.length * 3 < SUPER_MIN_TILES;
+
+    // 1-4) The tray's own colours, closest-to-complete first.
+    const waiting = [...trayCount.keys()].sort((a, b) =>
+      trayCount.get(b) - trayCount.get(a) ||        // a waiting pair (2) before a single (1)
+      trayRank.get(a) - trayRank.get(b));           // then tray order
+    for (const ty of waiting) {
+      if (!short()) break;
+      bank(ty, 3 - trayCount.get(ty));
+    }
+
+    // 5) Still short — top up with whole fresh triples. Most free tiles first, so
+    //    a top-up stays on the accessible part of the board rather than digging
+    //    tiles out from under others; then by face id, so it is deterministic.
+    if (short()) {
+      const used = new Set(sets.map((s) => s.type));
+      const fresh = [...byType.keys()]
+        .filter((ty) => !used.has(ty) && byType.get(ty).length >= 3)
+        .sort((a, b) => freeCount(b) - freeCount(a) || a - b);
+      for (let r = 0; r < SUPER_EXTRA_ROUNDS && short(); r++) {
+        if (fresh[r] === undefined) break;          // board can't supply another set
+        bank(fresh[r], 3);
+      }
+    }
+
+    return sets.length ? { sets, tiles } : null;
+  }
+
+  // Is the Wand's button in its UPGRADED mode right now? The single predicate
+  // both entry points read, which is what makes the two modes mutually exclusive.
+  // A banked charge cannot jump the Wand's OWN progression gate — a QA jump can
+  // otherwise produce charged-but-still-locked — and no user means no charge.
+  // While a coaching is up the ORDINARY Wand owns the button: that lesson is what
+  // is being taught, and the upgrade arrives once it is over.
+  _superWandActive() {
+    return !!this.user && this.user.superWandCharged()
+      && !this._isBoosterLocked("wand") && !this._coach;
+  }
+
+  // The Wand button's one tap handler: charged, it fires the upgraded sweep;
+  // otherwise the ordinary helper. Both re-check _superWandActive() themselves, so
+  // a scripted call is held to exactly the same rule as a real press.
+  _tapWand() {
+    if (this._superWandActive()) this.superWand();
+    else this.wand();
+  }
+
+  // THE SWEEP. Completes and clears at least two whole sets in ONE combined
+  // elimination — the game's payoff moment, and the thing the ordinary Wand is a
+  // small favour next to. It consumes NOTHING: the button stays upgraded and the
+  // next press sweeps again, for as long as the win streak lives. The streak — and
+  // with it the upgrade — ends only when the player accepts a loss.
+  //
+  // Input is dead for the whole sweep (`locked`), so a rapid double-tap cannot
+  // start a second sweep over a long, dramatic animation still in flight; and the
+  // no-op paths below all return before the board is touched, so a sweep that
+  // could find nothing leaves the level exactly as it was.
+  async superWand() {
+    if (this.locked || this._autoRunning || this._superWandRunning) return; // busy, won or lost
+    // One guard, and deliberately a side-effect-free one: _superWandActive already
+    // covers "uncharged" (wand() owns the button), "the Wand's own gate is still
+    // shut" and "a lesson is up". A locked button's refusal feedback — the sound,
+    // the shake, the "Unlocks at Level N" pill — belongs to the ordinary Wand,
+    // which _tapWand routes a real press to in exactly those cases; running
+    // _blockedByCoach/_rejectIfLocked here as well would let a SCRIPTED call
+    // consume a coaching lesson as a side effect of being refused.
+    if (!this._superWandActive()) return;
+    if (this.overlayLayer.children.length) return;           // a win/lose overlay is up
+    // Pure read, before anything is spent: a board that cannot supply even one
+    // complete set must leave the level playable AND keep the charge.
+    const pick = this._superWandPick();
+    if (!pick) { this.audio.play("fail"); this._shake(this.wandBtn); return; }
+
+    // Own the board and the helper row for the whole sweep. `_superWandRunning`
+    // additionally parks _updateBoosters so the row can't repaint mid-flight.
+    this.locked = true;
+    this._superWandRunning = true;
+    const run = this._guideRun; // the board this sweep belongs to (see loadLevel)
+
+    // Nothing is consumed here. A Super Wand is not a stocked token: it is the
+    // STATE of being on a win streak, so the button stays upgraded and every press
+    // sweeps for as long as the streak lives. Only accepting a loss takes it away
+    // (User.breakSuperWandStreak). It also never goes through
+    // _acquireBooster/useBooster, so it costs no wand charge and bumps no counter.
+    this._reportSuperWand("use", { level: this.levelNum, sets: pick.sets.length });
+
+    for (const t of pick.tiles) this._pullTileToTray(t);
+    this._refreshFreeStates();
+    this.audio.play("super_hint");
+    this._layoutTray();   // clamps the momentarily over-capacity row (see _layoutTray)
+
+    // The tray is OVER capacity across this await, which is safe only because
+    // `locked` is true: the tray-full loss lives in _checkEnd, reached from
+    // _settle, and both early-return on it. Nothing calls either until the batch
+    // below has cleared — after which the tray is always SMALLER than it started
+    // (every pulled tile leaves again with the set it completed), so the loss
+    // check can never fire on a Super Wand's account.
+    await delay(this.app.ticker, SUPER_FLY_MS);
+    if (this.destroyed || run !== this._guideRun) return;  // level reloaded mid-sweep
+
+    this._superWandClear(pick.sets.map((s) => s.type));
+    this._layoutTray();                       // re-seat the survivors into real slots
+
+    await delay(this.app.ticker, SUPER_BURST_MS);
+    if (this.destroyed || run !== this._guideRun) return;
+    this._superWandRunning = false;
+    this.locked = false;                      // control returns once it settles
+    this._updateTrayWarning();                // …now judge the SETTLED tray
+    this._updateBoosters();                   // the button is the ordinary Wand again
+    this._settle();                           // stable already; ends in _checkEnd()
+  }
+
+  // Clear whole SETS in one go. Unlike _settle — which loops, clearing one triple
+  // at a time — this pops every tile of every listed colour together, so the batch
+  // reads as ONE event with one burst and one sound rather than a rapid sequence
+  // of individual matches. After the pull the tray holds exactly three of each
+  // listed face.
+  _superWandClear(types) {
+    const popped = [];
+    for (const ty of types) {
+      for (const t of this.tray.filter((x) => x.type === ty).slice(0, 3)) {
+        t.matched = true;
+        this.tray.splice(this.tray.indexOf(t), 1);
+        const h = this.history.indexOf(t);
+        if (h >= 0) this.history.splice(h, 1);
+        popped.push(t);
+      }
+    }
+    DEBUG: {
+      // Every batch is whole triples by construction (see _superWandPick). If this
+      // ever fires, the picker and the tray bookkeeping have diverged and a
+      // player's progress is being deleted — a real bug, so it is a console ERROR,
+      // which the e2e suite's zero-errors assertion turns into a failing test (a
+      // warn would be swallowed). `--drop-labels=DEBUG` keeps it out of production.
+      if (!popped.length || popped.length % 3 !== 0) {
+        console.error("[superwand] batch of", popped.length, "is not a multiple of 3", types);
+      }
+    }
+    this._superWandBurst();
+    for (const t of popped) this._popMatch(t.container, 0.7, 420); // a bigger pop than a match
+    this.audio.play("merge_click");
+  }
+
+  // The sweep's single big flourish: a light wash over the view, two expanding
+  // gold rings and a radial spray of shards, centred just above the tray where the
+  // batch resolves. Deliberately larger and slower than a normal match's _popMatch
+  // so a multi-set clear reads as its own event. One Graphics, one ticker loop,
+  // both torn down when it finishes.
+  _superWandBurst() {
+    this._spawnBurst(
+      this.fxLayer.toLocal(this.trayGroup.toGlobal(new PIXI.Point(DESIGN_W / 2, TRAY_Y - this.slot))),
+      { rings: 300, shards: 14, dur: 600, wash: 0.3 });
+  }
+
+  // The same flourish at a quarter size, on a button — used to announce a charge
+  // arriving on the helper row (see _playSuperWandUpgrade).
+  _superWandSpark(btn) {
+    this._spawnBurst(this.fxLayer.toLocal(btn.getGlobalPosition()),
+      { rings: 110, shards: 8, dur: 460, wash: 0 });
+  }
+
+  // Shared burst drawing: expanding rings + radial shards (+ an optional full-view
+  // light wash), all on fxLayer, all in one Graphics redrawn per frame. Bails if
+  // the graphic or the scene goes away mid-flight, like the other micro-animators.
+  _spawnBurst(p, { rings, shards, dur, wash }) {
+    const ticker = this.app.ticker;
+    const g = new PIXI.Graphics();
+    g.eventMode = "none"; // decorative — never swallows a tap
+    this.fxLayer.addChild(g);
+    let el = 0;
+    const fn = () => {
+      if (g.destroyed || this.destroyed) { ticker.remove(fn); return; }
+      el += ticker.deltaMS;
+      const e = Math.min(1, el / dur);
+      const k = easeOutCubic(e);
+      g.clear();
+      if (wash > 0) {
+        const a = Math.max(0, Math.sin(Math.min(1, e * 3) * Math.PI)) * wash;
+        if (a > 0.002) g.beginFill(0xffffff, a).drawRect(0, 0, this.viewW, this.viewH).endFill();
+      }
+      for (const lag of [0, 0.18]) {              // the second ring trails a beat behind
+        const u = (k - lag) / (1 - lag);
+        if (u <= 0 || u >= 1) continue;
+        g.lineStyle(18 * (1 - u) + 2, 0xffe27a, 1 - u);
+        g.drawCircle(p.x, p.y, 40 + rings * u);
+      }
+      g.lineStyle(7 * (1 - k) + 1, 0xfff4c2, 1 - k);
+      for (let i = 0; i < shards; i++) {
+        const a = (i / shards) * Math.PI * 2 + 0.2;
+        const r0 = 34 + rings * 0.9 * k, r1 = r0 + 54 * (1 - k);
+        g.moveTo(p.x + Math.cos(a) * r0, p.y + Math.sin(a) * r0);
+        g.lineTo(p.x + Math.cos(a) * r1, p.y + Math.sin(a) * r1);
+      }
+      if (e >= 1) { ticker.remove(fn); g.destroy(); }
+    };
+    ticker.add(fn);
+  }
+
+  // A banked charge is announced on the board where it can actually be USED —
+  // charging happens on the PREVIOUS level's complete screen, so this is the first
+  // moment the player sees their reward. A brief beat, an effect on the button and
+  // a scale-punch as the icon swaps: "your reward is ready", not a silent art swap.
+  // Once per charge (the record is on the profile), so a Replay or a reload while
+  // it sits banked does not replay it.
+  async _playSuperWandUpgrade() {
+    const run = this._guideRun;
+    await delay(this.app.ticker, SUPER_ANNOUNCE_MS);
+    // Guarded like the guided opening: the player can leave or reload inside the
+    // beat, and a celebration must never play on a board that is no longer up.
+    if (this.destroyed || run !== this._guideRun || !this.visible) return;
+    if (!this._superWandActive()) return;   // lost inside the beat
+    this.audio.play("super_hint");
+    this._superWandSpark(this.wandBtn);
+    await delay(this.app.ticker, 120);
+    if (this.destroyed || run !== this._guideRun) return;
+    // Marking it announced emits, which repaints the row through the scene's own
+    // user subscription — so the face swaps here, out of the flash, and the punch
+    // lands on the new icon.
+    this.user.markSuperWandAnnounced();
+    this.wandBtn.scale.set(1.35);
+    this._animateScale(this.wandBtn, 1, 300);
+  }
+
+  /** Report a Super Wand milestone to analytics — it is a retention feature and
+   *  its tuning depends on this data. Stub — TODO(SDK): report
+   *  'CK_SuperWand_Earn' (a win counted), 'CK_SuperWand_Charge' (one completed)
+   *  and 'CK_SuperWand_Use' (one sweep fired) with the streak position and the
+   *  level. Note a use consumes nothing — only an accepted loss ends a streak. */
+  _reportSuperWand(event, data) {
+    try { console.debug(`[superwand] ${event}`, data); } catch (_) {}
   }
 
   // Auto Complete: sweep every remaining tile into a pile, then fly them one by
@@ -1830,6 +2232,15 @@ export class GameScene extends PIXI.Container {
     // on the Continue press), so completedLevel() still holds the OLD highest here:
     // this level is new exactly when it is beyond it. A replay shows no chest.
     const chestLevel = (this.user && this.levelNum > this.user.completedLevel()) ? this.levelNum : 0;
+    // The Super Wand's win streak advances on exactly the same signal as the
+    // chest: a GENUINELY NEW clear, never a replay — so the reward can't be farmed
+    // by re-clearing one easy level. Below its unlock level (or with a charge
+    // already banked) recordSuperWandWin returns null and no bar is shown.
+    const streakInfo = chestLevel ? this.user.recordSuperWandWin() : null;
+    if (streakInfo) {
+      this._reportSuperWand(streakInfo.justCharged ? "charge" : "earn",
+        { level: this.levelNum, streak: streakInfo.to, needed: streakInfo.needed });
+    }
     const last = this.levelNum >= 3;
     this._showOverlay(
       last ? `🏆 ${t("you_win")}` : t("Language2"),
@@ -1838,7 +2249,8 @@ export class GameScene extends PIXI.Container {
       // hand control back to the lobby, which advances to the next level
       () => this.onLevelComplete && this.onLevelComplete(this.levelNum),
       COIN_WIN_REWARD, // show a gold coin next to the reward
-      chestLevel       // 0 = no chest (a replay); else the level whose chest to show
+      chestLevel,      // 0 = no chest (a replay); else the level whose chest to show
+      streakInfo       // null = no Super Wand bar (locked, replayed, or already charged)
     );
   }
 
@@ -1862,6 +2274,7 @@ export class GameScene extends PIXI.Container {
   //                _continueAfterLoss / _makeContinueButton.
   _showLoseOverlay() {
     this._winBtn = null; // this path is the lose overlay — no win button lives
+    this._resetChestOverlay(); // drops any streak-bar refs left by an earlier overlay
     this.overlayLayer.removeChildren();
     const dim = new PIXI.Graphics();
     dim.beginFill(0x040814, 0.62).drawRect(0, 0, this.viewW, this.viewH).endFill();
@@ -1874,9 +2287,19 @@ export class GameScene extends PIXI.Container {
     this.overlayLayer.addChild(group);
     this._overlayGroup = group;
 
+    // A Super Wand streak in flight is at stake here, so the overlay says so
+    // rather than letting the player find out later: the panel grows downward
+    // (its top edge, and so everything else, stays put) to carry the bar.
+    // A BANKED charge is at stake too — more of it, in fact, since accepting the
+    // loss is the only thing that can ever take one away — so a full meter shows
+    // here exactly like a partial one.
+    const atRisk = !!this.user && this.user.isSuperWandUnlocked()
+      && (this.user.superWandCharged() || this.user.superWandStreak() > 0);
+    const panelH = 470 + (atRisk ? 70 : 0);
+
     const panel = new PIXI.Graphics();
-    panel.beginFill(0x22335e, 1).drawRoundedRect(-290, -230, 580, 470, 34).endFill();
-    panel.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(-290, -230, 580, 470, 34);
+    panel.beginFill(0x22335e, 1).drawRoundedRect(-290, -230, 580, panelH, 34).endFill();
+    panel.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(-290, -230, 580, panelH, 34);
     group.addChild(panel);
 
     const tt = new PIXI.Text(t("out_of_moves"), {
@@ -1891,16 +2314,21 @@ export class GameScene extends PIXI.Container {
     group.addChild(tt, stt);
 
     // Secondary row: Home (lobby) | Replay (restart), above the Continue button.
-    const home = this._makeButton(t("btn_home"), 250, 88, -136, -6, 0x556080, () => {
-      this._loseBtns = null;
-      this.overlayLayer.removeChildren();
-      this._exit();
-    });
-    const replay = this._makeButton(t("btn_replay"), 250, 88, 136, -6, 0x4d8dff, () => {
-      this._loseBtns = null;
-      this.overlayLayer.removeChildren();
-      this.restart();
-    });
+    // Both ACCEPT the loss, which is the moment the Super Wand streak breaks —
+    // Continue does not, so paying to rescue this very board keeps the streak
+    // alive. _breakStreakThen shows the reset before it leaves.
+    const home = this._makeButton(t("btn_home"), 250, 88, -136, -6, 0x556080,
+      () => this._breakStreakThen(() => {
+        this._loseBtns = null;
+        this.overlayLayer.removeChildren();
+        this._exit();
+      }));
+    const replay = this._makeButton(t("btn_replay"), 250, 88, 136, -6, 0x4d8dff,
+      () => this._breakStreakThen(() => {
+        this._loseBtns = null;
+        this.overlayLayer.removeChildren();
+        this.restart();
+      }));
     group.addChild(home, replay);
 
     // Continue — the primary action, anchored at the BOTTOM of the overlay. Its
@@ -1912,6 +2340,8 @@ export class GameScene extends PIXI.Container {
     cont.position.set(0, 130);
     group.addChild(cont);
     this._loseBtns = { cont, home, replay };
+
+    if (atRisk) this._mountStreakAtRisk(group, 250, 212);
 
     tt.scale.set(0.2);
     tween(this.app.ticker, {
@@ -1992,7 +2422,7 @@ export class GameScene extends PIXI.Container {
     this._returnTrayToBoard();
   }
 
-  _showOverlay(title, subtitle, btnLabel, onBtn, coinReward = 0, chestLevel = 0) {
+  _showOverlay(title, subtitle, btnLabel, onBtn, coinReward = 0, chestLevel = 0, streakInfo = null) {
     this._loseBtns = null; // this path is the win overlay — no lose buttons live
     this.overlayLayer.removeChildren();
     this._resetChestOverlay();
@@ -2015,10 +2445,21 @@ export class GameScene extends PIXI.Container {
     const chestInfo = (chestLevel && this.levelChest && this.levelChest.enabled)
       ? this.levelChest.infoFor(chestLevel) : null;
     const tall = !!chestInfo;
-    const half = tall ? 250 : 180;
-    const titleY = tall ? -half + 66 : -90;
-    const subY = tall ? -half + 132 : -20;
-    const btnY = tall ? half - 62 : 100;
+    // The Super Wand's streak bar (caption + track) needs SUPER_BAR_H of its own.
+    // The group is CENTRED, so the panel grows by half that at each end: the title,
+    // subtitle and chest move UP by half to hold their distance from the top edge,
+    // the button moves DOWN by half to hold its distance from the bottom, and
+    // exactly SUPER_BAR_H of new room opens between them for the bar. With no
+    // streak bar `grow` is 0 and every number below is the one that was here
+    // before — the two existing panel sizes are untouched.
+    const grow = streakInfo ? SUPER_BAR_H : 0;
+    const half = (tall ? 250 : 180) + grow / 2;
+    const titleY = (tall ? -250 + 66 : -90) - grow / 2;
+    const subY = (tall ? -250 + 132 : -20) - grow / 2;
+    const btnY = (tall ? 250 - 62 : 100) + grow / 2;
+    // The chest reward popup sizes its own modal dim from the panel, which is no
+    // longer one of two fixed heights.
+    this._overlayHalf = half;
 
     const panel = new PIXI.Graphics();
     panel.beginFill(0x22335e, 1).drawRoundedRect(-280, -half, 560, half * 2, 34).endFill();
@@ -2055,12 +2496,170 @@ export class GameScene extends PIXI.Container {
     group.addChild(btn);
     this._winBtn = btn; // test seam (window.__game.pressWinContinue)
 
-    if (chestInfo) this._mountLevelChest(group, chestInfo);
+    if (chestInfo) {
+      // Mount the chest into a shifted holder rather than editing its own
+      // hard-coded offsets — it rides up with the title when the panel grows.
+      const holder = new PIXI.Container();
+      holder.y = -grow / 2;
+      group.addChild(holder);
+      this._mountLevelChest(holder, chestInfo);
+    }
+    // The streak bar sits just above the Continue button at either panel size.
+    if (streakInfo) this._mountSuperWandStreak(group, streakInfo, btnY - 108, btnY - 150);
 
     tt.scale.set(0.2);
     tween(this.app.ticker, {
       duration: 420, ease: easeOutBack,
       onUpdate: (e) => tt.scale.set(0.2 + 0.8 * e),
+    });
+  }
+
+  // The same bar on the LOSE overlay, in its warning colour: how much of a Super
+  // Wand streak is on the table, and that Continue is the way to keep it. Drained
+  // by _breakStreakThen when the player accepts the loss.
+  _mountStreakAtRisk(group, barY, capY) {
+    const needed = SUPER_WAND.streakLength;
+    const trackW = 320, trackH = 22;
+    const caption = new PIXI.Text(t("superwand_streak_risk"), {
+      fontFamily: "Arial", fontSize: 24, fontWeight: "900", fill: 0xffc07a,
+      stroke: 0x5a2400, strokeThickness: 4,
+    });
+    caption.anchor.set(0.5); caption.position.set(0, capY);
+    fitTextWidth(caption, 520);
+    group.addChild(caption);
+
+    const track = new PIXI.Graphics();
+    track.beginFill(0x0a1226, 0.75)
+      .drawRoundedRect(-trackW / 2, barY - trackH / 2, trackW, trackH, trackH / 2).endFill();
+    group.addChild(track);
+    const fill = new PIXI.Graphics();
+    group.addChild(fill);
+    const label = new PIXI.Text("", {
+      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xdce7ff,
+      stroke: 0x122043, strokeThickness: 3,
+    });
+    label.anchor.set(0.5); label.position.set(0, barY);
+    group.addChild(label);
+
+    const draw = (n) => {
+      fill.clear();
+      const pct = Math.max(0, Math.min(1, n / needed));
+      if (pct > 0) {
+        fill.beginFill(0xffcf4d)
+          .drawRoundedRect(-trackW / 2, barY - trackH / 2,
+            Math.max(trackH, trackW * pct), trackH, trackH / 2).endFill();
+      }
+      label.text = `${Math.round(n)} / ${needed}`;
+    };
+    const from = this.user.superWandStreak();
+    draw(from);
+    this._superWandBar = {
+      shown: true, from, to: from, needed, caption: caption.text, label: label.text,
+      full: false, barY, capY, trackH,
+    };
+    this._streakRisk = { caption, fill, label, draw, from };
+  }
+
+  // Accept a loss: break the streak, DRAIN the bar so the player watches it go
+  // rather than discovering it two screens later, then do whatever the pressed
+  // button was going to do. Re-entrant-safe — a second press during the drain is
+  // swallowed — and a no-op straight through when nothing was at stake.
+  _breakStreakThen(done) {
+    if (this._streakDraining) return;
+    const risk = this._streakRisk;
+    if (!this.user || !this.user.breakSuperWandStreak() || !risk || risk.fill.destroyed) {
+      done();
+      return;
+    }
+    this._streakDraining = true;
+    risk.caption.text = t("superwand_streak_lost");
+    this._superWandBar.caption = risk.caption.text;
+    this.audio.play("fail");
+    tween(this.app.ticker, {
+      duration: 420, ease: easeOutCubic,
+      onUpdate: (e) => { if (!risk.fill.destroyed) risk.draw(risk.from * (1 - e)); },
+    }).then(() => {
+      this._streakDraining = false;
+      this._streakRisk = null;
+      this._superWandBar = { shown: false };
+      done();
+    });
+  }
+
+  // ---- the Super Wand streak bar (the other win-overlay bar) ---------------
+
+  // Mount the win-streak bar + its caption into an open win overlay. `info` comes
+  // from User.recordSuperWandWin (from / to / needed / justCharged). Same shape and
+  // styling as the chest bar below — dark track, animated fill, count label — but
+  // GOLD rather than green, so the two bars are never mistaken for each other when
+  // they share a panel. `barY`/`capY` are handed in because the row's position
+  // depends on which panel size it landed in.
+  _mountSuperWandStreak(group, info, barY, capY) {
+    const trackW = 320, trackH = 22;
+    const caption = new PIXI.Text(
+      info.justCharged ? t("superwand_ready") : t("superwand_streak", info.needed), {
+        fontFamily: "Arial", fontSize: 26, fontWeight: "900", fill: 0xffe27a,
+        stroke: 0x5a3a00, strokeThickness: 4,
+      });
+    caption.anchor.set(0.5); caption.position.set(0, capY);
+    fitTextWidth(caption, trackW + 140); // a long translation shrinks rather than overflows
+    // …and the punch below animates RELATIVE to that fitted scale, so celebrating
+    // never blows a shrunk translation back up past the panel edge.
+    const capScale = caption.scale.x;
+    group.addChild(caption);
+
+    const track = new PIXI.Graphics();
+    track.beginFill(0x0a1226, 0.75)
+      .drawRoundedRect(-trackW / 2, barY - trackH / 2, trackW, trackH, trackH / 2).endFill();
+    group.addChild(track);
+    const fill = new PIXI.Graphics();
+    group.addChild(fill);
+    const label = new PIXI.Text("", {
+      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xdce7ff,
+      stroke: 0x122043, strokeThickness: 3,
+    });
+    label.anchor.set(0.5); label.position.set(0, barY);
+    group.addChild(label);
+
+    const draw = (n) => {
+      fill.clear();
+      const pct = Math.max(0, Math.min(1, n / info.needed));
+      if (pct > 0) {
+        fill.beginFill(0xffcf4d)
+          .drawRoundedRect(-trackW / 2, barY - trackH / 2,
+            Math.max(trackH, trackW * pct), trackH, trackH / 2).endFill();
+      }
+      label.text = `${Math.round(n)} / ${info.needed}`;
+    };
+    draw(info.from);
+    this._superWandBar = {
+      shown: true, from: info.from, to: info.to, needed: info.needed,
+      caption: caption.text, label: label.text, full: !!info.justCharged,
+      barY, capY, trackH,   // so a test can assert the row clears the button
+    };
+
+    // Animate the notch this win just filled — and, if it completed the streak,
+    // punch the caption as the reward lands.
+    this._superWandBarRun = (this._superWandBarRun || 0) + 1;
+    const run = this._superWandBarRun;
+    delay(this.app.ticker, 300).then(() => {
+      if (fill.destroyed || run !== this._superWandBarRun) return;
+      return tween(this.app.ticker, {
+        duration: 420, ease: easeOutCubic,
+        onUpdate: (e) => { if (!fill.destroyed) draw(info.from + (info.to - info.from) * e); },
+      });
+    }).then(() => {
+      if (fill.destroyed || run !== this._superWandBarRun) return;
+      this._superWandBar.label = label.text;
+      if (!info.justCharged) return;
+      this.audio.play("super_hint");
+      caption.scale.set(capScale * 0.4);
+      return tween(this.app.ticker, {
+        duration: 420, ease: easeOutBack,
+        onUpdate: (e) => {
+          if (!caption.destroyed) caption.scale.set(capScale * (0.4 + 0.6 * e));
+        },
+      });
     });
   }
 
@@ -2189,7 +2788,11 @@ export class GameScene extends PIXI.Container {
     this._chestState.popup = true;
 
     const localDim = new PIXI.Graphics();
-    localDim.beginFill(0x081018, 0.82).drawRoundedRect(-280, -250, 560, 500, 34).endFill();
+    // Sized from the LIVE panel, not a constant: the panel grows when the Super
+    // Wand's streak bar shares the overlay, and a dim that stopped at the old
+    // height would leave the bar poking out from under this popup.
+    const dimHalf = this._overlayHalf || 250;
+    localDim.beginFill(0x081018, 0.82).drawRoundedRect(-280, -dimHalf, 560, dimHalf * 2, 34).endFill();
     localDim.eventMode = "static"; // modal over the panel
     popup.addChild(localDim);
 
@@ -2355,6 +2958,12 @@ export class GameScene extends PIXI.Container {
     this._chestTaken = false;
     this._chestDoubled = false;
     this._chestState = { shown: false };
+    // The Super Wand's streak bar shares every one of this method's call sites
+    // (an overlay opening, a level loading, an exit), so it is torn down here too.
+    this._superWandBarRun = (this._superWandBarRun || 0) + 1; // invalidate an in-flight fill
+    this._superWandBar = { shown: false };
+    this._streakRisk = null;
+    this._streakDraining = false;
   }
 
   // ---- micro-animations ----------------------------------------------------
@@ -2395,14 +3004,16 @@ export class GameScene extends PIXI.Container {
     this.app.ticker.add(fn);
   }
 
-  _popMatch(cont) {
+  // `amp`/`dur` default to the ordinary match's pop; the Super Wand passes bigger
+  // ones so its combined elimination visibly outweighs a single triple.
+  _popMatch(cont, amp = 0.35, dur = 260) {
     if (cont.__mv) this.app.ticker.remove(cont.__mv);
     let el = 0;
     const s0 = cont.scale.x;
     const fn = () => {
       el += this.app.ticker.deltaMS;
-      const t = Math.min(1, el / 260);
-      cont.scale.set(s0 * (1 + 0.35 * Math.sin(Math.min(1, t * 1.6) * Math.PI)));
+      const t = Math.min(1, el / dur);
+      cont.scale.set(s0 * (1 + amp * Math.sin(Math.min(1, t * 1.6) * Math.PI)));
       cont.alpha = 1 - t;
       if (t >= 1) { this.app.ticker.remove(fn); cont.destroy(); }
     };

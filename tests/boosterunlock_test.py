@@ -123,7 +123,7 @@ with sync_playwright() as p:
           "unlocks:", prof["boosterUnlocks"])
     # Migrations chain, so a v4 blob lands on whatever the current schema is
     # (v7 at the time of writing — v6->v7 added the Tasks counters).
-    assert prof["version"] == 7, prof["version"]
+    assert prof["version"] == 8, prof["version"]
     # Cleared level 3 -> Undo (L2) and Wand (L3) are reached, Reshuffle (L5) is not.
     assert unlocked("undo") is True and unlocked("wand") is True, prof
     assert unlocked("shuffle") is False, prof

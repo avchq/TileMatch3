@@ -94,5 +94,9 @@
   "tutorial_line": "同じタイルを3つ集めて消そう",
   "coach_undo": "直前の操作を取り消す",
   "coach_wand": "タイルを自動でそろえる",
-  "coach_shuffle": "残りのタイルを並べ直す"
+  "coach_shuffle": "残りのタイルを並べ直す",
+  "superwand_streak": "%valueレベル連続クリア！",
+  "superwand_ready": "スーパー魔法の杖の準備完了！",
+  "superwand_streak_risk": "連勝が危険 — 続けて守ろう",
+  "superwand_streak_lost": "連勝途切れ"
 }

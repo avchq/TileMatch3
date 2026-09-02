@@ -109,7 +109,10 @@ above it. Both are measured against the tray's *current* capacity, so taking the
   already holding a **pair** in the tray (pull 1 more, frees two slots), else a
   colour holding a **single** (pull 2), else a fresh colour off the board (pull a
   full 3). Within a colour, tiles are drawn most-accessible-first so the move
-  reads as one you could have made.
+  reads as one you could have made. A win streak can charge the Wand's button
+  into its upgraded form, the **Super Wand** — see
+  [Super Wand — an earned upgrade to the Wand](#super-wand--an-earned-upgrade-to-the-wand)
+  below.
 - **Reshuffle** — redeal the faces of the tiles still on the play board into a
   fresh arrangement that's still guaranteed solvable; the bottom tray/deck is
   left untouched, and positions and progress are kept, so the level is **not**
@@ -286,9 +289,14 @@ same class — the rail owns only an `x` and a slot ladder, so a second edge nee
 no new machinery:
 
 - **Left rail** (`RAIL_LEFT_X` 86), under the settings cog — the **daily** features,
-  which come and go with the day's cycle:
+  which come and go with the day's cycle, plus one standing read-out registered
+  after them:
   1. **Free Spin**
   2. **Daily Bonus**
+  3. **Super Wand** — a "streak/needed" progress pill, not a doorway (see
+     [Super Wand](#super-wand--an-earned-upgrade-to-the-wand)). It is registered
+     last precisely so it never bumps a claimable Free Spin or Daily Bonus out of
+     the top slot; it just settles into whichever slot is left.
 - **Right rail** (`RAIL_RIGHT_X` 664), under the coin pill — the **permanent**
   destinations:
   1. **Tasks**
@@ -297,7 +305,12 @@ The split is by behaviour, not by looks: a left-rail button disappears once the
 day's spin is used or the gift is claimed and returns at the next rollover, so the
 column genuinely reflows. **Tasks** never goes away once unlocked, so it would
 just sit at the bottom of the left rail forever — and putting it opposite keeps
-the reflowing column short.
+the reflowing column short. The Super Wand read-out is likewise never hidden
+once unlocked — unlike the two daily buttons above it there is no "used up
+today" state, so it is offered whether its meter reads empty, filling or full —
+but it stays on the left rail rather than joining Tasks on the right, since it
+is registered as the last entry on the left ladder and simply drops into
+whichever slot the daily buttons leave open.
 
 The rail always packs them into **consecutive slots with no holes**. If #1 is
 unavailable, **#2 takes its place**; the moment #1 becomes available again it
@@ -319,10 +332,12 @@ control.
 Availability is per feature and unchanged by the rail — it decides only *where* an
 available button sits, never *whether* it is offered (Free Spin: unlocked by
 progression and spins left this cycle; Daily Bonus: unlocked by progression and
-today's gift unclaimed; Tasks: unlocked by progression, and then permanently).
+today's gift unclaimed; Super Wand: unlocked by progression and then permanently,
+whether the streak it reports is empty, filling or full; Tasks: unlocked by
+progression, and then permanently).
 Because the wheel unlocks at level **5** and the gift at level **1**, a new player
-sees the gift alone, in the **first** slot of the left rail, with the right rail
-empty until level **10**.
+sees the gift alone, in the **first** slot of the left rail, with the Super Wand
+read-out and the right rail both empty until level **10**.
 
 The rail owns only an `x` and the slot ladder (`RAIL_LEFT_X` / `RAIL_RIGHT_X`,
 `RAIL_Y0` 214, `RAIL_GAP` 182). Adding a feature button is one
@@ -565,6 +580,122 @@ The chest **schedule** is a JSON data table, `assets/config/levelChest.json` (on
 **repeat-start** index — lives in `src/config.js` (`features.levelChest.repeatStart`,
 shipped `6`, i.e. the 7th milestone/level 64 begins the looping tail).
 
+### Super Wand — an earned upgrade to the Wand
+The **Super Wand** is the Wand's upgraded form, and the only helper in the game
+that is **earned rather than bought** — a win streak charges it instead of coins,
+stock or a rewarded ad. Where the ordinary Wand is a small favour (one triple), a
+charged Super Wand is a board-clearing event: one tap sweeps **at least two
+complete sets at once** (6+ tiles) off the board in a single combined
+elimination — one burst, one sound, one beat — rather than a rapid sequence of
+individual matches. It consumes **nothing**: it is not a stocked token but the
+state of being on a win streak, so the very next tap sweeps again, on the same
+board, across levels and app restarts, for as long as the streak lives.
+
+- **Earning it.** Consecutive **genuinely new** level clears charge it —
+  `CONFIG.boosters.superWand.streakLength` (**5**) of them in a row — and only
+  from `unlockLevel` (**10**) onward. A replay of an already-beaten level does
+  **not** count, the same "pushes your furthest level higher" rule the Level
+  Chest uses, so a charge can't be farmed by grinding one easy level. (The
+  original ships this gate at level 20; this port's campaign is currently **20
+  levels long**, and since only a genuinely new clear counts, a gate of 20 would
+  leave exactly one qualifying win and the reward could never actually be
+  earned. 10 is the nearest value that keeps it reachable — clear 10–14 to
+  charge it, then 15–20 to use it — without making it farmable; raise it back
+  toward 20 as the level table grows.) Progress is shown on the **level-complete
+  screen** as a filling **gold** bar with a caption reading "Clear 5 levels in a
+  row!" (the 5 comes from config, so retuning the streak length re-letters the
+  label rather than contradicting it). It coexists with the Level Chest's green
+  bar on the same panel — the panel grows and both are shown together, laid out
+  so neither collides with the Continue button.
+- **The lobby read-out.** The same streak also shows on the lobby's left-edge
+  feature rail (see [Feature buttons](#feature-buttons--the-lobby-rails)), as a
+  third entry below Free Spin and Daily Bonus: the round Wand disc with a dark
+  "streak/needed" pill where the other rail buttons put their caption. It has no
+  tap handler — there is no Super Wand screen to open, so it is a pure read-out —
+  and it is offered from `unlockLevel` on and then always, with no "used up
+  today" state to hide it again. A banked charge pins the pill full and flips the
+  whole face to the same gold disc + ✨ glyph the in-level helper button wears,
+  and a charged button breathes gently (a filling one sits still) as the only
+  "ready" indicator; there is no badge or red dot. Because using a Super Wand no
+  longer spends anything, that gold ✨ **5/5** stays on screen through any number
+  of sweeps, across levels and app restarts — it only drops back to a plain 🪄
+  **0/5** when a loss is accepted. It repaints live off the profile's
+  `superWand` domain, so the pill ticks over without a scene rebuild the moment
+  a streak win lands or a loss is accepted, and survives a reload the same way
+  every other rail entry does.
+- **Losing it.** The Super Wand is not a single-shot token — it is the **state
+  of being on a win streak** — so using it takes nothing away. The only thing
+  that ever clears it is a loss the player **accepts**: pressing Home or Replay
+  on the Out-of-Moves overlay clears the streak-in-progress **and** a banked
+  charge together. Paying to **Continue** rescues the board and whatever streak
+  state it carries. While the overlay is up it shows the streak bar with a
+  "Streak at risk — Continue to keep it" caption — a full 5/5 meter when a
+  charge is banked, a partial one otherwise, since either is lost the same way —
+  and if Home/Replay is pressed instead it **drains the bar visibly** with a
+  "Streak lost" caption, so the reset is watched rather than discovered later.
+- **The shared button.** It gets no button of its own: it takes the **Wand's**
+  button over. Uncharged, the button is the ordinary Wand. Charged, the face
+  changes (glyph 🪄→✨, the disc purple→gold, and a gold ★ badge with no count,
+  since there is nothing to buy or stock) and **every** tap sweeps instead of
+  completing a triple — the same board, the same button, for as long as the
+  streak lives. The changeover is announced on the first board where the charge
+  can actually be used (charging happens on the *previous* level's complete
+  screen) with a brief beat, an effect on the button and a scale-punch as the
+  icon swaps — once per charge, so a Replay or a reload while it sits banked
+  doesn't replay the announcement, and using it again never replays it either.
+  The two modes are mutually exclusive through one predicate
+  (`_superWandActive()`), checked by both the ordinary `wand()` and
+  `superWand()`, so a scripted call is held to the same rule as a real tap and
+  the two can never interleave. Input is locked for the whole sweep, so a rapid
+  double-tap can't start a second sweep over the animation.
+- **How it chooses (`_superWandPick`).** It works from the tray outward,
+  cheapest completions first — the same instinct behind the ordinary Wand's
+  picker: group the tray by colour, order those groups by how close each is to
+  completing (a waiting **pair** before a lone **single**, tied-broken by tray
+  order), and for each pull just enough board tiles to reach a triple, banking
+  the finished set. It stops once the batch reaches `minTiles` (**6**, i.e. two
+  complete sets). If the tray runs dry while the batch is still short, it tops up
+  with **whole fresh triples** taken straight off the board — a colour not
+  already in the batch, at most `extraRounds` (**2**) of them, most-free-tiles
+  first. A colour the board cannot fully complete is **skipped outright, never
+  half-taken** — every set in the batch is finished, and the batch is always a
+  whole multiple of 3, because sweeping a partial set away would delete the
+  player's progress rather than cash it in. Board tiles are drawn
+  most-accessible-first (free/uncovered before still-covered, then by id) — the
+  identical deterministic order the ordinary Wand's `_wandPick` uses — so the
+  sweep reads as an extraordinarily good run of play, not tiles conjured out of
+  the pile. The invariant is checked in development builds only, inside a
+  `DEBUG:` labelled block in `src/game.js`'s `_superWandClear` — a
+  `console.error` if it is ever violated, so a regression fails the e2e suite's
+  zero-errors assertion; `--drop-labels=DEBUG` strips the check from production.
+- **Not a consumable.** A sweep never goes through the acquisition ladder
+  (`_acquireBooster`/`useBooster`), so it spends **no Wand charge** and bumps
+  **no** `wandUsed`/`boostersUsed` task counter. There is no inventory entry and
+  no price for it — it is absent from `CONFIG.boosters.kinds`,
+  `startingInventory` and `unlocks` on purpose; see `user.superWand` for the
+  small state it actually keeps (`streak`/`charged`/`announced`). There used to
+  be a fourth accessor here, `User.spendSuperWand()` — it has been deleted
+  entirely, because there is nothing left for a "spend" to do.
+- **Edge cases.** A board that can't supply two full sets clears whatever
+  complete sets it can. A sweep that can gather nothing at all is a graceful
+  no-op — the charge is never at risk from a bad board, since only an accepted
+  loss can ever take it away. The button does nothing once the level is already
+  won or lost. A sweep into a nearly-full tray is safe: the tray briefly goes over capacity while the
+  incoming tiles fly in, but the scene stays locked for the whole sweep so the
+  tray-full loss check never observes the overflow, and every pulled tile leaves
+  again with the set it completed — so the tray always ends up **smaller** than
+  it started, never bigger. The tray's **near-full warning** (the pulse and the
+  "Insufficient space!" bubble) sits the sweep out for the same reason: those
+  incoming tiles are already spoken for, so flashing a danger that doesn't exist
+  in the middle of the payoff moment would be a lie. `_updateTrayWarning` returns
+  early while a sweep is running and is re-run once it settles, judging the
+  *settled* tray.
+- **Analytics.** Earning a streak win, charging and each sweep are all reported
+  through `GameScene._reportSuperWand()`, a `console.debug` stub with a
+  `TODO(SDK)` naming the intended events (`CK_SuperWand_Earn`,
+  `CK_SuperWand_Charge`, `CK_SuperWand_Use` — "Use" rather than "Spend", since a
+  sweep consumes nothing), exactly like `FortuneWheelScene._reportSpin`.
+
 ## Localization
 
 The game ships in **13 languages**, and every one of them is complete: the same
@@ -663,7 +794,7 @@ fetched. The folder is configurable (`CONFIG.language.textDir`); the **set of
 offered languages is not** — it is hard-coded as `LANGUAGES` in `src/i18n.js`,
 because a data-driven list would let a language exist that nothing can reach.
 
-There are **96 keys**, and the key list is **byte-for-byte identical across all
+There are **100 keys**, and the key list is **byte-for-byte identical across all
 13 languages** — `tests/i18n_test.py` enforces that, along with "not a single
 phrase is left sitting in English". Where a translation looks like English it is
 a one- or two-word cognate (German `Level`, `Shop`; Indonesian `OK`), not a
@@ -853,7 +984,10 @@ instance role, or `--profile`. Bucket and prefix can also come from
    and obfuscating the code while shipping that would be pointless. In raw source
    a label is inert, so dev and the whole test suite are unaffected.
    `--keep-debug-api` opts back in for a staging build you want to drive from a
-   test.
+   test. A `DEBUG:` block can also guard an in-source assertion rather than a
+   `window` seam — `src/game.js`'s Super Wand sweep (`_superWandClear`) checks its
+   own whole-sets invariant this way, with a `console.error` that fails the e2e
+   suite in dev but is dropped from production the same way.
 3. **Obfuscate** with javascript-obfuscator — identifier mangling, string-array
    extraction and encoding, numbers rewritten as expressions.
 
@@ -1163,8 +1297,10 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   cheapest completion (waiting pair → single → fresh board colour), then a
   tray-order/face-id tiebreak. It flies the missing tiles in
   most-accessible-first and locks input until the triple resolves so a rapid
-  double-tap can't spend two charges. (An upgraded
-  "super" wand tied to a win-streak meta shares the button but isn't built.)
+  double-tap can't spend two charges. Its upgraded form, the **Super Wand**, is
+  earned by a win streak rather than bought and takes this same button over once
+  charged — see [Super Wand — an earned upgrade to the Wand](#super-wand--an-earned-upgrade-to-the-wand)
+  above for the full behaviour.
   **Auto Complete** (`autoComplete()` / `_autoAvailable()`) is a **free** endgame
   shortcut, not a booster: from `AUTO_MIN_LEVEL` (`config.js`
   `progression.autoComplete.minLevel`, 2) onward, when
@@ -1335,7 +1471,8 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   from opacity (`alpha > 0`), which is what keeps a button still **waiting out a
   reflow** (its fade-in delayed by `moveMs`) out of both hit-testing and the scene's
   `controls()` list. `available(key)` reports the **gate** — what
-  `wheelState()/dailyBonusState().buttonVisible` mean — as opposed to where the
+  `wheelState()/dailyBonusState().buttonVisible` mean, and what `superWandRail()`
+  reports as `available` for the third left-rail entry — as opposed to where the
   animation has got to, which is `featureRail()`. Animation is a single
   ticker callback advancing per-entry duration animators (`easeInOutQuad` for the
   slide, `easeOutCubic` for the fade, both from `tween.js`) rather than `tween()`:
@@ -1534,7 +1671,7 @@ sections are:
 | --- | --- |
 | `progression` | `tutorialLevel` (which level opens "How To Play" + the guided opening) and `autoComplete.minLevel` / `.maxTiles` (the window the free Auto Complete button is offered in) |
 | `features` | one gate/pacing block per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel`, `tasks.unlockLevel` / `.weeklyResetDay`, and `levelChest.repeatStart` (the Level Chest has no gate — it's derived from progress) |
-| `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — and `coach` (`enabled`, `undoDelayMs`) for the guided first use |
+| `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — `coach` (`enabled`, `undoDelayMs`) for the guided first use, and `superWand` (`unlockLevel` / `streakLength` / `minTiles` / `extraRounds`) for the Wand's earned upgrade |
 | `economy` | `currencies`, the `startingWallet`, and `coinWinReward` (the only free coin faucet) |
 | `board` | `traySlots` — the base tray capacity, the core difficulty dial — plus `extraSlot` (`unlockLevel` / `grant`, the ad-funded 8th slot) and `warnings` (`pulseAtFree` / `bubbleAtFree`, the two near-full cues, counted against the *live* capacity) |
 | `persistence` | `saveDebounceMs` — the autosave debounce |
@@ -1650,9 +1787,17 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   emitting a `tasks` domain. The two `claimed` lists are the same idempotent
   one-time ledger as `boosterUnlocks`; `base` is a snapshot of `stats` taken at
   the week's start, so weekly progress is a subtraction rather than a second set
-  of counters). It emits a domain-tagged
+  of counters),
+  and the **Super Wand** streak state (`superWand` — `streak`/`charged`/`announced`,
+  mutated via `recordSuperWandWin`/`breakSuperWandStreak` — there is no
+  "spend", using it takes nothing away — with
+  `isSuperWandUnlocked()` gating it off `completed` the same way as the others,
+  and `superWandNeedsAnnounce()`/`markSuperWandAnnounced()` tracking whether the
+  button-takeover beat has played for the charge currently banked; emitting a
+  `superWand` domain — see [Super Wand](#super-wand--an-earned-upgrade-to-the-wand)
+  above for what the feature does). It emits a domain-tagged
   change event on every mutation and (de)serializes via `toJSON`/`fromJSON` with a
-  `version` for forward migrations (currently **v7** — v1→v2 added `fortuneWheel`,
+  `version` for forward migrations (currently **v8** — v1→v2 added `fortuneWheel`,
   v2→v3 added `dailyBonus`; both fill from defaults for older blobs, so each step
   just stamps the version. v3→v4 added `progress.completed`, **derived** as
   `level - 1` — levels only ever advanced on a win — so an existing player is never
@@ -1671,7 +1816,16 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   other counter starts at 0 — those histories were never written down — and
   `weekly.base` is seeded to match so the weekly list still starts at zero. The
   consequence is intended: an existing player opens the screen to find the level
-  tiers they already earned stacked up and ready to claim).
+  tiers they already earned stacked up and ready to claim. v7→v8 added
+  `superWand`, the win-streak state behind the Wand's earned upgrade, and this
+  time nothing is reconstructible: win streaks were never recorded, and a
+  streak is by definition about a player's *recent* run rather than their
+  history, so seeding one off `progress.completed` would be inventing a fact
+  rather than deriving it (contrast v3→v4 and v6→v7, where the old field
+  genuinely implied the new one). Every existing player therefore starts the
+  feature at zero and earns their first Super Wand honestly — the constructor
+  shallow-merges the sub-object from defaults(), so this step, like v1→v2 and
+  v2→v3, only has to stamp the version).
 - **`adapters.js`** — a small **async** storage/identity contract
   (`identify` / `load` / `save` / `clear`). `LocalStorageAdapter` is the working
   default on the open web. `FacebookInstantAdapter` / `TelegramAdapter` /

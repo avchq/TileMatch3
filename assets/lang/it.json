@@ -94,5 +94,9 @@
   "tutorial_line": "Raccogli 3 tessere uguali per eliminarle",
   "coach_undo": "Annulla l'ultima mossa",
   "coach_wand": "Abbina in automatico un gruppo di tessere",
-  "coach_shuffle": "Rimescola le tessere rimaste nel livello"
+  "coach_shuffle": "Rimescola le tessere rimaste nel livello",
+  "superwand_streak": "Completa %value livelli di fila!",
+  "superwand_ready": "Super Bacchetta pronta!",
+  "superwand_streak_risk": "Serie a rischio — continua per mantenerla",
+  "superwand_streak_lost": "Serie persa"
 }
