@@ -209,7 +209,7 @@ export class GameScene extends PIXI.Container {
     // the two modes can never be half-applied. A charge banked mid-level lands
     // here live, via the user's "superWand" change event.
     if (this._superWandActive() && !this.user.superWandNeedsAnnounce()) {
-      this._setSuperWandButton();
+      this._setSuperWandButton(wandLeft);
     } else {
       this._paintWandButton(false);
       this._setBoosterButton(this.wandBtn, this.wandBadge, "wand", wandLeft, this.boardCount > 0);
@@ -220,15 +220,24 @@ export class GameScene extends PIXI.Container {
   // just answers to a banked charge rather than to the acquisition ladder, which
   // is why it is a branch beside it rather than a fifth tier inside it: there is
   // nothing to buy and no stock to count.
-  _setSuperWandButton() {
+  _setSuperWandButton(count) {
     const ok = this.boardCount > 0;   // nothing to sweep on an empty board
+    const price = this._boosterPrice("wand");
+    const affordable = price != null && !!this.user && this.user.canAfford("coins", price);
+    // Firing the sweep costs one WAND use, so the badge has to tell the same story
+    // the ordinary Wand's does — the stock left, or what the next one costs — or
+    // the player cannot see that their last charge is about to go. Only the
+    // bubble's GOLD treatment (with the disc and the glyph) says "upgraded".
+    // With no move to make, buying/ads are pointless: show the plain count, the
+    // same way _setBoosterButton does.
+    const tier = (!ok || count > 0) ? "super" : (affordable ? "buy" : "ad");
     this.wandBtn._boosterMode = "super";
     this.wandBtn.eventMode = ok ? "static" : "none";
     this.wandBtn.cursor = ok ? "pointer" : "default";
     this.wandBtn.alpha = ok ? 1 : 0.4;
     this._paintWandButton(true);
     this.wandBadge.visible = true;
-    this.wandBadge.setBadge("super", 0, null);
+    this.wandBadge.setBadge(tier, count, price);
   }
 
   // Swap the Wand button between its two faces. The glyph and the disc colour are
@@ -847,26 +856,24 @@ export class GameScene extends PIXI.Container {
     ad.anchor.set(0.5);
     const lock = new PIXI.Text("🔒", { fontFamily: "Arial", fontSize: 22 });
     lock.anchor.set(0.5);
-    const star = new PIXI.Text("★", { fontFamily: "Arial", fontSize: 24, fill: 0x5a3a00 });
-    star.anchor.set(0.5);
     const t = new PIXI.Text("0", {
       fontFamily: "Arial", fontSize: 26, fontWeight: "900", fill: 0xffffff,
       stroke: 0x14361f, strokeThickness: 4,
     });
     t.anchor.set(0.5);
-    c.addChild(g, coin, ad, lock, star, t);
+    c.addChild(g, coin, ad, lock, t);
     c.text = t;
     c.setBadge = (mode, count, price) => {
       g.clear();
       coin.visible = false;
       ad.visible = false;
       lock.visible = false;
-      star.visible = false;
       if (mode === "super") {
-        // A banked Super Wand: a gold star bubble. No count and no price — it is
-        // earned rather than stocked or bought, so there is no tier to show.
-        t.text = "";
-        star.visible = true;
+        // A Super Wand in hand: the ordinary Wand's stock count, in a GOLD bubble.
+        // The streak earns the upgrade, not free uses — every sweep still spends a
+        // wand charge — so the number stays; only the colour changes.
+        t.text = String(count);
+        t.style.fontSize = 26;
         const r = 20;
         g.beginFill(0xffcf4d).drawCircle(0, 0, r).endFill();
         g.lineStyle(3, 0xffffff, 0.95).drawCircle(0, 0, r);
@@ -1830,9 +1837,11 @@ export class GameScene extends PIXI.Container {
 
   // THE SWEEP. Completes and clears at least two whole sets in ONE combined
   // elimination — the game's payoff moment, and the thing the ordinary Wand is a
-  // small favour next to. It consumes NOTHING: the button stays upgraded and the
-  // next press sweeps again, for as long as the win streak lives. The streak — and
-  // with it the upgrade — ends only when the player accepts a loss.
+  // small favour next to. It costs one WAND use like any other wand press (see the
+  // waterfall below); what the streak earns is the UPGRADE, not free uses. The
+  // charge itself is never consumed — the button stays upgraded and the next press
+  // sweeps again, for as long as the win streak lives, and the streak (with it the
+  // upgrade) ends only when the player accepts a loss.
   //
   // Input is dead for the whole sweep (`locked`), so a rapid double-tap cannot
   // start a second sweep over a long, dramatic animation still in flight; and the
@@ -1854,17 +1863,25 @@ export class GameScene extends PIXI.Container {
     const pick = this._superWandPick();
     if (!pick) { this.audio.play("fail"); this._shake(this.wandBtn); return; }
 
+    // A sweep is an upgraded WAND use, so it costs one — the same acquisition
+    // waterfall the ordinary Wand runs: own stock → buy with coins → watch an ad.
+    // What the streak buys is the UPGRADE, not free uses. Placed after the pure
+    // read above so a sweep that could gather nothing never charges for a no-op,
+    // and before anything is locked or moved so a refusal (no stock, no coins, no
+    // ad taken) leaves the board, the tray and the streak exactly as they were.
+    if (!this._acquireBooster("wand")) return;
+
     // Own the board and the helper row for the whole sweep. `_superWandRunning`
     // additionally parks _updateBoosters so the row can't repaint mid-flight.
     this.locked = true;
     this._superWandRunning = true;
     const run = this._guideRun; // the board this sweep belongs to (see loadLevel)
 
-    // Nothing is consumed here. A Super Wand is not a stocked token: it is the
-    // STATE of being on a win streak, so the button stays upgraded and every press
-    // sweeps for as long as the streak lives. Only accepting a loss takes it away
-    // (User.breakSuperWandStreak). It also never goes through
-    // _acquireBooster/useBooster, so it costs no wand charge and bumps no counter.
+    // The CHARGE is not consumed here. A Super Wand is not a stocked token: it is
+    // the STATE of being on a win streak, so the button stays upgraded and every
+    // press sweeps for as long as the streak lives. Only accepting a loss takes it
+    // away (User.breakSuperWandStreak). The wand charge the sweep runs on was
+    // already taken, above, through the ordinary helper waterfall.
     this._reportSuperWand("use", { level: this.levelNum, sets: pick.sets.length });
 
     for (const t of pick.tiles) this._pullTileToTray(t);

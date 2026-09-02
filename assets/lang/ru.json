@@ -98,5 +98,7 @@
   "superwand_streak": "Пройдите %value уровней подряд!",
   "superwand_ready": "Супер-палочка готова!",
   "superwand_streak_risk": "Серия под угрозой — играйте дальше, чтобы сохранить",
-  "superwand_streak_lost": "Серия потеряна"
+  "superwand_streak_lost": "Серия потеряна",
+  "superwand_title": "Супер-палочка",
+  "superwand_promo_line": "Убирает два полных набора за один взмах"
 }

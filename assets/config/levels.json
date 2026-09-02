@@ -18,5 +18,14 @@
   { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level17.json", "types": [13, 18] },
   { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level18.json", "types": [13, 18] },
   { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level19.json", "types": [13, 18] },
-  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level20.json", "types": [13, 18] }
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level20.json", "types": [13, 18] },
+  { "background": "assets/bg/bg2.jpg",  "data": "assets/levels/level21.json", "types": [13, 18] },
+  { "background": "assets/bg/bg2.jpg",  "data": "assets/levels/level22.json", "types": [13, 18] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level23.json", "types": [13, 18] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level24.json", "types": [13, 18] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level25.json", "types": [13, 18] },
+  { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level26.json", "types": [13, 18] },
+  { "background": "assets/bg/bg2.jpg",  "data": "assets/levels/level27.json", "types": [13, 18] },
+  { "background": "assets/bg/bg2.jpg",  "data": "assets/levels/level28.json", "types": [13, 18] }
+
 ]

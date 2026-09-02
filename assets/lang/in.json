@@ -98,5 +98,7 @@
   "superwand_streak": "लगातार %value स्तर पूरे करें!",
   "superwand_ready": "सुपर छड़ी तैयार है!",
   "superwand_streak_risk": "सिलसिला खतरे में — जारी रखें और बचाएं",
-  "superwand_streak_lost": "सिलसिला टूटा"
+  "superwand_streak_lost": "सिलसिला टूटा",
+  "superwand_title": "सुपर छड़ी",
+  "superwand_promo_line": "एक झटके में दो पूरे सेट साफ करता है"
 }

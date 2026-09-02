@@ -53,7 +53,9 @@ const defaults = () => ({
   //               the level-complete screen (and the lobby rail's pill) reads full
   //               for as long as the streak lives. ACCEPTING A LOSS is the only
   //               thing that empties either field: using a Super Wand takes
-  //               nothing away, because the reward is the streak itself.
+  //               nothing away, because the reward is the streak itself. (A sweep
+  //               still costs one ordinary WAND use — the streak earns the
+  //               upgrade, not free uses.)
   //   charged   — a Super Wand is banked and the Wand's button is upgraded. It
   //               stays upgraded across uses, wins, levels and restarts.
   //   announced — its arrival has already been celebrated on a board. Kept
@@ -221,7 +223,8 @@ export class User {
    *  streak length while one is already banked). */
   superWandStreak() { return this.superWand.streak || 0; }
   /** Is a Super Wand banked? While it is, the Wand's button IS the upgraded one
-   *  and every press sweeps — using it takes nothing away. */
+   *  and every press sweeps. Sweeping costs a WAND use like any other wand press,
+   *  but it never touches this state — only an accepted loss does. */
   superWandCharged() { return !!this.superWand.charged; }
   /** Has the streak started accruing yet? Derived from progress like every other
    *  gate here, so a QA jump straight to a later level is honoured with nothing

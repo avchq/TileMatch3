@@ -280,7 +280,14 @@ Only `howtoplay_test.py` leaves it open.
   win streak itself and not a single-shot token, so the read-out still reads
   `N/N` in the charged face; and that an **accepted loss** is the one thing that
   ever empties it, dropping the meter to `0/N` and the face back to the ordinary
-  glyph on return to the lobby. Drives it via `window.__game.superWandRail()`.
+  glyph on return to the lobby; and — since the pill can only ever show a number
+  — that a **tap opens the Super Wand promo**, the modal explaining what the
+  number is for: every field it reports (title, illustration line, caption,
+  button) is localized copy rather than a raw key, its meter tracks the streak
+  live and swaps to the "ready" caption once charged, the cross and a tap on
+  the dim outside the panel both close it, and leaving the lobby for a level
+  closes it too. Drives it via `window.__game.superWandRail()` and
+  `window.__game.superWandPromo()` / `pressSuperWandRail()`.
 - **`tray_size_test.py`** — the bottom tray is sized to the **current level's tile
   size**, not a fixed 84px slot: the slot equals `clamp(TILE_DRAW*boardScale,
   slotMin, slotMax)` across levels, the 7 slots stay evenly spaced and the panel
@@ -370,25 +377,32 @@ Only `howtoplay_test.py` leaves it open.
   **pinned** at the top rather than overflowing) and the pinned-full-while-banked
   rule; **persistence** of a banked charge and the streak across a reload; the
   **button takeover** — the ordinary Wand's face on entry, then the announced
-  swap to the upgraded glyph/badge with its own sound, once per charge — and that
-  the ordinary Wand stays inert while charged even when called directly
-  (`window.__game.wand()`); the picker's **cheapest-first ordering** (a waiting
-  pair completed before a lone single) and its **availability-first** tile draw
-  (free tiles before covered ones, matching the ordinary Wand); **whole-sets-only**
-  batching (always a multiple of 3, never a partial set); the **top-up rounds**
-  that pull whole fresh triples off the board from an empty tray; the **combined
-  sweep** clearing both sets in one elimination and freeing the tray (proved by
-  the cue log: exactly **one** `super_hint` and **one** `merge_click` for the
-  whole batch, not one per set); that a sweep **consumes nothing** — the charge
-  and streak are untouched afterwards, the button is still the upgraded one, the
-  Wand's own stock is untouched, and a **second press sweeps a second batch off
-  the same board**; a **double-tap firing the sweep once**, not twice, and still
-  leaving the charge banked; a sweep into a **near-full tray** not losing the
-  level, not tripping the "Insufficient space!" warning on the way through, and
-  leaving the tray smaller than it started; a sweep that can **gather nothing**
-  leaving the charge intact (a no-op — there is nothing left to consume anyway);
-  a **replay** of an already-beaten level not advancing the streak, not showing
-  the bar, and the button doing nothing; a **profile reset** wiping the streak
+  swap to the upgraded glyph/badge with its own sound, once per charge, with the
+  badge carrying the **Wand's real stock** (a sweep still costs a use, so the
+  count has to stay visible) — and that the ordinary Wand stays inert while
+  charged even when called directly (`window.__game.wand()`); the picker's
+  **cheapest-first ordering** (a waiting pair completed before a lone single) and
+  its **availability-first** tile draw (free tiles before covered ones, matching
+  the ordinary Wand); **whole-sets-only** batching (always a multiple of 3, never
+  a partial set); the **top-up rounds** that pull whole fresh triples off the
+  board from an empty tray; the **combined sweep** clearing both sets in one
+  elimination and freeing the tray (proved by the cue log: exactly **one**
+  `super_hint` and **one** `merge_click` for the whole batch, not one per set);
+  that a sweep **spends one ordinary Wand use** — the charge and streak are
+  untouched afterwards and the button is still the upgraded one, but the Wand's
+  own stock drops by one, and a **second press spends a second use and sweeps a
+  second batch off the same board**; the **acquisition waterfall** (6b) a sweep
+  runs when stock is empty, identical to every other helper's — the buy tier
+  debits the coin price and nets no stock, the ad tier is free and never greyed
+  out, and either way the sweep still fires; a **double-tap firing the sweep
+  once**, not twice, spending exactly **one** wand use, and still leaving the
+  charge banked; a sweep into a **near-full tray** not losing the level, not
+  tripping the "Insufficient space!" warning on the way through, and leaving the
+  tray smaller than it started; a sweep that can **gather nothing** leaving the
+  charge intact **and spending no wand use** (a no-op — there is nothing to
+  charge for); a **replay** of an already-beaten level not advancing the streak,
+  not showing the bar, and the button doing nothing — spending no wand use — once
+  the level is already won; a **profile reset** wiping the streak
   and any banked charge (unlike a loss, which used to leave a banked charge
   alone — it no longer does, see below); a **genuinely new clear** filling one
   notch and showing the gold streak bar on the level-complete screen,

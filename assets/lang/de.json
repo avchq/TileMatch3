@@ -98,5 +98,7 @@
   "superwand_streak": "Gewinne %value Level in Folge!",
   "superwand_ready": "Super-Zauberstab bereit!",
   "superwand_streak_risk": "Serie in Gefahr — weiterspielen, um sie zu retten",
-  "superwand_streak_lost": "Serie verloren"
+  "superwand_streak_lost": "Serie verloren",
+  "superwand_title": "Super-Zauberstab",
+  "superwand_promo_line": "Räumt zwei komplette Sets auf einen Schlag"
 }

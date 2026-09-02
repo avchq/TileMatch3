@@ -10,6 +10,7 @@ import { buildColumnBackground, fitTextWidth } from "./layout.js";
 import { FeatureRail, RAIL_LEFT_X, RAIL_RIGHT_X } from "./featurerail.js";
 import { t, locText } from "./i18n.js";
 import { CONFIG } from "./config.js";
+import { SuperWandPromo } from "./superwandpromo.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -69,6 +70,9 @@ export class LobbyScene extends PIXI.Container {
     this.uiLayer.position.set((DW - DESIGN_W) / 2, (DH - DESIGN_H) / 2);
     this.topHud.position.set((DW - DESIGN_W) / 2, 0);
     this.botHud.position.set((DW - DESIGN_W) / 2, DH - DESIGN_H);
+    // The promo covers the WHOLE view (its own dim), so it takes the raw size
+    // rather than a band offset.
+    if (this.superWandPromo) this.superWandPromo.layout(DW, DH);
     if (this.visible) this._buildBackground(this._level);
   }
 
@@ -190,8 +194,9 @@ export class LobbyScene extends PIXI.Container {
     // Super Wand progress — how far along the win streak that charges the Wand's
     // earned upgrade is. Unlike the two above it is a READ-OUT, not a doorway:
     // there is no Super Wand screen, the reward is used on the helper row inside
-    // a level (see GameScene.superWand). So it carries no caption and no tap —
-    // the "streak / needed" pill under the wand says everything.
+    // a level (see GameScene.superWand). So it carries no caption: the "streak /
+    // needed" pill under the wand is the read-out, and a tap opens the promo that
+    // explains what the number is for (src/superwandpromo.js).
     this.superWandBtn = this._makeSuperWandButton();
     this.superWandBtn.visible = false;
     this.topHud.addChild(this.superWandBtn);
@@ -225,6 +230,13 @@ export class LobbyScene extends PIXI.Container {
     // also unlocks the shop, so the cart can appear the moment a level is cleared.
     // The `tasks` domain is what lights and clears the Tasks red dot live —
     // a counter ticking over a target, or a reward being collected.
+    // The Super Wand promo — the modal behind the rail read-out. The lobby owns it
+    // rather than the host: it is a popup over this scene, not a destination like
+    // the wheel or the gift, so it needs no scene wiring and re-centres with the
+    // lobby's own layout(). Added last, so it draws over every band.
+    this.superWandPromo = new SuperWandPromo(this.app, this.user, this.audio);
+    this.addChild(this.superWandPromo);
+
     this.user.on((domain) => {
       if (domain === "fortuneWheel" || domain === "dailyBonus" ||
           domain === "progress" || domain === "tasks" || domain === "superWand") {
@@ -468,6 +480,7 @@ export class LobbyScene extends PIXI.Container {
     if (!this.rail) return;
     this._updateWheelBadges();
     this._updateSuperWandButton();
+    if (this.superWandPromo) this.superWandPromo.refresh();
     this._updateTasksBadge();
     this.rail.refresh({ animate });
     if (this.railRight) this.railRight.refresh({ animate });
@@ -616,6 +629,21 @@ export class LobbyScene extends PIXI.Container {
     c.addChild(label);
     c.label = label;
 
+    // A tap opens the promo — the read-out can only ever show a number, and this
+    // is where the player learns what the number is for. Same feedback as the
+    // other rail buttons (the click, the press-shrink), so it reads as a button.
+    c.eventMode = "static";
+    c.cursor = "pointer";
+    c.hitArea = new PIXI.Circle(0, 0, 56);
+    c.on("pointertap", () => {
+      this.audio.play("btn_01");
+      this.superWandPromo.open();
+    });
+    c._pressed = false;
+    c.on("pointerdown", () => { c._pressed = true; c.scale.set(0.92); });
+    c.on("pointerup", () => { c._pressed = false; c.scale.set(1); });
+    c.on("pointerupoutside", () => { c._pressed = false; c.scale.set(1); });
+
     c._charged = null; // no face painted yet — the first refresh draws the disc
     return c;
   }
@@ -647,9 +675,15 @@ export class LobbyScene extends PIXI.Container {
     let beat = 0;
     const fn = () => {
       const btn = this.superWandBtn;
-      if (!btn || !btn.visible || !btn._charged) { if (btn) btn.scale.set(1); return; }
+      // `_pressed` keeps the beat off the button while a finger is on it, so the
+      // press-shrink isn't overwritten on the very next frame (same guard the
+      // wheel and the gift use).
+      if (!btn || !btn.visible || !btn._charged) {
+        if (btn && !btn._pressed) btn.scale.set(1);
+        return;
+      }
       beat += this.app.ticker.deltaMS;
-      btn.scale.set(1 + 0.06 * Math.sin(beat / 420));
+      if (!btn._pressed) btn.scale.set(1 + 0.06 * Math.sin(beat / 420));
     };
     this._superWandAnim = fn;
     this.app.ticker.add(fn);
@@ -751,6 +785,7 @@ export class LobbyScene extends PIXI.Container {
   relocalize() {
     this.playBtn.label.text = t("Language1", this._level || 1);
     this.subtitle.text = t(this._subtitleKey);
+    if (this.superWandPromo) this.superWandPromo.relocalize();
     fitTextWidth(this.title, CENTER_MAX_W);
     fitTextWidth(this.subtitle, CENTER_MAX_W);
   }
@@ -786,6 +821,9 @@ export class LobbyScene extends PIXI.Container {
 
   hide() {
     this.visible = false;
+    // Leaving the lobby closes the promo, so coming back doesn't land on a modal
+    // the player opened two screens ago.
+    if (this.superWandPromo) this.superWandPromo.visible = false;
     if (this._pulse) { this.app.ticker.remove(this._pulse); this._pulse = null; }
   }
 

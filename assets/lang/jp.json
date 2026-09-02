@@ -98,5 +98,7 @@
   "superwand_streak": "%valueレベル連続クリア！",
   "superwand_ready": "スーパー魔法の杖の準備完了！",
   "superwand_streak_risk": "連勝が危険 — 続けて守ろう",
-  "superwand_streak_lost": "連勝途切れ"
+  "superwand_streak_lost": "連勝途切れ",
+  "superwand_title": "スーパー魔法の杖",
+  "superwand_promo_line": "ひと振りで完全な2セットを消去"
 }

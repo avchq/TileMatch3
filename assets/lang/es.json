@@ -98,5 +98,7 @@
   "superwand_streak": "¡Supera %value niveles seguidos!",
   "superwand_ready": "¡Súper Varita lista!",
   "superwand_streak_risk": "Racha en riesgo, continúa para conservarla",
-  "superwand_streak_lost": "Racha perdida"
+  "superwand_streak_lost": "Racha perdida",
+  "superwand_title": "Súper Varita",
+  "superwand_promo_line": "Elimina dos sets completos de un solo golpe"
 }

@@ -11,8 +11,11 @@ BASE = harness.serve()
 # The SUPER WAND — the Wand's upgraded form, and the only helper that is EARNED
 # rather than bought. Consecutive NEW level clears charge it; once charged it takes
 # the ordinary Wand's own button over, and one tap sweeps at least two COMPLETE
-# sets off the board in a single combined elimination. It never touches the booster
-# inventory: no charge is spent, no wandUsed counter moves.
+# sets off the board in a single combined elimination. The streak earns the UPGRADE,
+# not free uses: a sweep is still a wand press, so it costs one Wand use down the
+# same waterfall every helper runs (own stock → buy with coins → watch an ad) and
+# counts toward the wandUsed / boostersUsed totals like any other. What it never
+# spends is the charge itself — only an accepted loss takes that away.
 #
 # The rule it must never break is that it only ever eliminates whole sets of three
 # — the batch is always a multiple of 3 — because sweeping a partial set away would
@@ -146,7 +149,9 @@ with sync_playwright() as p:
     print("after the upgrade beat:", s)
     assert s["mode"] == "super", ("the button changed to its upgraded mode", s)
     assert s["icon"] == "✨" and s["icon"] != "🪄", ("…and to its upgraded art", s)
-    assert s["badge"] == "", ("earned, not stocked — no count on the badge", s)
+    assert s["badge"] == str(wcount()), \
+        ("the badge carries the WAND's stock — a sweep costs one use, so the"
+         " player has to be able to see how many are left", s, wcount())
     assert s["usable"] is True, s
     assert "super_hint" in page.evaluate("window.__game.soundLog()"), \
         "the upgrade moment has its own cue"
@@ -261,33 +266,77 @@ with sync_playwright() as p:
     assert after["tray"] == [], ("both completed sets left the tray", after)
     assert after["overlay"] is False and after["locked"] is False, \
         ("control comes back and the level stays playable", after)
-    # A SWEEP CONSUMES NOTHING. The reward is the win streak itself, not a
-    # single-shot token: the button stays upgraded and the next press sweeps again,
-    # for as long as the streak lives. Only accepting a loss ever takes it away
-    # (section 12). The Wand's own stock is untouched either way — a sweep is not
-    # a wand use.
+    # A SWEEP DOES NOT CONSUME THE CHARGE. The reward is the win streak itself,
+    # not a single-shot token: the button stays upgraded and the next press sweeps
+    # again, for as long as the streak lives. Only accepting a loss ever takes it
+    # away (section 12). What a sweep DOES cost is one ordinary WAND use — the
+    # streak earns the upgrade, not free uses.
     s = sw()
-    print("after the sweep:", s)
+    print("after the sweep:", s, "| wand stock", wand_before, "->", wcount())
     assert s["charged"] is True and s["streak"] == NEED, \
         ("using a Super Wand must NOT consume it", s)
     assert s["mode"] == "super" and s["icon"] == "✨", \
         ("…so the button is still the upgraded one", s)
-    assert wcount() == wand_before, ("a sweep spends no Wand charge", wcount())
+    assert wcount() == wand_before - 1, \
+        ("a sweep spends one WAND use, like any other wand press",
+         wand_before, wcount())
 
     # And it really does fire again: a second press sweeps a second batch of whole
-    # sets off the same board, with the charge still standing afterwards.
-    b0 = st()["boardCount"]
+    # sets off the same board, spending a second wand use, with the charge still
+    # standing afterwards.
+    page.evaluate("window.__game.grantBooster('wand', 1)")
+    w0, b0 = wcount(), st()["boardCount"]
     sweep()
     b1 = st()["boardCount"]
     print("second sweep on the same board:", b0, "->", b1, sw())
     assert b0 > b1 and (b0 - b1) % 3 == 0, \
         ("the second press sweeps again, by whole sets", b0, b1)
-    assert sw()["charged"] is True, ("and still consumes nothing", sw())
+    assert sw()["charged"] is True, ("and still leaves the charge standing", sw())
+    assert wcount() == w0 - 1, ("…having spent another wand use", w0, wcount())
+
+    # ---- 6b) THE ACQUISITION WATERFALL ------------------------------------
+    # Out of wand stock, the sweep follows the SAME ladder every helper does:
+    # own → buy with coins → watch a (stubbed) rewarded ad. It never becomes free
+    # just because the button is gold.
+    page.evaluate("() => { const u = window.__game.scene.user;"
+                  " u.boosters.wand = 0; u._emit('boosters'); }")
+    price = page.evaluate("window.__game.scene._boosterPrice('wand')")
+    page.evaluate(f"window.__game.credit('coins', {price})")
+    harness.frames(page)
+    s = sw()
+    print("out of wand stock, affordable:", s["badge"], "| usable:", s["usable"])
+    assert s["badge"] == str(price), \
+        ("with none left the badge shows the BUY price, not a bare star", s, price)
+    assert s["usable"] is True, ("…and the button stays pressable", s)
+    coins0, b0 = page.evaluate("window.__game.balance('coins')"), st()["boardCount"]
+    sweep()
+    print("buy tier: coins", coins0, "->", page.evaluate("window.__game.balance('coins')"),
+          "| board", b0, "->", st()["boardCount"])
+    assert page.evaluate("window.__game.balance('coins')") == coins0 - price, \
+        ("the sweep paid the wand's coin price", coins0, price)
+    assert b0 - st()["boardCount"] >= MIN_TILES, ("…and swept", b0, st()["boardCount"])
+    assert wcount() == 0, ("buy-then-use nets no stock", wcount())
+
+    # Broke as well: the ad tier. Still usable, still free, still a full sweep.
+    page.evaluate("() => { const u = window.__game.scene.user;"
+                  " u.wallet.coins = 0; u._emit('wallet'); }")
+    harness.frames(page)
+    s = sw()
+    print("out of stock and broke:", s["badge"], "| usable:", s["usable"])
+    assert s["usable"] is True, ("the ad tier is never greyed out", s)
+    b0 = st()["boardCount"]
+    sweep()
+    print("ad tier: board", b0, "->", st()["boardCount"])
+    assert page.evaluate("window.__game.balance('coins')") == 0, "the ad tier costs no coins"
+    assert b0 - st()["boardCount"] >= MIN_TILES, ("…and swept", b0, st()["boardCount"])
+    assert sw()["charged"] is True, ("the charge is still untouched", sw())
 
     # ---- 7) RAPID TAPS ----------------------------------------------------
     # The sweep is long and dramatic, which makes double-spending easy: the button
     # must be inert for the whole of it.
     charge_and_enter(SMALL_LEVEL)
+    page.evaluate("window.__game.grantBooster('wand', 4)")
+    w_before = wcount()
     b0 = st()["boardCount"]
     page.evaluate("window.__game.superWand(); window.__game.superWand()")
     harness.settle(page, "!window.__game.superWandState().running"
@@ -298,6 +347,8 @@ with sync_playwright() as p:
     assert b0 - b1 <= 6, ("a double-tap sweeps once, not twice", b0, b1)
     assert (b0 - b1) % 3 == 0, ("…and still by whole sets", b0, b1)
     assert sw()["charged"] is True, ("a sweep never consumes the charge", sw())
+    assert wcount() == w_before - 1, \
+        ("…and it spends ONE wand use, not two", w_before, wcount())
 
     # ---- 8) NEAR-FULL TRAY ------------------------------------------------
     # The incoming tiles take the tray briefly OVER capacity before they resolve.
@@ -344,12 +395,15 @@ with sync_playwright() as p:
         s.boardCount = 0;
     }""")
     assert prev() is None, "nothing can be gathered off an empty board"
+    w_before = wcount()
     page.evaluate("window.__game.superWand()")
     time.sleep(0.6)
     s = sw()
     print("no-op sweep:", s)
     assert s["charged"] is True and s["streak"] == NEED, \
         ("a sweep that can gather nothing changes nothing", s)
+    assert wcount() == w_before, \
+        ("…and above all charges no wand use for the no-op", w_before, wcount())
     assert st()["overlay"] is False, "…and must leave the level playable"
 
     # ---- 10) LEVEL ALREADY WON -> the button does nothing ------------------
@@ -365,11 +419,12 @@ with sync_playwright() as p:
     assert s["streak"] == NEED and s["charged"] is True, \
         ("a replay leaves the streak untouched", s)
     assert bar()["shown"] is False, ("…and shows no streak bar", bar())
-    b0 = st()["boardCount"]
+    b0, w0 = st()["boardCount"], wcount()
     page.evaluate("window.__game.superWand()")
     time.sleep(0.6)
     assert st()["boardCount"] == b0, "the sweep does nothing once the level is won"
     assert sw()["charged"] is True, "…and leaves the charge alone"
+    assert wcount() == w0, "…and spends no wand use either"
 
     # ---- 11) A GENUINELY NEW CLEAR CHARGES IT, AND SAYS SO ----------------
     # Reset to just under the gate's far side so SMALL_LEVEL is a new clear again.

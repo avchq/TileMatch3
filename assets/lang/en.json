@@ -98,5 +98,7 @@
   "superwand_streak": "Clear %value levels in a row!",
   "superwand_ready": "Super Wand ready!",
   "superwand_streak_risk": "Streak at risk — Continue to keep it",
-  "superwand_streak_lost": "Streak lost"
+  "superwand_streak_lost": "Streak lost",
+  "superwand_title": "Super Wand",
+  "superwand_promo_line": "Clears two full sets in one sweep"
 }

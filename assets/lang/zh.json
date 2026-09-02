@@ -98,5 +98,7 @@
   "superwand_streak": "连续通关 %value 关！",
   "superwand_ready": "超级魔杖已就绪！",
   "superwand_streak_risk": "连胜有风险，继续保持连胜",
-  "superwand_streak_lost": "连胜中断"
+  "superwand_streak_lost": "连胜中断",
+  "superwand_title": "超级魔杖",
+  "superwand_promo_line": "一次扫清两组完整牌组"
 }

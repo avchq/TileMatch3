@@ -168,6 +168,60 @@ with sync_playwright() as p:
     assert r["available"] is True, ("but the read-out itself stays — it is progress", r)
     page.screenshot(path=f"{SC}/swrail_4_after_loss.png")
 
+    # ---- 8. Tapping the read-out explains it ------------------------------
+    # The pill can only ever show a number. A tap opens the promo that says what
+    # the number is FOR: what the sweep does, and how the meter is filled.
+    promo = lambda: ev("window.__game.superWandPromo()")
+    assert promo()["open"] is False, ("the promo starts closed", promo())
+    ev("window.__game.pressSuperWandRail()")      # the real pointer path
+    harness.frames(page, 6)
+    pr = promo()
+    print("promo:", pr)
+    assert pr["open"] is True, ("a tap on the read-out opens the promo", pr)
+    for field in ("title", "line", "caption", "button"):
+        assert pr[field] and not pr[field].startswith("superwand_") \
+            and not pr[field].startswith("ui_"), \
+            (f"{field} is localized copy, not a raw key", pr)
+    assert pr["label"] == f"0 / {needed}", \
+        ("the promo's meter shows the same streak the pill does", pr)
+    page.screenshot(path=f"{SC}/swrail_5_promo.png")
+
+    # The meter is live: it tracks the streak, and a banked charge swaps the
+    # caption to the "ready" one and pins it full.
+    empty_caption = pr["caption"]
+    ev("window.__game.superWandWin(); window.__game.superWandWin();")
+    harness.frames(page, 3)
+    assert promo()["label"] == f"2 / {needed}", ("the promo follows the streak", promo())
+    assert ev("window.__game.chargeSuperWand()") is True
+    harness.frames(page, 3)
+    pr = promo()
+    assert pr["label"] == f"{needed} / {needed}", ("a banked charge pins it full", pr)
+    assert pr["caption"] != empty_caption, \
+        ("…and the caption becomes the 'ready' one", pr, empty_caption)
+    page.screenshot(path=f"{SC}/swrail_6_promo_ready.png")
+
+    # It is modal and it closes: the cross, and a tap on the dim around it.
+    ev("() => window.__game.lobby.superWandPromo.closeBtn.emit('pointertap')")
+    harness.frames(page, 3)
+    assert promo()["open"] is False, ("the cross closes it", promo())
+    ev("window.__game.pressSuperWandRail()")
+    harness.frames(page, 3)
+    assert promo()["open"] is True, promo()
+    ev("() => window.__game.lobby.superWandPromo.dim.emit('pointertap')")
+    harness.frames(page, 3)
+    assert promo()["open"] is False, ("a tap outside the panel closes it too", promo())
+
+    # And leaving the lobby closes it, so coming back never lands on a modal the
+    # player opened two screens ago.
+    ev("window.__game.pressSuperWandRail()")
+    harness.frames(page, 3)
+    assert promo()["open"] is True, promo()
+    ev("async () => { await window.__game.startLevel(11); window.__game.closeTutorial(); }")
+    harness.settle(page, "window.__game.state().level === 11", timeout=20000)
+    ev("window.__game.exitLevel()")
+    lobby()
+    assert promo()["open"] is False, ("a trip through a level closes it", promo())
+
     assert not errs, ("no console/page errors", errs)
     print("SUPER WAND RAIL TEST PASSED")
     b.close()

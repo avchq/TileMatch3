@@ -98,5 +98,7 @@
   "superwand_streak": "Selesaikan %value level berturut-turut!",
   "superwand_ready": "Tongkat Super siap!",
   "superwand_streak_risk": "Rentetan berisiko — Lanjutkan untuk mempertahankannya",
-  "superwand_streak_lost": "Rentetan terputus"
+  "superwand_streak_lost": "Rentetan terputus",
+  "superwand_title": "Tongkat Super",
+  "superwand_promo_line": "Membersihkan dua set penuh sekaligus"
 }

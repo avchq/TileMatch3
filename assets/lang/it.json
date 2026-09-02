@@ -98,5 +98,7 @@
   "superwand_streak": "Completa %value livelli di fila!",
   "superwand_ready": "Super Bacchetta pronta!",
   "superwand_streak_risk": "Serie a rischio — continua per mantenerla",
-  "superwand_streak_lost": "Serie persa"
+  "superwand_streak_lost": "Serie persa",
+  "superwand_title": "Super Bacchetta",
+  "superwand_promo_line": "Elimina due set completi in un colpo solo"
 }

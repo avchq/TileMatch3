@@ -98,5 +98,7 @@
   "superwand_streak": "%value레벨 연속 클리어!",
   "superwand_ready": "슈퍼 마법봉 준비 완료!",
   "superwand_streak_risk": "연승 위험 — 계속해서 지키세요",
-  "superwand_streak_lost": "연승 끊김"
+  "superwand_streak_lost": "연승 끊김",
+  "superwand_title": "슈퍼 마법봉",
+  "superwand_promo_line": "한 번에 두 세트를 모두 제거합니다"
 }

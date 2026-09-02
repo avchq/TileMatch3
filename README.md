@@ -293,10 +293,11 @@ no new machinery:
   after them:
   1. **Free Spin**
   2. **Daily Bonus**
-  3. **Super Wand** — a "streak/needed" progress pill, not a doorway (see
-     [Super Wand](#super-wand--an-earned-upgrade-to-the-wand)). It is registered
-     last precisely so it never bumps a claimable Free Spin or Daily Bonus out of
-     the top slot; it just settles into whichever slot is left.
+  3. **Super Wand** — a "streak/needed" progress pill that is also a doorway: a
+     tap opens the **Super Wand promo**, a modal explaining what the meter is for
+     (see [Super Wand](#super-wand--an-earned-upgrade-to-the-wand)). It is
+     registered last precisely so it never bumps a claimable Free Spin or Daily
+     Bonus out of the top slot; it just settles into whichever slot is left.
 - **Right rail** (`RAIL_RIGHT_X` 664), under the coin pill — the **permanent**
   destinations:
   1. **Tasks**
@@ -587,9 +588,12 @@ stock or a rewarded ad. Where the ordinary Wand is a small favour (one triple), 
 charged Super Wand is a board-clearing event: one tap sweeps **at least two
 complete sets at once** (6+ tiles) off the board in a single combined
 elimination — one burst, one sound, one beat — rather than a rapid sequence of
-individual matches. It consumes **nothing**: it is not a stocked token but the
-state of being on a win streak, so the very next tap sweeps again, on the same
-board, across levels and app restarts, for as long as the streak lives.
+individual matches. The **charge** consumes nothing: it is not a stocked token
+but the state of being on a win streak, so the very next tap sweeps again, on
+the same board, across levels and app restarts, for as long as the streak
+lives. What the streak buys is the *upgrade*, not free uses — every sweep
+still spends one ordinary WAND use, through the same stock → buy → ad
+waterfall any Wand press runs.
 
 - **Earning it.** Consecutive **genuinely new** level clears charge it —
   `CONFIG.boosters.superWand.streakLength` (**5**) of them in a row — and only
@@ -610,39 +614,63 @@ board, across levels and app restarts, for as long as the streak lives.
 - **The lobby read-out.** The same streak also shows on the lobby's left-edge
   feature rail (see [Feature buttons](#feature-buttons--the-lobby-rails)), as a
   third entry below Free Spin and Daily Bonus: the round Wand disc with a dark
-  "streak/needed" pill where the other rail buttons put their caption. It has no
-  tap handler — there is no Super Wand screen to open, so it is a pure read-out —
-  and it is offered from `unlockLevel` on and then always, with no "used up
-  today" state to hide it again. A banked charge pins the pill full and flips the
+  "streak/needed" pill where the other rail buttons put their caption. A tap
+  opens the **Super Wand promo** (`src/superwandpromo.js`, `SuperWandPromo`) — a
+  modal over the lobby explaining what the pill's number is for, since the pill
+  itself can only ever show a number — and it is offered from `unlockLevel` on
+  and then always, with no "used up today" state to hide it again. A banked
+  charge pins the pill full and flips the
   whole face to the same gold disc + ✨ glyph the in-level helper button wears,
   and a charged button breathes gently (a filling one sits still) as the only
-  "ready" indicator; there is no badge or red dot. Because using a Super Wand no
-  longer spends anything, that gold ✨ **5/5** stays on screen through any number
-  of sweeps, across levels and app restarts — it only drops back to a plain 🪄
-  **0/5** when a loss is accepted. It repaints live off the profile's
-  `superWand` domain, so the pill ticks over without a scene rebuild the moment
-  a streak win lands or a loss is accepted, and survives a reload the same way
-  every other rail entry does.
+  "ready" indicator; there is no badge or red dot. Because sweeping spends a
+  Wand use and never the charge itself, that gold ✨ **5/5** stays on screen
+  through any number of sweeps, across levels and app restarts — it only drops
+  back to a plain 🪄 **0/5** when a loss is accepted. It repaints live off the
+  profile's `superWand` domain, so the pill ticks over without a scene rebuild
+  the moment a streak win lands or a loss is accepted, and survives a reload
+  the same way every other rail entry does.
+- **The promo.** The pill's tap opens a modal, in the same shape as the "How To
+  Play" popup: a full-view dim that swallows taps and closes on a tap outside
+  the panel, one centred `group` a resize re-centres by moving a single object,
+  and a `layout(DW, DH)`. It is a popup over the lobby, not a scene — `LobbyScene`
+  constructs it, adds it as its topmost child and hides it in `hide()`, so a trip
+  through a level never leaves it open. The 620×880 panel carries a ribbon header
+  (a "?" badge, the title and a close cross), a framed illustration, one
+  explanatory line, the same live progress strip described above, and an OK
+  button. The illustration is **drawn**, like every other effect in this game —
+  a 12-wedge gold sunburst (the same construction as the "How To Play" popup's
+  rays and the Daily Bonus screen's shine), the gold ✨ wand disc at its centre,
+  and six tiles blown outward, three 🍓 and three 🍋, because that is exactly
+  what one sweep clears: two complete sets, never a partial one. The strip
+  reads the profile the same way the rail pill does, toggling between two bound
+  labels — "Clear 5 levels in a row!" while filling, "Super Wand ready!" once
+  charged — so a language swap re-letters whichever is showing for free.
 - **Losing it.** The Super Wand is not a single-shot token — it is the **state
-  of being on a win streak** — so using it takes nothing away. The only thing
-  that ever clears it is a loss the player **accepts**: pressing Home or Replay
-  on the Out-of-Moves overlay clears the streak-in-progress **and** a banked
-  charge together. Paying to **Continue** rescues the board and whatever streak
-  state it carries. While the overlay is up it shows the streak bar with a
+  of being on a win streak** — so sweeping (beyond the wand use it costs) takes
+  nothing away from it. The only thing that ever clears it is a loss the player
+  **accepts**: pressing Home or Replay on the Out-of-Moves overlay clears the
+  streak-in-progress **and** a banked charge together. Paying to **Continue**
+  rescues the board and whatever streak state it carries. While the overlay is
+  up it shows the streak bar with a
   "Streak at risk — Continue to keep it" caption — a full 5/5 meter when a
   charge is banked, a partial one otherwise, since either is lost the same way —
   and if Home/Replay is pressed instead it **drains the bar visibly** with a
   "Streak lost" caption, so the reset is watched rather than discovered later.
 - **The shared button.** It gets no button of its own: it takes the **Wand's**
   button over. Uncharged, the button is the ordinary Wand. Charged, the face
-  changes (glyph 🪄→✨, the disc purple→gold, and a gold ★ badge with no count,
-  since there is nothing to buy or stock) and **every** tap sweeps instead of
+  changes (glyph 🪄→✨, the disc purple→gold) and **every** tap sweeps instead of
   completing a triple — the same board, the same button, for as long as the
-  streak lives. The changeover is announced on the first board where the charge
-  can actually be used (charging happens on the *previous* level's complete
-  screen) with a brief beat, an effect on the button and a scale-punch as the
-  icon swaps — once per charge, so a Replay or a reload while it sits banked
-  doesn't replay the announcement, and using it again never replays it either.
+  streak lives. Because a sweep still spends a wand use, the badge has to tell
+  the same story the ordinary Wand's does: the stock left, in a **gold** bubble
+  while there's stock (or while there's no move to make), the same orange
+  coin/price "buy" tag once stock runs out and the price is affordable, and the
+  same blue 📺 "ad" bubble when it isn't — only the gold treatment, plus the
+  gold disc and the ✨ glyph, says "upgraded". The changeover is announced on
+  the first board where the charge can actually be used (charging happens on
+  the *previous* level's complete screen) with a brief beat, an effect on the
+  button and a scale-punch as the icon swaps — once per charge, so a Replay
+  or a reload while it sits banked doesn't replay the announcement, and using
+  it again never replays it either.
   The two modes are mutually exclusive through one predicate
   (`_superWandActive()`), checked by both the ordinary `wand()` and
   `superWand()`, so a scripted call is held to the same rule as a real tap and
@@ -668,21 +696,28 @@ board, across levels and app restarts, for as long as the streak lives.
   `DEBUG:` labelled block in `src/game.js`'s `_superWandClear` — a
   `console.error` if it is ever violated, so a regression fails the e2e suite's
   zero-errors assertion; `--drop-labels=DEBUG` strips the check from production.
-- **Not a consumable.** A sweep never goes through the acquisition ladder
-  (`_acquireBooster`/`useBooster`), so it spends **no Wand charge** and bumps
-  **no** `wandUsed`/`boostersUsed` task counter. There is no inventory entry and
-  no price for it — it is absent from `CONFIG.boosters.kinds`,
+- **Not a consumable — the charge, not the use.** The streak/charge itself has
+  no inventory entry and no price — it is absent from `CONFIG.boosters.kinds`,
   `startingInventory` and `unlocks` on purpose; see `user.superWand` for the
-  small state it actually keeps (`streak`/`charged`/`announced`). There used to
-  be a fourth accessor here, `User.spendSuperWand()` — it has been deleted
-  entirely, because there is nothing left for a "spend" to do.
+  small state it actually keeps (`streak`/`charged`/`announced`), and it is
+  never spent by sweeping. The *sweep*, though, is an upgraded Wand press and
+  costs one: `superWand()` runs the same acquisition ladder every helper does
+  (`_acquireBooster` — own stock → buy with coins → watch a rewarded ad) and
+  bumps the same `wandUsed`/`boostersUsed` task counters `wand()` does. It is
+  called after the pure, side-effect-free `_superWandPick()` read, so a sweep
+  that can gather nothing never charges for a no-op, and before anything is
+  locked or moved, so a refusal (no stock, no coins, no ad taken) leaves the
+  board, the tray and the streak exactly as they were. There used to be a
+  fourth accessor here, `User.spendSuperWand()` — it has been deleted
+  entirely, because there is nothing left for a "spend" of the *charge* to do.
 - **Edge cases.** A board that can't supply two full sets clears whatever
   complete sets it can. A sweep that can gather nothing at all is a graceful
   no-op — the charge is never at risk from a bad board, since only an accepted
   loss can ever take it away. The button does nothing once the level is already
-  won or lost. A sweep into a nearly-full tray is safe: the tray briefly goes over capacity while the
-  incoming tiles fly in, but the scene stays locked for the whole sweep so the
-  tray-full loss check never observes the overflow, and every pulled tile leaves
+  won or lost. A sweep into a nearly-full tray is safe: the tray briefly goes
+  over capacity while the incoming tiles fly in, but the scene stays locked for
+  the whole sweep so the tray-full loss check never observes the overflow, and
+  every pulled tile leaves
   again with the set it completed — so the tray always ends up **smaller** than
   it started, never bigger. The tray's **near-full warning** (the pulse and the
   "Insufficient space!" bubble) sits the sweep out for the same reason: those
@@ -693,8 +728,10 @@ board, across levels and app restarts, for as long as the streak lives.
 - **Analytics.** Earning a streak win, charging and each sweep are all reported
   through `GameScene._reportSuperWand()`, a `console.debug` stub with a
   `TODO(SDK)` naming the intended events (`CK_SuperWand_Earn`,
-  `CK_SuperWand_Charge`, `CK_SuperWand_Use` — "Use" rather than "Spend", since a
-  sweep consumes nothing), exactly like `FortuneWheelScene._reportSpin`.
+  `CK_SuperWand_Charge`, `CK_SuperWand_Use` — "Use" rather than "Spend", since
+  it's the *charge* being marked, and the charge is never spent — the wand use
+  it costs is counted separately, through the ordinary booster stats), exactly
+  like `FortuneWheelScene._reportSpin`.
 
 ## Localization
 
@@ -794,7 +831,7 @@ fetched. The folder is configurable (`CONFIG.language.textDir`); the **set of
 offered languages is not** — it is hard-coded as `LANGUAGES` in `src/i18n.js`,
 because a data-driven list would let a language exist that nothing can reach.
 
-There are **100 keys**, and the key list is **byte-for-byte identical across all
+There are **102 keys**, and the key list is **byte-for-byte identical across all
 13 languages** — `tests/i18n_test.py` enforces that, along with "not a single
 phrase is left sitting in English". Where a translation looks like English it is
 a one- or two-word cognate (German `Level`, `Shop`; Indonesian `OK`), not a
@@ -1482,6 +1519,15 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   restarting an in-flight move. `slots()` is the debug/test snapshot behind
   `window.__game.featureRail()`. `RAIL_LEFT_X`/`RAIL_RIGHT_X` + `RAIL_Y0`/`RAIL_GAP`
   define the ladder, so a right-edge rail is just another instance.
+- `src/superwandpromo.js` is the `SuperWandPromo` — the modal a tap on the left
+  rail's Super Wand pill opens (see the Super Wand section above), in the same
+  shape as `HowToPlayPopup`: a modal dim, one centred `group`, a `layout(DW,
+  DH)`. It is owned by `LobbyScene`, not by `main.js` — a popup over the lobby
+  rather than a destination the host wires up — so `LobbyScene` adds it as its
+  topmost child, drives its `layout`/`refresh`/`relocalize` from its own, and
+  hides it in `hide()` so a trip through a level never leaves it open. Its
+  illustration is drawn with the same Graphics + emoji vocabulary as the rest
+  of the game, since this project has no promo artwork and no particle system.
 - `src/shop.js` is the `ShopScene` — an overlay (modeled on `SettingsScene`)
   opened by tapping the **coin pill** in either scene. It lists the **packages** for
   sale (from `payments.js`), each row showing the package name, a one-line contents
@@ -1790,7 +1836,8 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   of counters),
   and the **Super Wand** streak state (`superWand` — `streak`/`charged`/`announced`,
   mutated via `recordSuperWandWin`/`breakSuperWandStreak` — there is no
-  "spend", using it takes nothing away — with
+  "spend" of this state; sweeping costs an ordinary Wand use, tracked in the
+  `boosters` domain instead, and leaves `superWand` untouched — with
   `isSuperWandUnlocked()` gating it off `completed` the same way as the others,
   and `superWandNeedsAnnounce()`/`markSuperWandAnnounced()` tracking whether the
   button-takeover beat has played for the charge currently banked; emitting a

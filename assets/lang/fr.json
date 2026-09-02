@@ -98,5 +98,7 @@
   "superwand_streak": "Terminez %value niveaux d'affilée !",
   "superwand_ready": "Baguette Suprême prête !",
   "superwand_streak_risk": "Série en péril — continuez pour la conserver",
-  "superwand_streak_lost": "Série perdue"
+  "superwand_streak_lost": "Série perdue",
+  "superwand_title": "Baguette Suprême",
+  "superwand_promo_line": "Efface deux séries complètes d'un seul coup"
 }

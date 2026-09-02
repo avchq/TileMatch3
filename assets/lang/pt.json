@@ -98,5 +98,7 @@
   "superwand_streak": "Vença %value níveis seguidos!",
   "superwand_ready": "Super Varinha pronta!",
   "superwand_streak_risk": "Sequência em risco — continue para mantê-la",
-  "superwand_streak_lost": "Sequência perdida"
+  "superwand_streak_lost": "Sequência perdida",
+  "superwand_title": "Super Varinha",
+  "superwand_promo_line": "Elimina dois conjuntos completos de uma só vez"
 }

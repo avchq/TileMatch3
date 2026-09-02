@@ -632,6 +632,13 @@ async function boot() {
       // and the face it is wearing. `label` is the pill text ("3/5"); `charged`
       // is the gold/upgraded look. Shaped like featureRail()'s entries so a test
       // can assert the slot and the copy from one call.
+      // The Super Wand promo — the modal the rail read-out opens. `open` it by
+      // hand, or drive the real path with pressSuperWandRail().
+      superWandPromo: () => lobby.superWandPromo.state(),
+      openSuperWandPromo: () => lobby.superWandPromo.open(),
+      closeSuperWandPromo: () => lobby.superWandPromo.close(),
+      // A real tap on the rail's read-out, through its own pointer handler.
+      pressSuperWandRail: () => lobby.superWandBtn.emit("pointertap"),
       superWandRail: () => {
         const b = lobby.superWandBtn;
         return {
