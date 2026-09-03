@@ -166,6 +166,51 @@ with sync_playwright() as p:
     take()
     assert shuffles() == start_shuf + 2, ("a shuffle x2 prize added 2 to the inventory", (start_shuf, shuffles()))
 
+    # ---- 11. The reveal plays as an ordered sequence ------------------
+    # 3 boxes -> pick -> the other two disappear -> the picked one opens ->
+    # the award comes up in the foreground -> the opened box fades out behind it.
+    # Sampled in-page via rAF (no round-trip gaps) so the ORDER is what's asserted,
+    # not a wall-clock guess. `pickDailyBox` is fired without awaiting it — the
+    # trailing `null` keeps page.evaluate from waiting on its promise.
+    setday("2050-06-20")
+    force(COINS50)
+    open_d()
+    time.sleep(0.35)
+    pre = page.evaluate("window.__game.dailyBoxState()")
+    assert all(b["visible"] and b["alpha"] > 0.9 for b in pre["boxes"]), ("three boxes visible before the pick", pre)
+    assert pre["reveal"]["visible"] is False, ("no award on screen yet", pre)
+
+    ev = page.evaluate("""() => new Promise(resolve => {
+            const CH = 2;                       // the box we tap
+            window.__game.pickDailyBox(CH); null;
+            const gone = (b) => !b.visible || b.alpha <= 0.02;
+            const ev = {}, t0 = performance.now();
+            (function tick() {
+                const s = window.__game.dailyBoxState(), now = performance.now() - t0;
+                const others = s.boxes.filter((_, i) => i !== CH);
+                if (ev.othersGone == null && others.every(gone)) ev.othersGone = now;
+                if (ev.lidOpen == null && s.boxes[CH].lidY < -5) ev.lidOpen = now;
+                if (ev.awardShown == null && s.reveal.visible && s.reveal.alpha > 0.5) ev.awardShown = now;
+                if (ev.chosenGone == null && gone(s.boxes[CH])) ev.chosenGone = now;
+                if (ev.chosenGone != null || now > 15000) resolve(ev);
+                else requestAnimationFrame(tick);
+            })();
+        })""")
+    for k in ("othersGone", "lidOpen", "awardShown", "chosenGone"):
+        assert ev.get(k) is not None, (f"the sequence reached {k}", ev)
+    assert ev["othersGone"] <= ev["lidOpen"], ("the two unchosen boxes go BEFORE the picked one opens", ev)
+    assert ev["lidOpen"] < ev["awardShown"], ("the box opens BEFORE the award is shown", ev)
+    assert ev["awardShown"] <= ev["chosenGone"], ("the award is up BEFORE the opened box fades out", ev)
+    assert ev["lidOpen"] < ev["chosenGone"], ("the opened box only leaves after it has opened", ev)
+
+    s = st()
+    assert s["opened"] is True and s["chosen"] == 2, ("box 2 is the one that opened", s)
+    post = page.evaluate("window.__game.dailyBoxState()")
+    assert all(not b["visible"] or b["alpha"] <= 0.02 for b in post["boxes"]), ("no box left on screen", post)
+    assert post["reveal"]["visible"] and post["reveal"]["alpha"] > 0.9, ("the award stands alone in the foreground", post)
+    take()
+    assert coins() == 300, ("the award still credits after the new sequence", coins())
+
     page.screenshot(path=f"{SC}/dailybonus.png")
     assert not errs, ("no console/page errors", errs)
     print("DAILY BONUS TEST PASSED")

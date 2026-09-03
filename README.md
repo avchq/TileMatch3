@@ -30,17 +30,21 @@ then on every load lands on the lobby as usual. See `user.isNewPlayer()` /
 `progress.completed` in the User section below.
 
 Every level, not just the first, opens with the same small piece of theatre
-before it opens for taps: a **wave crosses the board from the bottom-left
-corner to the top-right one**, popping each tile into place as it reaches it,
-so the pile visibly assembles itself diagonally in front of the player and its
-depth is readable before you make a move, whether it's a shallow 2-layer level
-or a much deeper one (a tile also lands a beat after the tiles it rests on, so
-the wave climbs the stack as it crosses the board, and the whole sweep is
-squeezed to fit inside a fixed ceiling rather than making you wait longer on a
-deeper board). Nothing on the board is tappable until the last tile has landed,
-and the level's own opening — the "How To Play" popup on level 1, the guided
-first moves, a helper's coached first use — waits for that moment too, so
-nothing is ever explained over a half-built board.
+before it opens for taps: a **wave crosses the board from one of its four
+corners to the one diagonally opposite**, popping each tile into place as it
+reaches it, so the pile visibly assembles itself diagonally in front of the
+player and its depth is readable before you make a move, whether it's a
+shallow 2-layer level or a much deeper one (a tile also lands a beat after the
+tiles it rests on, so the wave climbs the stack as it crosses the board, and
+the whole sweep is squeezed to fit inside a fixed ceiling rather than making
+you wait longer on a deeper board). The starting corner is picked at random
+per board — building the next level, replaying, or retrying after a loss each
+choose again — but never the same corner twice running, so the variety is
+actually noticed rather than lost in a run of repeats. Nothing on the board is
+tappable until the last tile has landed, and the level's own opening — the "How
+To Play" popup on level 1, the guided first moves, a helper's coached first use
+— waits for that moment too, so nothing is ever explained over a half-built
+board.
 
 ### The "How To Play" popup
 The very first thing level 1 does — before the player is handed any control, and
@@ -443,9 +447,18 @@ claim (`user.dailyBonus.lastClaimDay`).
 Opening the popup shows **three closed mystery boxes** (green / red / blue) bobbing,
 with a "Pick a box!" tip. Three prizes are **pre-rolled** — one behind each box, each
 an independent weighted draw. Tapping a box **commits today's claim then and there**
-(so the boxes can't be re-rolled), slides it to centre, lifts its lid, and reveals
-the prize (icon + name + amount + a rotating shine + a "Congratulations" line); the
-other two boxes never open. After the reveal a **"📺 Double it!"** button appears
+(so the boxes can't be re-rolled) and plays a **strictly ordered reveal**, one beat
+at a time rather than all at once:
+
+1. the **two boxes not chosen disappear** (shrink + fade, ~220 ms) — they never open;
+2. only then does the **chosen box slide to centre**, pop forward and **lift its lid**;
+3. the **award appears in the foreground** on top of the open box (icon + name +
+   amount + a rotating shine + a "Congratulations" line), popping in with a small
+   overshoot;
+4. a beat later the **opened box fades away behind it**, leaving the prize alone
+   on screen.
+
+After the reveal a **"📺 Double it!"** button appears
 first and a plain **Claim** button fades in about **two seconds later** — the
 interface nudges toward the ad. Watching the (stubbed) rewarded video **doubles** the
 revealed amount; if the ad isn't ready the player is told so and can still take the
@@ -1393,18 +1406,30 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   behind on a hidden scene.
   The **opening deal** (`_dealIn`, called from `loadLevel` right after
   `_layoutBoard`) is how a board actually arrives on screen: instead of painting
-  the whole stack at once, a **wave crosses the board from the bottom-left
-  corner to the top-right one**, and every board tile starts invisible and
-  undersized (`DEAL.fromScale`) until the wave reaches it, at which point it
+  the whole stack at once, a **wave crosses the board from one of its four
+  corners to the one diagonally opposite**, and every board tile starts invisible
+  and undersized (`DEAL.fromScale`) until the wave reaches it, at which point it
   pops up to its home size and full opacity via `easeOutBack` (so it overshoots
   a little before settling, which reads as a pop), with the fade running at
   twice the pop's pace so a tile looks solid well before it has finished
-  settling. A tile's place on the wave is read off its **grid** position, not
-  its screen one: the axis is `((gx - minX)/spanX + (gy - minY)/spanY) / 2`,
-  each direction normalised by the board's own span, so 0 is always the
-  bottom-left corner and 1 the top-right one regardless of whether the board is
-  wide or tall, and `gy` counts upwards on screen, which is what puts the
-  bottom of the board at the low end of the axis. On top of that, a tile is set
+  settling. Which corner the wave starts from is picked per **board build** —
+  `_pickDealCorner()` chooses uniformly at random from `DEAL_CORNERS` (`"bl"`,
+  `"br"`, `"tl"`, `"tr"`; `"b"`/`"t"` is bottom/top on screen, `"l"`/`"r"` left/
+  right), **excluding** the corner the previous board used (`_lastDealCorner`),
+  so the same corner never runs twice in a row and the next level, a Replay and
+  a retry after a loss each open differently (a reshuffle does not rebuild the
+  board, so it does not re-deal). `forceDealCorner(corner)` pins the corner for
+  every following board — or clears the pin when passed anything not in
+  `DEAL_CORNERS`, such as `null` — purely as a test seam; nothing in the game
+  calls it. A tile's place on the wave is read off its **grid** position, not
+  its screen one: each direction is counted from whichever end the chosen
+  corner sits at and then normalised by the board's own span —
+  `fx = (gx - minX)/spanX`, `fy = (gy - minY)/spanY`, then
+  `axis = ((fromRight ? 1-fx : fx) + (fromTop ? 1-fy : fy)) / 2` — so 0 is
+  always the chosen corner and 1 the tile diagonally opposite it regardless of
+  whether the board is wide or tall or which corner was picked, and `gy` counts
+  upwards on screen, which is what puts the bottom of the board at the low end
+  of a `"b"` axis. On top of that, a tile is set
   back by `DEAL.layerMs` for every **layer** it sits above the base, so a
   covering tile still lands after the tiles it rests on — the wave crosses the
   board and climbs the stack at the same time. The whole sweep (`DEAL.waveMs`
@@ -1423,11 +1448,16 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   (a reload, a Back press) is checked against `_guideRun` on every step, so it
   simply abandons the animation on tiles that no longer belong to the current
   board. `dealState()` is the read the debug API (`window.__game.dealState()`)
-  exposes for `deal_test.py`: whether the deal is still running, the timings
-  (one tile's pop, the wave's spread after any squeeze, and the whole deal), and
-  every board tile with its grid position, the delay the wave gave it and its
-  live opacity — so sampling it once per frame shows the wave's front crossing
-  the board.
+  exposes for `deal_test.py`: whether the deal is still running, which corner
+  this board's wave started from and the four it could have started from
+  (`corner` / `corners`), the timings (one tile's pop, the wave's spread after
+  any squeeze, and the whole deal), and every board tile with its grid
+  position, the delay the wave gave it and its live opacity — so sampling it
+  once per frame shows the wave's front crossing the board.
+  `window.__game.setDealCorner(corner)` — a `main.js` debug-API entry next to
+  `dealState`, wired to `forceDealCorner` — pins the corner for every following
+  board, or clears the pin (back to picking one at random per board) when
+  passed anything not in `dealState().corners`, such as `null`.
   The **"How To Play" popup** (`src/tutorial.js`, `HowToPlayPopup`) is opened by
   `loadLevel` whenever `levelNum === TUTORIAL_LEVEL` (1) — the gate is the level
   number, not `isNewPlayer()`. `_showTutorial()` locks the scene, adds the popup to

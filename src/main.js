@@ -856,6 +856,16 @@ async function boot() {
         day: daily._today(),
         prizes: (daily._prizes || []).map((p) => (p ? { type: p.type, amount: p.amount } : null)),
       }),
+      // A frame-by-frame view of the reveal sequence: where each box is (the two
+      // unchosen ones vanish, then the chosen one opens and later fades out behind
+      // the prize) and where the prize group has got to. Lets a test sample the
+      // ORDER of the beats via rAF instead of guessing at wall-clock waits.
+      dailyBoxState: () => ({
+        boxes: daily._boxes.map((b) => ({
+          visible: b.visible, alpha: b.alpha, x: b.x, lidY: b.lid.y,
+        })),
+        reveal: { visible: daily._reveal.visible, alpha: daily._reveal.alpha },
+      }),
       // Force the day-key (rollover tests) — also refresh the lobby gift button.
       setDailyToday: (key) => { daily._todayOverride = key; lobby.refreshFeatures(); },
       // Pin the prize behind every box (deterministic prize tests).
@@ -1048,6 +1058,9 @@ async function boot() {
       // live mean opacity of its tiles. deal_test.py samples this mid-deal to
       // assert the layers really come up bottom-first, one behind the other.
       dealState: () => scene.dealState(),
+      // Pin the corner the deal's wave starts from (one of dealState().corners),
+      // or null to go back to picking one at random per board.
+      setDealCorner: (corner) => scene.forceDealCorner(corner),
       state: () => ({
         level: scene.levelNum,
         boardCount: scene.boardCount,

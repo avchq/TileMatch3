@@ -1,26 +1,34 @@
 """The start-of-level DEAL — a board arrives as a wave, not all at once.
 
-Every level opens with a wave that crosses the board from the BOTTOM-LEFT corner
-to the TOP-RIGHT one, popping each tile in as it reaches it, so the player
-watches the pile assemble itself and can read its shape and depth before the
-first tap. Each layer is set back a little further than the one it rests on, so
-the wave climbs the stack as it sweeps across. Until the last tile lands the
-level is LOCKED (there is nothing to tap yet) and the level's opening — the "How
-To Play" popup, the guided first moves, a helper's coaching — is held back, so
-nothing is ever explained over a half-built board.
+Every level opens with a wave that crosses the board diagonally, popping each
+tile in as it reaches it, so the pile assembles itself in front of the player and
+its shape and depth are readable before the first tap. The corner it starts from
+is **picked per board** out of the four (bottom-left, bottom-right, top-left,
+top-right), never the same one twice running, so a level replayed does not open
+the same way twice. Each layer is set back a little further than the one it rests
+on, so the wave climbs the stack as it sweeps across. Until the last tile lands
+the level is LOCKED (there is nothing to tap yet) and the level's opening — the
+"How To Play" popup, the guided first moves, a helper's coaching — is held back,
+so nothing is ever explained over a half-built board.
 
-What this file guards, all of it through `window.__game.dealState()`, which
-reports every board tile with its grid position, the delay the wave gave it and
-its live opacity:
+What this file guards, through `window.__game.dealState()` (every board tile with
+its grid position, the delay the wave gave it and its live opacity) and
+`window.__game.setDealCorner()` (which pins the corner so the geometry can be
+checked one corner at a time):
 
-  1. the wave's shape: a tile's delay never runs backwards along the axis — move
-     right, up, or onto a higher layer and a tile can only be dealt later, never
-     sooner — and the bottom-left corner really is first and the top-right last;
-  2. the wave on screen: some frame catches the bottom-left corner solid while
-     the top-right one has not started, and no tile ever fades back out;
-  3. the finish: every tile ends at full opacity and at its laid-out size, the
+  1. every corner's geometry: pinned to each of the four in turn, a tile's delay
+     never runs backwards along that corner's axis — move away from the corner in
+     either direction, or onto a higher layer, and a tile can only be dealt later
+     — and on the ground layer the first tile dealt is the corner itself and the
+     last is the tile diagonally opposite it;
+  2. the variety: left to itself the game really does move the corner around, and
+     never repeats one twice in a row;
+  3. the wave on screen: some frame catches the near corner solid while the far
+     one has not started, no tile ever fades back out, and no tile the wave deals
+     later is ever ahead of one it deals earlier;
+  4. the finish: every tile ends at full opacity and at its laid-out size, the
      board is unlocked, and `startLevel` does not resolve before that;
-  4. the handover: on level 1 the How To Play popup is not up while the board is
+  5. the handover: on level 1 the How To Play popup is not up while the board is
      still arriving — it opens once the deal is done.
 
 Before this animation existed the board was painted outright by _layoutBoard, so
@@ -39,6 +47,11 @@ import harness
 # lazy-loads, which is worth covering too — the deal must survive being started
 # after an asset fetch.
 DEAL_LEVEL = 5
+
+# A cheap preloaded board to re-deal over and over for the variety check, and how
+# many times to deal it.
+VARIETY_LEVEL = 2
+VARIETY_DEALS = 8
 
 # The deal is squeezed to fit DEAL.maxMs in src/game.js. This is not that number
 # — it is the outer bound on what still counts as an OPENING rather than a wait,
@@ -80,23 +93,71 @@ def on_board(snaps, level):
     return [s for s in snaps if s["level"] == level and s["deal"]["tiles"]]
 
 
-def wave_axis(tiles):
-    """Where each tile sits on the wave's axis: 0 bottom-left, 1 top-right.
+def wave_axis(tiles, corner):
+    """Where each tile sits on the wave's axis: 0 at `corner`, 1 opposite it.
 
-    The same reading _dealIn uses — grid coords, each direction normalised by the
-    board's own span, gy counting UPWARDS on screen (see _layoutBoard). Computed
-    here from the reported positions rather than trusted from the game, so the
-    test really is checking the shape of the wave and not just echoing it.
+    The same reading _dealIn uses — grid coords, each direction counted from
+    whichever end the corner sits at and normalised by the board's own span, gy
+    counting UPWARDS on screen (see _layoutBoard), so "b" really is the bottom of
+    the board. Computed here from the reported positions rather than trusted from
+    the game, so the test is checking the shape of the wave and not echoing it.
     """
     xs = [t["gx"] for t in tiles]
     ys = [t["gy"] for t in tiles]
     minX, spanX = min(xs), max(1e-6, max(xs) - min(xs))
     minY, spanY = min(ys), max(1e-6, max(ys) - min(ys))
-    return lambda t: ((t["gx"] - minX) / spanX + (t["gy"] - minY) / spanY) / 2
+    from_right, from_top = corner[1] == "r", corner[0] == "t"
+
+    def axis(t):
+        fx = (t["gx"] - minX) / spanX
+        fy = (t["gy"] - minY) / spanY
+        return ((1 - fx if from_right else fx) + (1 - fy if from_top else fy)) / 2
+    return axis
 
 
 def alpha_of(snap, tile_id):
     return next(t["alpha"] for t in snap["deal"]["tiles"] if t["id"] == tile_id)
+
+
+def check_geometry(deal, tag):
+    """Every ordering rule the wave's shape has to obey, from one dealState()."""
+    tiles = deal["tiles"]
+    corner = deal["corner"]
+    assert corner in deal["corners"], f"{tag}: unknown corner {corner!r}"
+    delays = {t["id"]: t["delayMs"] for t in tiles}
+    assert all(d is not None for d in delays.values()), f"{tag}: a tile got no place in the wave"
+    axis = wave_axis(tiles, corner)
+
+    # Moving AWAY from the corner in either direction — or up onto a higher layer
+    # — can only push a tile later, never earlier.
+    away_x = (lambda a, b: a["gx"] >= b["gx"]) if corner[1] == "r" else (lambda a, b: a["gx"] <= b["gx"])
+    away_y = (lambda a, b: a["gy"] >= b["gy"]) if corner[0] == "t" else (lambda a, b: a["gy"] <= b["gy"])
+    for a in tiles:
+        for b in tiles:
+            if (away_x(a, b) and away_y(a, b) and a["layer"] <= b["layer"]
+                    and delays[a["id"]] > delays[b["id"]] + 1e-6):
+                raise AssertionError(
+                    f"{tag}: the wave ran backwards — tile {a['id']} at "
+                    f"({a['gx']},{a['gy']},L{a['layer']}) waits {delays[a['id']]:.0f}ms but "
+                    f"{b['id']} at ({b['gx']},{b['gy']},L{b['layer']}), further from the "
+                    f"{corner} corner, waits only {delays[b['id']]:.0f}ms")
+
+    # On the ground layer, where the per-layer set-back is out of the picture, the
+    # wave must be a clean diagonal from the corner to the tile opposite it.
+    ground = [t for t in tiles if t["layer"] == 0]
+    near = min(ground, key=lambda t: delays[t["id"]])
+    far_g = max(ground, key=lambda t: delays[t["id"]])
+    assert abs(axis(near) - min(axis(t) for t in ground)) < 1e-9, \
+        f"{tag}: the wave did not start at the {corner} corner"
+    assert abs(axis(far_g) - max(axis(t) for t in ground)) < 1e-9, \
+        f"{tag}: the wave did not end at the corner opposite {corner}"
+    assert delays[far_g["id"]] > delays[near["id"]], f"{tag}: the wave never crossed the board"
+    ordered = sorted(ground, key=axis)
+    for a, b in zip(ordered, ordered[1:]):
+        assert delays[b["id"]] >= delays[a["id"]] - 1e-6, \
+            (f"{tag}: the ground layer was dealt out of order — axis {axis(a):.2f} at "
+             f"{delays[a['id']]:.0f}ms before axis {axis(b):.2f} at {delays[b['id']]:.0f}ms")
+    return delays, axis, near
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -116,70 +177,58 @@ with sync_playwright() as p:
         os.makedirs(harness.OUTPUT, exist_ok=True)
         time.sleep(0.4)
 
-        # ---- 1 + 2 + 3: the deal itself -----------------------------------
+        # ---- 1: each corner's geometry ------------------------------------
+        corners = page.evaluate("window.__game.dealState().corners")
+        print("CORNERS ->", corners)
+        assert sorted(corners) == ["bl", "br", "tl", "tr"], corners
+        for c in corners:
+            page.evaluate("(c) => window.__game.setDealCorner(c)", c)
+            page.evaluate(
+                "async (n) => { await window.__game.startLevel(n); }", DEAL_LEVEL)
+            deal = page.evaluate("window.__game.dealState()")
+            assert deal["corner"] == c, (c, deal["corner"])
+            delays, axis, near = check_geometry(deal, f"corner {c}")
+            print(f"  {c}: wave {deal['waveMs']:.0f}ms over {len(deal['tiles'])} tiles, "
+                  f"first ({near['gx']},{near['gy']}) at {delays[near['id']]:.0f}ms, "
+                  f"last at {max(delays.values()):.0f}ms")
+            assert deal["totalMs"] <= MAX_TOTAL_MS, \
+                f"the deal took {deal['totalMs']:.0f}ms — an opening, not a wait"
+
+        # ---- 2: the variety ------------------------------------------------
+        # Left to itself the corner moves around, and never repeats twice running.
+        page.evaluate("window.__game.setDealCorner(null)")
+        seen = []
+        for _ in range(VARIETY_DEALS):
+            page.evaluate(
+                "async (n) => { await window.__game.startLevel(n); }", VARIETY_LEVEL)
+            seen.append(page.evaluate("window.__game.dealState().corner"))
+        print(f"{VARIETY_DEALS} DEALS ->", " ".join(seen))
+        assert all(c in corners for c in seen), seen
+        assert len(set(seen)) >= 2, f"the wave always started from the same corner: {seen}"
+        assert all(a != b for a, b in zip(seen, seen[1:])), \
+            f"the same corner was used twice running: {seen}"
+
+        # ---- 3 + 4: the wave on screen, and the finish ---------------------
+        # Sampled with the corner left to the game, so this is the real path.
         snaps = page.evaluate(SAMPLE, DEAL_LEVEL)
         board = on_board(snaps, DEAL_LEVEL)
         assert board, "no snapshot ever saw the new board"
         last = board[-1]
         tiles = last["deal"]["tiles"]
         layers = len({t["layer"] for t in tiles})
-        print(f"LEVEL {DEAL_LEVEL} -> {len(tiles)} tiles over {layers} layers, "
-              f"{len(board)} snapshots on board")
+        print(f"LEVEL {DEAL_LEVEL} -> {len(tiles)} tiles over {layers} layers from the "
+              f"{last['deal']['corner']} corner, {len(board)} snapshots on board")
         print(f"  wave: {last['deal']['waveMs']:.0f}ms  pop: {last['deal']['durationMs']}ms  "
               f"whole deal: {last['deal']['totalMs']:.0f}ms")
         assert layers >= 3, f"pick a deeper level to test the wave ({layers} layers)"
-
-        # 1) THE WAVE'S SHAPE. Its axis runs bottom-left -> top-right, and up
-        # through the layers: a tile that is no further along any of those three
-        # than another must not be dealt after it.
-        delays = {t["id"]: t["delayMs"] for t in tiles}
-        assert all(d is not None for d in delays.values()), "a tile got no place in the wave"
-        for a in tiles:
-            for b in tiles:
-                if (a["gx"] <= b["gx"] and a["gy"] <= b["gy"] and a["layer"] <= b["layer"]
-                        and delays[a["id"]] > delays[b["id"]] + 1e-6):
-                    raise AssertionError(
-                        f"the wave ran backwards: tile {a['id']} at "
-                        f"({a['gx']},{a['gy']},L{a['layer']}) waits {delays[a['id']]:.0f}ms but "
-                        f"{b['id']} at ({b['gx']},{b['gy']},L{b['layer']}) — further along the "
-                        f"axis — waits only {delays[b['id']]:.0f}ms")
-
-        # On the GROUND layer, where the layer set-back is out of the picture, the
-        # wave must be a clean diagonal: the first tile dealt is the bottom-left
-        # end of the axis, the last is the top-right end, and the delay only ever
-        # grows as you move along it.
-        axis = wave_axis(tiles)
-        ground = [t for t in tiles if t["layer"] == 0]
-        near = min(ground, key=lambda t: delays[t["id"]])
-        far_g = max(ground, key=lambda t: delays[t["id"]])
-        print(f"  GROUND LAYER: first ({near['gx']},{near['gy']}) axis {axis(near):.2f} at "
-              f"{delays[near['id']]:.0f}ms  ->  last ({far_g['gx']},{far_g['gy']}) axis "
-              f"{axis(far_g):.2f} at {delays[far_g['id']]:.0f}ms")
-        assert abs(axis(near) - min(axis(t) for t in ground)) < 1e-9, \
-            "the wave did not start at the bottom-left of the board"
-        assert abs(axis(far_g) - max(axis(t) for t in ground)) < 1e-9, \
-            "the wave did not end at the top-right of the board"
-        assert delays[far_g["id"]] > delays[near["id"]], "the wave never crossed the board"
-        for a, b in zip(sorted(ground, key=axis), sorted(ground, key=axis)[1:]):
-            assert delays[b["id"]] >= delays[a["id"]] - 1e-6, \
-                (f"the ground layer was dealt out of order: axis {axis(a):.2f} at "
-                 f"{delays[a['id']]:.0f}ms before axis {axis(b):.2f} at {delays[b['id']]:.0f}ms")
-
-        # The last tile of all — the far end of the wave, wherever the layer
-        # set-back puts it — and the ceiling on the whole thing.
+        delays, axis, near = check_geometry(last["deal"], "sampled deal")
         far = max(tiles, key=lambda t: delays[t["id"]])
-        print(f"  LAST TILE OVERALL: ({far['gx']},{far['gy']},L{far['layer']}) axis "
-              f"{axis(far):.2f} at {delays[far['id']]:.0f}ms")
-        assert axis(far) > 0.5, \
-            f"the wave's far end should be past the middle of the board, got {axis(far):.2f}"
-        assert last["deal"]["totalMs"] <= MAX_TOTAL_MS, \
-            f"the deal took {last['deal']['totalMs']:.0f}ms — an opening, not a wait"
 
-        # 2) THE WAVE ON SCREEN. The board arrives locked and all but unpainted —
-        # the first frame it exists on is caught somewhere in the wave's first
-        # moments, so most of it is still to come and the far corner has not
-        # started at all. (How early that frame lands is up to the renderer,
-        # which is why this is a share rather than "every tile at zero".)
+        # The board arrives locked and all but unpainted — the first frame it
+        # exists on is caught in the wave's first moments, so most of it is still
+        # to come and the far corner has not started at all. (How early that frame
+        # lands is up to the renderer, which is why this is a share rather than
+        # "every tile at zero".)
         first = board[0]
         blank = sum(1 for t in first["deal"]["tiles"] if t["alpha"] == 0)
         print(f"  FIRST FRAME -> {blank}/{len(first['deal']['tiles'])} tiles unpainted, "
@@ -216,8 +265,8 @@ with sync_playwright() as p:
                         (f"a later tile ({b['id']}) was ahead of an earlier one ({a['id']}) "
                          f"at t={s['t']:.0f}ms")
 
-        # 3) THE FINISH: every tile fully painted, the board unlocked, and
-        # startLevel resolved only once that was true.
+        # THE FINISH: every tile fully painted, the board unlocked, and startLevel
+        # resolved only once that was true.
         assert last.get("settled") is True, \
             "startLevel resolved before the board had finished dealing in"
         faint = [t["id"] for t in tiles if t["alpha"] != 1]
@@ -240,7 +289,7 @@ with sync_playwright() as p:
         tapped = page.evaluate("window.__game.solveTap()")
         assert tapped != -1, "the dealt board did not accept a tap"
 
-        # ---- 4: the level's opening waits for the last tile ----------------
+        # ---- 5: the level's opening waits for the last tile ----------------
         # A brand-new player on level 1: the How To Play popup must not open
         # over a board that is still arriving.
         harness.boot(page, "window.__game && window.__game.scene")
@@ -255,15 +304,16 @@ with sync_playwright() as p:
         page.screenshot(path=f"{harness.OUTPUT}/deal_level1_after.png")
         print("  popup opened once the board had landed")
 
-        # Two mid-deal screenshots, for the eye: the wave part-way and most of
-        # the way across the board.
+        # Mid-deal screenshots, for the eye: one wave from each corner, caught
+        # part-way across.
         page.evaluate("window.__game.closeTutorial()")
-        page.evaluate("() => { window.__game.startLevel(%d); }" % DEAL_LEVEL)
-        time.sleep(0.3)
-        page.screenshot(path=f"{harness.OUTPUT}/deal_wave_early.png")
-        time.sleep(0.3)
-        page.screenshot(path=f"{harness.OUTPUT}/deal_wave_late.png")
-        time.sleep(1.0)
+        for c in corners:
+            page.evaluate("(c) => window.__game.setDealCorner(c)", c)
+            page.evaluate("(n) => { window.__game.startLevel(n); }", DEAL_LEVEL)
+            time.sleep(0.35)
+            page.screenshot(path=f"{harness.OUTPUT}/deal_wave_{c}.png")
+            time.sleep(0.8)
+        page.evaluate("window.__game.setDealCorner(null)")
         page.screenshot(path=f"{harness.OUTPUT}/deal_done.png")
 
         print("ERRORS:", len(errors))

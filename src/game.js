@@ -67,6 +67,11 @@ const TRAY_Y = 1140;
 //               back, which is the pop.
 const DEAL = { waveMs: 400, layerMs: 70, tileMs: 300, maxMs: 700, fromScale: 0.55 };
 
+// The corners a deal's wave can start from — "b"/"t" is bottom/top of the board
+// on screen, "l"/"r" left/right. One is picked per board (see _pickDealCorner),
+// so the same level does not open the same way twice running.
+const DEAL_CORNERS = ["bl", "br", "tl", "tr"];
+
 // The level's top bar: the translucent rounded panel behind the chrome, plus the
 // rules everything inside it is placed by. The panel is symmetric about the
 // column's centre (equal margins left and right of DESIGN_W/2), so its contents
@@ -174,6 +179,8 @@ export class GameScene extends PIXI.Container {
     this._guideRun = 0;     // generation token: invalidates an in-flight guided opening
     this._dealing = false;  // true while the opening deal (_dealIn) is still running
     this._deal = null;      // the running board's deal: per-tile delays and its span
+    this._lastDealCorner = null;   // the corner the last board was dealt from
+    this._forcedDealCorner = null; // pin the corner instead of picking one (test seam)
     this._tutorial = null;  // the "How To Play" popup, while it is up
     this._boosterHint = null; // the floating "Unlocks at Level N" label, when shown
     // ---- tray capacity (the 8th slot) --------------------------------------
@@ -1376,19 +1383,37 @@ export class GameScene extends PIXI.Container {
 
   // ---- the opening deal ----------------------------------------------------
 
-  // Deal the freshly built board in as a WAVE running across it from the
-  // BOTTOM-LEFT corner to the TOP-RIGHT one, instead of painting it whole. Every
+  // Which corner this board's wave starts from. Random, for variety — the next
+  // level, a Replay, a retry after a loss: each build of a board opens
+  // differently — but never the SAME corner twice running, so the change is
+  // actually noticed rather than lost in a run of repeats. `_forcedDealCorner`
+  // pins it, which is how deal_test.py checks each corner's geometry.
+  _pickDealCorner() {
+    if (this._forcedDealCorner) return this._forcedDealCorner;
+    const options = DEAL_CORNERS.filter((c) => c !== this._lastDealCorner);
+    return options[Math.floor(Math.random() * options.length)];
+  }
+
+  // Pin the corner every following board is dealt from, or null to go back to
+  // picking one. A test seam — nothing in the game calls it.
+  forceDealCorner(corner) {
+    this._forcedDealCorner = DEAL_CORNERS.includes(corner) ? corner : null;
+  }
+
+  // Deal the freshly built board in as a WAVE running across it, from ONE OF ITS
+  // FOUR CORNERS to the one diagonally opposite, instead of painting it whole. Every
   // board tile starts invisible and undersized; the wave reaches each in turn and
   // pops it to its home size (easeOutBack, so it overshoots a little), and the
   // pile assembles itself diagonally in front of the player.
   //
-  // Each tile's place on the wave is read off the GRID, not the screen: the axis
-  // is (gx - minX) + (gy - minY), normalised by the board's own span so a wide
-  // board and a tall one sweep in the same time. gy counts upwards on screen (see
-  // _layoutBoard), so 0 really is the bottom-left corner and 1 the top-right one.
-  // On top of that each layer is set back by DEAL.layerMs, which keeps a covering
-  // tile landing after the ones it rests on — the wave crosses the board and
-  // climbs the stack at the same time.
+  // Each tile's place on the wave is read off the GRID, not the screen: each
+  // direction is counted from whichever end the chosen corner sits at and
+  // normalised by the board's own span, so 0 is always that corner and 1 the one
+  // opposite it, and a wide board and a tall one sweep in the same time. (gy
+  // counts upwards on screen — see _layoutBoard — which is what makes "b" the
+  // bottom of the board.) On top of that each layer is set back by DEAL.layerMs,
+  // which keeps a covering tile landing after the ones it rests on — the wave
+  // crosses the board and climbs the stack at the same time.
   //
   // The whole thing is then squeezed to fit inside DEAL.maxMs, so the wait before
   // play does not grow with the size or the depth of the level. Positions are NOT
@@ -1411,8 +1436,17 @@ export class GameScene extends PIXI.Container {
     }
     const spanX = Math.max(1e-6, maxX - minX);
     const spanY = Math.max(1e-6, maxY - minY);
-    // 0 at the bottom-left corner of the board, 1 at the top-right one.
-    const wave = (t) => ((t.gx - minX) / spanX + (t.gy - minY) / spanY) / 2;
+    // 0 at the corner this board was dealt from, 1 at the one diagonally opposite.
+    // Each direction is simply counted from whichever end the wave starts at.
+    const corner = this._pickDealCorner();
+    this._lastDealCorner = corner;
+    const fromRight = corner[1] === "r";
+    const fromTop = corner[0] === "t";
+    const wave = (t) => {
+      const fx = (t.gx - minX) / spanX;      // 0 at the left edge of the board
+      const fy = (t.gy - minY) / spanY;      // 0 at the bottom edge (gy counts up)
+      return ((fromRight ? 1 - fx : fx) + (fromTop ? 1 - fy : fy)) / 2;
+    };
     const raw = (t) => wave(t) * DEAL.waveMs + t.layer * DEAL.layerMs;
 
     let last = 0;
@@ -1433,7 +1467,7 @@ export class GameScene extends PIXI.Container {
       t.container.scale.set((t.homeScale || 1) * (DEAL.fromScale + (1 - DEAL.fromScale) * easeOutBack(e)));
     };
     for (const t of tiles) show(t, 0);
-    this._deal = { delays, spread, total };
+    this._deal = { delays, spread, total, corner };
     this._dealing = true;
 
     // One ticker loop for the whole board rather than a tween per tile: each
@@ -1469,6 +1503,8 @@ export class GameScene extends PIXI.Container {
     const deal = this._deal;
     return {
       animating: this._dealing,
+      corner: deal ? deal.corner : null, // the corner this board's wave started from
+      corners: DEAL_CORNERS.slice(),     // the four it can start from
       durationMs: DEAL.tileMs,   // one tile's pop
       waveMs: deal ? deal.spread : 0, // first tile to last, after any squeeze
       totalMs: deal ? deal.total : 0, // the whole deal

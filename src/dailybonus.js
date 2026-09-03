@@ -49,6 +49,14 @@ const BOXES = [
 const BOX_X = [-190, 0, 190];
 const BOX_Y = -100;
 
+// Reveal-sequence timings (ms). Visual constants, so they live with the scene
+// rather than in src/config.js: how long the two unchosen boxes take to vanish,
+// how long the opened box waits behind the revealed prize before fading, and how
+// long that fade runs.
+const BOX_DISMISS_MS = 220;
+const BOX_HIDE_DELAY_MS = 220;
+const BOX_HIDE_MS = 320;
+
 export class DailyBonusScene extends PIXI.Container {
   constructor(app, audio, user, cfg) {
     super();
@@ -401,9 +409,12 @@ export class DailyBonusScene extends PIXI.Container {
     g.addChild(amt);
     this._revealAmt = amt;
 
+    // Pops forward over the open box — it is the foreground now.
     g.visible = true;
     g.alpha = 0;
+    g.scale.set(0.7);
     tween(this.app.ticker, { duration: 300, ease: easeOutCubic, onUpdate: (e) => { g.alpha = e; } });
+    tween(this.app.ticker, { duration: 360, ease: easeOutBack, onUpdate: (e) => g.scale.set(0.7 + 0.3 * e) });
 
     // The ad ("double it") button appears first...
     this._doubleBtn.visible = true;
@@ -440,29 +451,48 @@ export class DailyBonusScene extends PIXI.Container {
     this._tip.visible = false;
     this._backBtn.visible = false;
 
-    // Fade out the two boxes not chosen — they never open.
+    // The reveal sequence runs strictly in order — each beat finishes before the
+    // next starts, so the player reads them one at a time rather than as one blur:
+    //   1) the two boxes not chosen disappear (they never open),
+    //   2) the chosen box slides to centre and lifts its lid,
+    //   3) the prize appears in the foreground, on top of the open box,
+    //   4) the box fades away behind it, leaving the prize alone on screen.
     const chosen = this._boxes[index];
-    for (let i = 0; i < this._boxes.length; i++) {
-      if (i === index) continue;
-      const b = this._boxes[i];
-      tween(this.app.ticker, { duration: 220, ease: easeOutCubic, onUpdate: (e) => { b.alpha = 1 - e; } })
-        .then(() => { b.visible = false; });
-    }
 
-    // Slide the chosen box to centre + pop it forward.
+    // 1) The unchosen boxes drop out first.
+    await Promise.all(this._boxes.map((b, i) => {
+      if (i === index) return Promise.resolve();
+      return tween(this.app.ticker, {
+        duration: BOX_DISMISS_MS, ease: easeOutCubic,
+        onUpdate: (e) => { b.alpha = 1 - e; b.scale.set(1 - 0.25 * e); },
+      }).then(() => { b.visible = false; });
+    }));
+
+    // 2) Slide the chosen box to centre + pop it forward...
     const fromX = chosen.x;
     chosen.y = BOX_Y;
     await tween(this.app.ticker, {
       duration: 300, ease: easeOutCubic,
       onUpdate: (e) => { chosen.x = fromX * (1 - e); chosen.scale.set(1 + 0.15 * e); },
     });
-    // Lift the lid.
+    // ...and lift the lid.
     await tween(this.app.ticker, {
       duration: 260, ease: easeOutCubic,
       onUpdate: (e) => { chosen.lid.y = -78 * e; chosen.lid.alpha = 1 - 0.2 * e; },
     });
 
+    // 3) The award comes up in the foreground (the reveal group is above the
+    //    boxes in the panel, so it covers the open box).
     this._showReveal(this._prizes[index]);
+
+    // 4) Once the prize is legible, the spent box fades out behind it.
+    await delay(this.app.ticker, BOX_HIDE_DELAY_MS);
+    if (!this.visible) return;
+    await tween(this.app.ticker, {
+      duration: BOX_HIDE_MS, ease: easeInCubic,
+      onUpdate: (e) => { chosen.alpha = 1 - e; chosen.scale.set(1.15 - 0.3 * e); },
+    });
+    chosen.visible = false;
   }
 
   /** Watch a rewarded video to double the prize. Stub — returns immediately.
@@ -592,6 +622,8 @@ export class DailyBonusScene extends PIXI.Container {
 
     // Reset visuals to the closed-boxes pick phase.
     this._reveal.visible = false;
+    this._reveal.alpha = 1;
+    this._reveal.scale.set(1);
     this._reveal.removeChildren();
     this._doubleBtn.visible = false; this._doubleBtn.eventMode = "none";
     this._claimBtn.visible = false; this._claimBtn.eventMode = "none";
