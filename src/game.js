@@ -134,11 +134,17 @@ export class GameScene extends PIXI.Container {
     this.fxLayer = new PIXI.Container();
     this.hudLayer = new PIXI.Container();
     this.overlayLayer = new PIXI.Container();
+    // Reward flights, ABOVE the HUD and the overlays: a prize flying to its counter
+    // has to be the thing you watch, and fxLayer sits under both (it is for board
+    // and tray effects, which belong under the chrome). The sibling reward scenes
+    // — dailybonus.js, fortunewheel.js — add their own fx layer last for the same
+    // reason; this is that layer, in a scene whose stack is deeper.
+    this.fxTopLayer = new PIXI.Container();
     // The tutorial popup gets its own layer ABOVE the win/lose overlays — keeping
     // it off overlayLayer leaves "is an overlay up?" meaning the win/lose ones.
     this.tutorialLayer = new PIXI.Container();
     this.addChild(this.bgLayer, this.boardLayer, this.trayLayer, this.fxLayer, this.hudLayer,
-      this.overlayLayer, this.tutorialLayer);
+      this.overlayLayer, this.fxTopLayer, this.tutorialLayer);
 
     // Responsive layout state (updated by layout()); defaults to the base design
     // so the scene is correct even before the first layout() call.
@@ -172,6 +178,8 @@ export class GameScene extends PIXI.Container {
     this._chestClaimBtn = null;  // the plain "Claim" button, while the reward popup is up
     this._chestAdResult = "succeed"; // "succeed" | "cancel" | "fail" (double-it test seam)
     this._chestState = { shown: false }; // snapshot for the debug/test hooks
+    this._chestPendingReward = null; // what a FILLED chest owes, paid once the win panel is gone
+    this._chestDone = null;          // the win overlay's Continue action, deferred to the claim
     this._firstRun = false; // true while a brand-new player is in the guided level 1
     this._hand = null;      // the tutorial pointing hand, when shown
     this._handTile = null;  // the tile it points at (so it can follow a re-layout)
@@ -1067,6 +1075,7 @@ export class GameScene extends PIXI.Container {
     this._closeCoach();
     this._buildBackground();
     this.overlayLayer.removeChildren();
+    this.fxTopLayer.removeChildren(); // a reward still in the air from the last board
     this._resetChestOverlay();
     this.boardLayer.removeChildren();
     // clear any tray tiles from a previous run
@@ -1291,6 +1300,7 @@ export class GameScene extends PIXI.Container {
     this._stopTrayPulse();
     this._closeCoach();
     this.overlayLayer.removeChildren();
+    this.fxTopLayer.removeChildren();
     this._resetChestOverlay();
     if (this.onExit) this.onExit();
   }
@@ -2721,7 +2731,19 @@ export class GameScene extends PIXI.Container {
     const btn = this._makeButton(btnLabel, 320, 92, 0, btnY, 0x39c06a, () => {
       this.overlayLayer.removeChildren();
       this._winBtn = null;
+      // A chest that FILLED pays out only once this panel is GONE — the reward is
+      // an overlay of its own, never a popup stacked over the level-complete
+      // screen. Carry the owed reward (and the bar's snapshot, which the
+      // debug/test hooks read) across the teardown, and hand `onBtn` on to the
+      // reward overlay: CLAIMING it is what advances the level from here.
+      const pending = this._chestPendingReward;
+      const carried = this._chestState;
       this._resetChestOverlay();
+      if (pending) {
+        this._chestState = { ...carried, popup: false, claimed: false };
+        this._showChestReward(pending, onBtn);
+        return;
+      }
       onBtn();
     });
     group.addChild(btn);
@@ -2913,6 +2935,10 @@ export class GameScene extends PIXI.Container {
       popup: false,
       claimed: false,
     };
+    // A full chest OWES a reward. Recorded here rather than at the end of the fill
+    // animation, so a player who taps Continue while the bar is still moving is
+    // still paid — the reward overlay opens on the press either way.
+    this._chestPendingReward = info.full ? info.reward : null;
 
     const icon = this._makeChestIcon();
     icon.position.set(0, -34);
@@ -2959,7 +2985,7 @@ export class GameScene extends PIXI.Container {
       });
     }).then(() => {
       if (fill.destroyed || run !== this._chestAnimRun) return;
-      if (info.full) this._openChest(info.reward);
+      if (info.full) this._openChest();
     });
   }
 
@@ -2987,8 +3013,10 @@ export class GameScene extends PIXI.Container {
     return c;
   }
 
-  // Chest is full → pop it open (sound + lid lift), then show the reward popup.
-  async _openChest(reward) {
+  // Chest is full → pop it open on the win panel (sound + lid lift). The reward
+  // itself is NOT shown here: it waits for the level-complete overlay to close on
+  // the Continue press, which is what puts _showChestReward up.
+  async _openChest() {
     this.audio.play("openbox");
     this._chestState.opened = true;
     const icon = this._chestIcon;
@@ -3003,29 +3031,47 @@ export class GameScene extends PIXI.Container {
         },
       });
     }
-    if (this.overlayLayer.children.length) this._showChestReward(reward);
   }
 
-  // The reward popup: a reveal + "📺 Double it!" (immediate) and a plain "Claim"
-  // that fades in a moment later — the same nudge-toward-the-ad shape the daily
-  // gift uses. It draws over the win overlay's own panel and, once collected,
-  // removes itself to reveal the Continue button underneath.
-  _showChestReward(reward) {
-    const group = this._overlayGroup;
-    if (!group || group.destroyed) return;
+  // The reward overlay — shown only ONCE THE LEVEL-COMPLETE OVERLAY HAS CLOSED,
+  // so the two never stack: this builds its own view-wide dim and its own panel
+  // rather than drawing over the win screen. It carries the reveal, an immediate
+  // "📺 Double it!" and a plain "Claim" that fades in a moment later — the same
+  // nudge-toward-the-ad shape the daily gift uses. `onDone` is the win overlay's
+  // Continue action, deferred to here, so claiming the reward advances the level.
+  _showChestReward(reward, onDone) {
+    this.overlayLayer.removeChildren();
+    this._chestDone = onDone || null;
+
+    const dim = new PIXI.Graphics();
+    dim.beginFill(0x040814, 0.62).drawRect(0, 0, this.viewW, this.viewH).endFill();
+    dim.eventMode = "static"; // modal, exactly like the overlay it replaces
+    this.overlayLayer.addChild(dim);
+    this._overlayDim = dim;
+
+    const group = new PIXI.Container();
+    group.position.set(this.viewW / 2, this.viewH / 2);
+    this.overlayLayer.addChild(group);
+    this._overlayGroup = group;
+
     const popup = new PIXI.Container();
     group.addChild(popup);
     this._chestReward = popup;
     this._chestState.popup = true;
+    // Continue pressed while the bar was still filling gets here before the lid
+    // ever lifted, so the open cue fires with the reward rather than being lost.
+    if (!this._chestState.opened) {
+      this.audio.play("openbox");
+      this._chestState.opened = true;
+    }
 
-    const localDim = new PIXI.Graphics();
-    // Sized from the LIVE panel, not a constant: the panel grows when the Super
-    // Wand's streak bar shares the overlay, and a dim that stopped at the old
-    // height would leave the bar poking out from under this popup.
-    const dimHalf = this._overlayHalf || 250;
-    localDim.beginFill(0x081018, 0.82).drawRoundedRect(-280, -dimHalf, 560, dimHalf * 2, 34).endFill();
-    localDim.eventMode = "static"; // modal over the panel
-    popup.addChild(localDim);
+    // One fixed panel: nothing shares this overlay, so it has no second size.
+    const half = 250;
+    this._overlayHalf = half;
+    const panel = new PIXI.Graphics();
+    panel.beginFill(0x22335e, 1).drawRoundedRect(-280, -half, 560, half * 2, 34).endFill();
+    panel.lineStyle(6, 0xffffff, 0.15).drawRoundedRect(-280, -half, 560, half * 2, 34);
+    popup.addChild(panel);
 
     const title = new PIXI.Text(t("chest_reward_title"), {
       fontFamily: "Arial", fontSize: 44, fontWeight: "900", fill: 0xffe27a,
@@ -3056,6 +3102,18 @@ export class GameScene extends PIXI.Container {
     claim.alpha = 0; claim.eventMode = "none";
     popup.addChild(claim);
     this._chestClaimBtn = claim;
+
+    // The panel pops in: the level-complete screen has just been taken away, so a
+    // hard cut would leave a beat of bare board between the two.
+    popup.scale.set(0.6); popup.alpha = 0;
+    tween(this.app.ticker, {
+      duration: 320, ease: easeOutBack,
+      onUpdate: (e) => {
+        if (popup.destroyed) return;
+        popup.scale.set(0.6 + 0.4 * e);
+        popup.alpha = Math.min(1, e * 2);
+      },
+    });
 
     // The plain Claim fades in ~1.6 s after the ad button (dailybonus.js does the
     // same) — guarded so a level that closed the popup meanwhile doesn't revive it.
@@ -3091,19 +3149,50 @@ export class GameScene extends PIXI.Container {
     this._chestTaken = true;
     if (this._chestDoubleBtn) this._chestDoubleBtn.eventMode = "none";
     if (this._chestClaimBtn) this._chestClaimBtn.eventMode = "none";
-    await this._collectChestReward({ type: reward.type, amount: (reward.amount || 0) * mult });
-    this._chestState.claimed = true;
+    // The flight happens in the FOREGROUND, over a cleared screen — so read where
+    // the reward icon is while it is still on it, then take the panel down BEFORE
+    // anything moves. The dim is deliberately kept and only faded to transparent:
+    // it is what still swallows taps, so the board and the chrome behind the
+    // flight can be seen but not pressed, and `overlay` stays true until the
+    // reward has landed.
+    let from = null;
+    try { from = this._chestRewardIcon.getGlobalPosition(); } catch (_) { from = null; }
     this._chestState.popup = false;
     if (this._chestReward && !this._chestReward.destroyed) this._chestReward.destroy({ children: true });
     this._chestReward = null;
+    this._chestRewardIcon = null;
+    this._chestRewardAmt = null;
     this._chestDoubleBtn = null;
     this._chestClaimBtn = null;
+    this._chestPendingReward = null;
+    const dim = this._overlayDim;
+    if (dim && !dim.destroyed) {
+      tween(this.app.ticker, {
+        duration: 220, ease: easeOutCubic,
+        onUpdate: (e) => { if (!dim.destroyed) dim.alpha = 1 - e; },
+      });
+    }
+    await this._collectChestReward({ type: reward.type, amount: (reward.amount || 0) * mult }, from);
+    this._chestState.claimed = true;
+    // The claim IS the Continue press: this overlay was the last thing the
+    // level-complete screen had to say, so take it down and hand control on. The
+    // chest snapshot is deliberately left standing for the debug/test hooks —
+    // loading the next level is what clears it (_resetChestOverlay).
+    const done = this._chestDone;
+    this._chestDone = null;
+    this.overlayLayer.removeChildren();
+    this._overlayGroup = null;
+    this._overlayDim = null;
+    if (done) done();
   }
 
   // Fly the reward icon to its HUD counter (coins → the coin pill; a booster → its
   // helper button) and grant ON LANDING so the number ticks in sync. Falls back to
   // an immediate grant if the fly-targets can't be located (mirrors dailybonus).
-  async _collectChestReward(reward) {
+  // `from` is the global point the icon left from, read by the caller before it
+  // cleared the panel away. The flight rides fxTopLayer — ABOVE the HUD and the
+  // overlay — so the coins arrive in the foreground rather than behind the chrome.
+  async _collectChestReward(reward, from) {
     const grant = () => {
       if (rewardIsCoins(reward.type)) this.user.credit("coins", reward.amount);
       else this.user.grantBooster(reward.type, reward.amount);
@@ -3111,15 +3200,23 @@ export class GameScene extends PIXI.Container {
     const target = rewardIsCoins(reward.type)
       ? this.coinPill
       : ({ undo: this.undoBtn, wand: this.wandBtn, shuffle: this.shuffleBtn })[reward.type];
+    const layer = this.fxTopLayer;
     let start, end;
     try {
-      start = this.fxLayer.toLocal(this._chestRewardIcon.getGlobalPosition());
-      end = this.fxLayer.toLocal((target || this.coinPill).getGlobalPosition());
+      start = layer.toLocal(from || this._chestRewardIcon.getGlobalPosition());
+      end = layer.toLocal((target || this.coinPill).getGlobalPosition());
     } catch (_) { grant(); return; }
+    // Which layer the flight actually used, for the debug/test hooks: the whole
+    // point is that it outranks the HUD and the overlay it came from.
+    this._chestState.fly = {
+      layer: this.getChildIndex(layer),
+      hud: this.getChildIndex(this.hudLayer),
+      overlay: this.getChildIndex(this.overlayLayer),
+    };
 
     const flyer = this._makeRewardIcon(reward, 34);
     flyer.position.set(start.x, start.y);
-    this.fxLayer.addChild(flyer);
+    layer.addChild(flyer);
     const C = { x: (start.x + end.x) / 2, y: Math.min(start.y, end.y) - 150 };
     await tween(this.app.ticker, {
       duration: 540, ease: easeInOutQuad,
@@ -3189,6 +3286,8 @@ export class GameScene extends PIXI.Container {
     this._chestClaimBtn = null;
     this._chestTaken = false;
     this._chestDoubled = false;
+    this._chestPendingReward = null;
+    this._chestDone = null;
     this._chestState = { shown: false };
     // The Super Wand's streak bar shares every one of this method's call sites
     // (an overlay opening, a level loading, an exit), so it is torn down here too.

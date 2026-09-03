@@ -581,15 +581,23 @@ Only `howtoplay_test.py` leaves it open.
   asserts the **corrected label never goes negative** anywhere (this port
   deliberately fixes the original's negative-progress wrap bug). Then the
   **win-overlay behaviour**: a genuinely new clear shows the bar; a **milestone**
-  clear opens the chest and pays out (with the **double-it** ad path doubling the
-  amount into the coin pill); a new **non-milestone** clear shows a partial bar and
-  does not open; a **replay** of an already-cleared level shows no chest at all.
+  clear opens the chest on the level-complete panel and then asserts the **ordering**
+  — while that panel is up (`chestState().winPanel`) the reward is **not** shown, and
+  only once **Continue** closes it does the **Chest Reward!** overlay appear, with the
+  level still unadvanced until the reward is claimed (the **double-it** ad path
+  doubling the amount into the coin pill, and the claim itself landing back on the
+  lobby); the claim's coin flight is pinned to the **foreground** — the panel is
+  cleared away first and `chestState().fly` must report a layer **above both the
+  overlay and the HUD**; a new **non-milestone** clear shows a partial bar, does not open, and
+  advances straight from Continue with no reward overlay; a **replay** of an
+  already-cleared level shows no chest at all.
   It also covers the **persistent lobby bar**: hidden for a brand-new player, showing
   and updating **live** as levels are cleared, **rolling a just-opened milestone
   chest forward** to the next one at `0 / N` (`currentFor`), and rendering as a listed
   visible control on the lobby. Because chest progress is **derived** from the highest
   level cleared (nothing stored), it drives the state with `completeLevel` jumps. Uses
-  the `window.__game` chest hooks (`chestInfo`, `chestCount`, `chestState`,
+  the `window.__game` chest hooks (`chestInfo`, `chestCount`, `chestState` — whose
+  `winPanel` flag says whether the level-complete overlay is still up —
   `lobbyChestState`, `pressChestDouble`, `pressChestClaim`, `setChestAdResult`).
 
 ### Localization

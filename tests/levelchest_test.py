@@ -10,9 +10,11 @@
 #   - the reward VOCABULARY (0=coins, 10=undo, 11=wand[Hint], 12=shuffle,
 #     20=lightning→coins);
 #   - the WIN-OVERLAY behaviour: a genuinely new clear shows the bar and, on a
-#     milestone level, opens the chest and pays out (with the "double it" ad path
-#     doubling the amount); a new NON-milestone clear shows a partial bar and does
-#     not open; a REPLAY of an already-cleared level shows no chest at all.
+#     milestone level, opens the chest; the REWARD is a SEPARATE overlay that only
+#     appears once Continue has closed the level-complete screen, and claiming it
+#     (with the "double it" ad path doubling the amount) is what advances the
+#     level; a new NON-milestone clear shows a partial bar and does not open; a
+#     REPLAY of an already-cleared level shows no chest at all.
 #
 # Chest progress is DERIVED from the highest level cleared (nothing is stored), so
 # a completeLevel jump lands straight on the right chest.
@@ -128,29 +130,58 @@ with sync_playwright() as p:
     assert page.evaluate("window.__game.completedLevel()") == 3
 
     # ---- B1. A milestone clear opens the chest and pays out (doubled) ----
+    # ORDER MATTERS: the reward is its own overlay and must never stack over the
+    # level-complete screen. The bar fills and the chest pops open on the win
+    # panel; the "Chest Reward!" overlay comes up only once Continue has CLOSED
+    # that panel, and claiming it is what advances the level.
     start(4)                       # level 4 completes chest #1 (4 wins → 25 coins)
     solve()
     s = chest()
     assert s["shown"] is True, ("bar shown on a new milestone clear", s)
     assert s["needed"] == 4 and s["reward"] == {"type": "coins", "amount": 25}, s
-    # The chest fills, then pops open on its own — wait for the reward popup.
-    page.wait_for_function("window.__game.chestState().popup === true", timeout=24000)
+    # The chest fills and pops open on its own, still on the level-complete panel.
+    page.wait_for_function("window.__game.chestState().opened === true", timeout=24000)
+    time.sleep(0.6)                # …and settle well past the open animation
     s = chest()
     assert s["full"] is True and s["opened"] is True, ("milestone chest opened", s)
-    snap("b1_reward_popup")
+    assert s["winPanel"] is True, ("the level-complete overlay is still up", s)
+    assert s["popup"] is False, ("the reward must NOT stack over it", s)
+    assert page.evaluate("window.__game.pressChestClaim()") in (None, False), \
+        ("there is nothing to claim while the win panel is up", chest())
+    snap("b1_win_panel_chest_open")
 
     base = coins()                 # the win itself pays nothing — only the chest does
     assert base == 0, ("a level win credits no coins of its own", base)
+
+    # Continue closes the level-complete overlay; the reward overlay replaces it.
+    page.evaluate("window.__game.pressWinContinue()")
+    page.wait_for_function("window.__game.chestState().popup === true", timeout=24000)
+    s = chest()
+    assert s["winPanel"] is False, ("the completion overlay is closed first", s)
+    assert state()["overlay"] is True, ("…and the reward overlay holds the screen", state())
+    assert page.evaluate("window.__game.completedLevel()") == 3, \
+        ("the level does not advance until the reward is claimed",
+         page.evaluate("window.__game.completedLevel()"))
+    snap("b1_reward_popup")
+
     page.evaluate("window.__game.setChestAdResult('succeed')")
     page.evaluate("window.__game.pressChestDouble()")   # doubles 25 → 50, then grants
     page.wait_for_function("window.__game.chestState().claimed === true", timeout=24000)
     time.sleep(0.2)
     assert coins() == base + 50, ("doubled 25-coin chest grants +50", base, coins())
-    # Finish up: Continue advances to the lobby (completed becomes 4).
-    page.evaluate("window.__game.pressWinContinue()")
-    time.sleep(0.5)
+    # The coins fly in the FOREGROUND: the reward panel comes down first, and the
+    # flight rides a layer above BOTH the HUD and the overlay it came from — on the
+    # old stacking it used fxLayer, which sits under the chrome and the panel.
+    s = chest()
+    assert s["popup"] is False, ("the panel is cleared before the coins fly", s)
+    fly = s.get("fly")
+    assert fly, ("the claimed reward reports the layer it flew on", s)
+    assert fly["layer"] > fly["overlay"] > fly["hud"], \
+        ("the reward must fly over the overlay and the HUD, not behind them", fly)
+    # Claiming IS the Continue press: it advances to the lobby (completed → 4).
+    page.wait_for_function("window.__game.inLobby() === true", timeout=24000)
     assert page.evaluate("window.__game.completedLevel()") == 4
-    print("PART B1: milestone chest opened + doubled reward granted")
+    print("PART B1: chest opens on the win panel, reward overlay follows it, claim advances")
 
     # ---- B2. A new NON-milestone clear shows a partial bar, no open ----
     start(5)                       # level 5 is mid-fill toward the level-8 chest
@@ -159,8 +190,11 @@ with sync_playwright() as p:
     assert s["shown"] is True, ("bar shown on a new clear", s)
     assert s["label"] == "1 / 4" and s["full"] is False, ("partial bar, not full", s)
     assert s["opened"] is False and s["popup"] is False, ("no open on a partial chest", s)
+    # Nothing is owed, so Continue advances straight away — no reward overlay.
     page.evaluate("window.__game.pressWinContinue()")
     time.sleep(0.5)
+    # (the bar was torn down with the overlay, so the snapshot is the empty one)
+    assert not chest().get("popup"), ("a partial chest shows no reward overlay", chest())
     assert page.evaluate("window.__game.completedLevel()") == 5
     print("PART B2: partial bar on a non-milestone clear, no open")
 

@@ -575,7 +575,8 @@ A **progress bar with a treasure-chest icon** on the **level-complete screen**: 
 endless "keep playing and you'll open another chest soon" carrot. Each time you
 clear a level **you haven't cleared before**, the bar advances **one notch**; when
 it fills, the chest **pops open right there** (open-box animation + the `openbox`
-sound) and pays a reward. The **same bar also sits on the lobby** (in the centre band
+sound) and a reward is owed — collected on the **Chest Reward!** screen that comes
+up next. The **same bar also sits on the lobby** (in the centre band
 below the fruit row) as a **persistent "progress toward the next chest" indicator**,
 so you can see how close the next reward is without finishing a level first. The
 lobby bar never opens a chest — it only reflects your standing; opening happens on
@@ -589,13 +590,21 @@ chest that clear filled). A brand-new player (no level cleared yet) sees no bar.
   does nothing, and the bar (and its icon) **don't even appear** on the results
   screen for a replay. The label reads **"notches filled / notches needed"** (e.g.
   `5 / 16`).
-- **Opening & rewards.** A full chest opens and delivers its reward through a popup
-  that also offers the usual **"📺 watch a short video to double it"** (stubbed —
-  grants immediately; `succeed` doubles, `fail`/`cancel` leave the base amount). The
-  reward flies to its top-bar counter and is **credited on landing** — coins/lightning
-  to the coin pill, a booster to its helper button. There is **no separate claim
-  step**; as soon as one chest opens, the **next begins filling** from the next new
-  level.
+- **Opening & rewards — one screen at a time.** A full chest opens on the
+  level-complete screen, but its reward is **not** shown over it. Pressing
+  **Continue** **closes the level-complete overlay first**, and only then does the
+  **"Chest Reward!"** screen come up on its own — never two panels stacked. It
+  offers the usual **"📺 watch a short video to double it"** (stubbed — grants
+  immediately; `succeed` doubles, `fail`/`cancel` leave the base amount) with a plain
+  **Claim** fading in ~1.6 s later. Claiming **clears the reward panel away first**,
+  then flies the reward **in the foreground** — over the board and over the top bar,
+  not behind them — to its counter, where it is **credited on landing**:
+  coins/lightning to the coin pill, a booster to its helper button. (The screen stays
+  sealed while it flies, so nothing can be pressed under it.)
+  **Claiming is the last press of the level**: it takes the reward screen down
+  and hands you back to the lobby, exactly as Continue would have. A level with no
+  chest to pay (a partial bar, or a replay) advances straight from Continue as before.
+  As soon as one chest opens, the **next begins filling** from the next new level.
 - **The schedule.** Chests follow a defined list of **milestones** at increasing
   level numbers; the gap to the previous milestone is how many wins that chest takes,
   and each carries **its own reward**. The shipped schedule (50 milestones, last at
@@ -1511,17 +1520,33 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   exactly the "new clear?" test. `_showOverlay` grows its panel and drops the Continue
   button when a chest is present, then `_mountLevelChest(group, info)` draws the
   treasure icon (`_makeChestIcon`, a lidded chest) and a Tasks-style progress bar,
-  animating the last notch up. If `info.full`, `_openChest` plays `openbox`, lifts the
-  lid (`easeOutBack`) and calls `_showChestReward` — a reveal + **"📺 Double it!"**
-  (immediate) and a **Claim** that fades in ~1.6 s later, the same nudge-toward-the-ad
-  shape as `DailyBonusScene`. `_watchChestAd` is the stub (seam `_chestAdResult`);
-  `_claimChest` grants at `mult` 1 or 2 and `_collectChestReward` flies the icon on the
-  shared quadratic-Bézier arc to its HUD counter (`coinPill` for coins/lightning, else
-  the matching helper button), **granting on landing**, with an immediate-grant
-  fallback if a target can't be located. The chest lives inside `_overlayGroup` (so the
-  `layout()` reflow re-centres it for free and it stays out of `controls()`, like the
-  win/lose overlays), and `_resetChestOverlay()` tears it down on Continue, a level
-  reload and `_exit`. The schedule/maths are `LevelChest.infoFor` (`src/levelchest.js`),
+  animating the last notch up. A full chest records what it owes in
+  `_chestPendingReward` **at mount time** (not at the end of the fill), so a Continue
+  pressed mid-animation still pays; if `info.full`, `_openChest` plays `openbox` and
+  lifts the lid (`easeOutBack`) — and stops there. **The reward is a separate
+  overlay**: the Continue handler tears the level-complete panel down and, when a
+  reward is pending, calls `_showChestReward(reward, onBtn)`, which builds its **own**
+  view-wide dim and panel (carrying the bar's `_chestState` snapshot across the
+  teardown, and firing `openbox` itself if the lid never got to lift). It shows a
+  reveal + **"📺 Double it!"** (immediate) and a **Claim** that fades in ~1.6 s later,
+  the same nudge-toward-the-ad shape as `DailyBonusScene`. `_watchChestAd` is the stub
+  (seam `_chestAdResult`); `_claimChest` grants at `mult` 1 or 2 and
+  `_collectChestReward` flies the icon on the shared quadratic-Bézier arc to its HUD
+  counter (`coinPill` for coins/lightning, else the matching helper button),
+  **granting on landing**, with an immediate-grant fallback if a target can't be
+  located. The flight is a **foreground** one: `_claimChest` reads the icon's global
+  point, destroys the panel and fades the dim to transparent (**keeping** it, so it
+  still swallows taps and `overlay` stays true), and the flyer rides **`fxTopLayer`**
+  — a container added **above `hudLayer` and `overlayLayer`**, since `fxLayer` is for
+  board/tray effects and sits under the chrome. (`dailybonus.js` and
+  `fortunewheel.js` add their own fx layer last for the same reason.) It is cleared
+  on a level load and on `_exit` so a flight can't outlive its board, and
+  `_chestState.fly` records the layer indices it used for the test. Then
+  `_claimChest` closes the overlay and runs the deferred `onBtn`, so **the claim IS
+  the Continue press**. Both overlays live inside
+  `_overlayGroup` (so the `layout()` reflow re-centres them for free and they stay out
+  of `controls()`, like the win/lose overlays), and `_resetChestOverlay()` tears the
+  chest down on Continue, a level reload and `_exit`. The schedule/maths are `LevelChest.infoFor` (`src/levelchest.js`),
   and everything is **derived** from the highest level cleared — no chest state is
   stored. This port ships the **corrected** progress label (it always counts up cleanly
   `0 → needed`), unlike the original's off-by-one that briefly showed negative numbers

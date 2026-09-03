@@ -945,8 +945,12 @@ async function boot() {
       chestInfo: (level) => levelChest.infoFor(level),
       chestCount: () => levelChest.count,
       // What the win overlay is showing right now: whether a chest bar is up, its
-      // label/reward, whether it opened, and where the reward popup has got to.
-      chestState: () => ({ ...scene._chestState }),
+      // label/reward, whether it opened, and where the reward overlay has got to.
+      // `winPanel` says whether the LEVEL-COMPLETE overlay is still up — the reward
+      // only ever shows once it is gone, so the two are never true together. `fly`
+      // reports the layer the claimed reward flew on against the HUD and overlay
+      // layers, which is how the test pins the flight to the FOREGROUND.
+      chestState: () => ({ ...scene._chestState, winPanel: !!scene._winBtn }),
       // Drive the reward popup: press its buttons on the real hit path, and pin the
       // double-it ad outcome ("succeed" | "cancel" | "fail"), mirroring the daily bonus.
       pressChestClaim: () => scene._chestClaimBtn && scene._chestClaimBtn.emit("pointertap"),
