@@ -17,7 +17,9 @@
 //   - images -> PIXI.Texture (PIXI.Assets caches by URL)
 //   - levels -> parsed JSON
 
-const levelGroup = (n) => `level${n}`;
+// The group a level's assets (its background + board data) live in. Exported so
+// boot can name the group for the level the player is ON — see main.js.
+export const levelGroup = (n) => `level${n}`;
 
 // The single source of truth for what exists and where it lives. `core` is
 // hand-authored; the per-level groups are added by buildLevelGroups() from the

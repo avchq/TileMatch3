@@ -746,7 +746,19 @@ Only `howtoplay_test.py` leaves it open.
   (it rasterizes emoji on a 2D canvas fine); the test asserts the fix's mechanism
   and the content invariant, not the device repro.
 - **`lazy_test.py`** — levels beyond the preload set are registered but not loaded
-  until `ensureLevel` fetches their JSON on demand (and only once).
+  until `ensureLevel` fetches their JSON on demand (and only once). Also the
+  **lobby's background prefetch**: booting a profile parked on level 7 puts that
+  level's group in the **boot** preload (`bootGroups()`, not merely
+  `loadedGroups()` — the distinction is a lobby that is right on its first frame
+  versus one that swaps art under the player), so `lobbyBackground()` reads
+  `{level: 7, shown: 7}` rather than the level-1 fallback, while the levels around
+  it stay lazy. Then the **prefetch ahead**: playing level 7 (`startLevel(7)`)
+  must pull `level8`'s group in on its own, since winning lands on that lobby with
+  no time to fetch. And the **no-flash rule**: moved on to a cold level
+  (`showLobby(10)`), the lobby goes up **immediately** still showing level 7's art
+  — `shown: 7`, *not* the level-1 fallback, read in the same `evaluate` as the move
+  so no round-trip spends the window — and repaints to `shown: 10` once its own art
+  lands, having fetched the group itself with no loading screen.
 - **`levels_config_test.py`** — the level table is a JSON config
   (`assets/config/levels.json`) fetched at boot, not a hard-coded array: it's a
   non-empty array of `{background,data,types,preload?}`, the asset manifest's

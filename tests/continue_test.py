@@ -144,10 +144,19 @@ with sync_playwright() as p:
     fill_tray()
     assert lst()["loseOverlay"] is True
     page.evaluate("window.__game.pressLoseReplay()")
-    time.sleep(0.5)
-    # Replay reloads level 1, which opens the "How To Play" popup again (it is
-    # tied to the level, not to being new) — dismiss it to keep playing.
+    # Replay reloads level 1, which deals a fresh board and THEN opens the "How To
+    # Play" popup again (it is tied to the level, not to being new) — and that
+    # popup holds the board locked. Three states to get past, so wait on each in
+    # turn rather than betting one 0.5s sleep on all of them: the popup appearing
+    # is the signal the deal has handed over, and the unlock is the signal the
+    # board is live again. It matters because the HOME section below fills the tray
+    # to force a second loss, and _collect on a locked scene never reaches _lose —
+    # so a lost bet surfaces as "the lose overlay never appeared" many lines later
+    # rather than as the starved renderer it actually is.
+    page.wait_for_function("() => window.__game.tutorialState().visible", timeout=45000)
     page.evaluate("window.__game.closeTutorial()")
+    page.wait_for_function("() => !window.__game.state().locked", timeout=45000)
+    harness.frames(page)
     s = st()
     print("after replay:", s)
     assert s["overlay"] is False, "the overlay closed"

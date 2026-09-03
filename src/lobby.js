@@ -762,9 +762,31 @@ export class LobbyScene extends PIXI.Container {
     return c;
   }
 
+  /** Repaint the background for the level currently on show. Called when that
+   *  level's art finishes loading AFTER the lobby was built — the lobby is put up
+   *  immediately and its art is fetched behind it (see main.js `ensureLobbyArt`),
+   *  so this is what replaces the level-1 fallback once the real one lands. A
+   *  no-op while hidden: `show()` rebuilds from scratch anyway. */
+  refreshBackground() {
+    if (this.visible) this._buildBackground(this._level);
+  }
+
   _buildBackground(levelNum) {
     this.bgLayer.removeChildren();
-    const tex = this.backgrounds[levelNum] || this.backgrounds[1];
+    // This level's own art when it is in memory. When it is not — a group still
+    // being fetched — KEEP WHATEVER IS ALREADY UP rather than dropping to level
+    // 1's background: falling back would flash the wrong art and replace it a
+    // moment later, which is far more noticeable than simply holding the picture
+    // the player was already looking at. Level 1 is the last resort, for a lobby
+    // that has nothing up yet at all. (This path is the safety net; normally
+    // main.js has prefetched the level's art long before the lobby asks for it.)
+    const own = this.backgrounds[levelNum];        // this level's own art
+    const held = this.backgrounds[this._bgLevel];  // the art already on screen
+    const tex = own || held || this.backgrounds[1];
+    // Which level's art actually went up — whichever of the three above supplied
+    // the texture, never merely the one we hoped for. Read by the debug hooks
+    // (lobbyBackground), and the thing refreshBackground() exists to correct.
+    this._bgLevel = own ? Number(levelNum) : (held ? this._bgLevel : (tex ? 1 : 0));
     if (tex) {
       // Keep the game a fixed-width vertical column: crisp art in the centred
       // 750-wide band, a blurred copy filling the sides on a wide screen.

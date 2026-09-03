@@ -1909,13 +1909,41 @@ Assets are organised into groups: a shared `core` group plus one `levelN` group
 per level, the latter generated from the `levels.json` config above.
 - **Preload** — on boot, `AssetManager.preload()` loads the essential minimum:
   `core` audio + every level flagged `preload: true` in the config (backgrounds
-  + level data). Its `onProgress(done, total)` callback drives the biggest slice
+  + level data) — **plus the group for the level the player is on**. That last
+  one is not in the config's static set: `main.js` appends `levelGroup(user.progress.level)`
+  to a **copy** of `PRELOAD_GROUPS` for this session (the exported constant is left
+  alone). Without it a returning player's first lobby paint would use level 1's
+  background and swap art under them a moment later, because the lobby wears the
+  art of the level it offers. For anyone still on levels 1–3 it adds nothing.
+  `preload()`'s `onProgress(done, total)` callback drives the biggest slice
   of the **splash screen's** progress bar (see `src/splash.js` above).
 - **Lazy load** — any level *not* flagged for preload is fetched on demand via
-  `ensureLevel(n, onProgress)` (called from `startLevel`), so its assets download
-  only when the player reaches it; the optional progress callback re-shows the
-  splash with a real bar for the wait. Loads are idempotent and de-duplicated
-  (cached results + shared in-flight promises), so nothing is fetched twice.
+  `ensureLevel(n, onProgress)`, so its assets download only when the player reaches
+  it. Three callers, in the order they matter:
+  - `startLevel`, for the level being entered — the only one that shows the splash
+    with a real bar for the wait.
+  - **Prefetch ahead**: `startLevel` also fires `prefetchLevel(level + 1)` once the
+    board is up. Winning goes *straight* to the lobby for `level + 1`, which wears
+    that level's background, so fetching it on arrival is too late — the player
+    sees the wrong art and a swap. A board lasts far longer than an image, so by
+    the time it matters this has landed. Nothing awaits it; the last level has no
+    next one and it simply does nothing.
+  - `ensureLobbyArt`, the backstop: every `showLobby(level)` fetches that level's
+    group **behind the already-visible lobby** with no loading screen, and calls
+    `lobby.refreshBackground()` when it lands. This covers a lobby reached by a
+    route the prefetch didn't anticipate (a QA level jump, a lost race on a slow
+    connection); a failed fetch just leaves the standing art up.
+
+  Loads are idempotent and de-duplicated (cached results + shared in-flight
+  promises), so nothing is fetched twice however many of these fire for one level.
+- **The lobby never flashes the wrong background.** `LobbyScene._buildBackground`
+  resolves its texture as *this level's own art* → *the art already on screen* →
+  *level 1*. That middle step is the point: asked for a level whose group has not
+  landed, the lobby **holds the picture the player is already looking at** rather
+  than dropping to `bg1.jpg` and replacing it a moment later. Level 1 is the last
+  resort, for a lobby with nothing up at all. `_bgLevel` records which of the three
+  actually supplied the texture (not which was wanted), and is what
+  `refreshBackground()` corrects and `lobbyBackground()` reports.
 - **Audio** uses the **Web Audio API**: each file is fetched and decoded into an
   in-memory `AudioBuffer` **once**, and every play spins up a throwaway
   `AudioBufferSourceNode`. Sounds overlap freely and playback makes **no network

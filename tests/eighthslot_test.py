@@ -178,7 +178,15 @@ with sync_playwright() as p:
 
     # ---- 6) THE BOOST IS SCOPED TO ONE ATTEMPT: Replay re-offers it ---------
     page.evaluate("window.__game.pressLoseReplay()")
-    time.sleep(0.6)
+    # Replay rebuilds the board, and the 8th slot cannot be TAKEN while that board
+    # is still dealing itself in — _extraSlotTakeable refuses a locked scene. Wait
+    # on the deal actually finishing instead of betting 0.6s on it: under load that
+    # bet loses, and step 7's press below is then silently refused, which reads as
+    # "the ad granted nothing" rather than as the starved renderer it is.
+    page.wait_for_function(
+        "() => !window.__game.dealState().animating && !window.__game.state().locked",
+        timeout=45000)
+    harness.frames(page)
     s = es()
     print("after Replay ->", s, st())
     assert s["capacity"] == BASE and s["btnVisible"] is True, ("a fresh offer", s)

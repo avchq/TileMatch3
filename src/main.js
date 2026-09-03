@@ -9,7 +9,7 @@ import { LevelChest } from "./levelchest.js";
 import { makePayments } from "./user/payments.js";
 import { makeTileTextures, makeSlotTexture, tilesFontReady, emojiPaints, TILE_EMOJIS } from "./icons.js";
 import { AudioManager } from "./audio.js";
-import { AssetManager, PRELOAD_GROUPS, MANIFEST, buildLevelGroups } from "./assets.js";
+import { AssetManager, PRELOAD_GROUPS, MANIFEST, buildLevelGroups, levelGroup } from "./assets.js";
 import { loadLevels } from "./levelConfig.js";
 import { UserStore } from "./user/UserStore.js";
 import { CONFIG } from "./config.js";
@@ -108,7 +108,18 @@ async function boot() {
   // bar. AssetManager.preload already reports per-item completion; map that onto
   // the [profile, assets] range.
   splash.set(P.profile, t("loading_assets"));
-  await assets.preload(PRELOAD_GROUPS, (done, total) => {
+  // The essential minimum is `core` + every level flagged `preload` (1-3) — AND
+  // the level the player is actually on. The lobby wears the art of the level it
+  // offers, so without that group a returning player's first lobby paint would
+  // fall back to level 1's background and swap under them a moment later. It also
+  // means walking into that level costs no second loading screen. Deep in the
+  // campaign this is one extra image; for anyone still on levels 1-3 it adds
+  // nothing, since those groups are in the list already. PRELOAD_GROUPS itself is
+  // left alone — it is the static manifest answer, not this session's.
+  const bootGroups = PRELOAD_GROUPS.slice();
+  const bootGroup = levelGroup(user.progress.level);
+  if (assets.hasGroup(bootGroup) && !bootGroups.includes(bootGroup)) bootGroups.push(bootGroup);
+  await assets.preload(bootGroups, (done, total) => {
     splash.set(P.profile + (P.assets - P.profile) * (total ? done / total : 1));
   });
   splash.set(P.assets);
@@ -299,6 +310,21 @@ async function boot() {
   function showLobby(level, opts) {
     scene.visible = false;
     lobby.show(level, opts);
+    ensureLobbyArt(level);
+  }
+
+  // The lobby shows the background of the level it OFFERS, and past the preload
+  // set that level's art is not in memory yet — the level the player just
+  // unlocked never is. So put the lobby up at once (on the level-1 fallback) and
+  // fetch the real art behind it, WITHOUT a loading screen: this is decoration,
+  // and blocking the lobby on it would be a worse trade than a late repaint.
+  // It is the very group the Play button would otherwise fetch behind a splash,
+  // so the usual effect is that the player then walks straight into the level.
+  function ensureLobbyArt(level) {
+    if (!assets.hasLevel(level) || assets.background(level)) return;
+    assets.ensureLevel(level)
+      .then(() => lobby.refreshBackground())
+      .catch(() => { /* a failed fetch just leaves the standing art up */ });
   }
   async function startLevel(level) {
     // Lazy-load this level's assets if they weren't part of the preload set
@@ -318,7 +344,23 @@ async function boot() {
     // level — the lobby's Play button, or the test API — resumes on a board that
     // is complete and playable rather than one still arriving.
     await scene.loadLevel(data, level);
+    // While the player is on this board, quietly fetch the NEXT level's assets.
+    // Winning takes them straight to the lobby for level+1, and that lobby wears
+    // level+1's background — fetching it only once they arrive is too late: they
+    // see the wrong art and a swap. A board lasts far longer than an image, so by
+    // the time it matters this has landed. Nothing waits on it, and the last level
+    // has no next one (hasLevel is false), so it simply does nothing there.
+    prefetchLevel(level + 1);
     return true;
+  }
+
+  // Fetch a level's group in the background — no splash, no await, failures
+  // ignored (a missed prefetch just means the ordinary on-demand load happens
+  // later). Idempotent: AssetManager caches loaded groups and shares in-flight
+  // promises, so calling it for a level already loaded or loading costs nothing.
+  function prefetchLevel(n) {
+    if (!assets.hasLevel(n)) return;
+    assets.ensureLevel(n).catch(() => {});
   }
 
   lobby.onPlay = (level) => startLevel(level);
@@ -572,6 +614,20 @@ async function boot() {
       // "right" (Tasks). Defaulted so existing callers keep meaning the left one.
       featureRail: (side) => (side === "right" ? lobby.railRight : lobby.rail).slots(),
       startLevel,
+      // Go to the lobby for a level the way the game does (Back out of a level, or
+      // finish one) — including the background prefetch that follows it. The twin
+      // of startLevel, so a test can exercise the lobby's own path without playing
+      // a level out.
+      showLobby: (n) => showLobby(n || currentLevel),
+      // Which background the LOBBY is showing: the level it is offering, the level
+      // whose art actually went up (1 is the fallback until the real one is in
+      // memory) and whether that level's texture has landed. `level` and `shown`
+      // agree once ensureLobbyArt's fetch has completed and repainted.
+      lobbyBackground: () => ({
+        level: lobby._level || 0,
+        shown: lobby._bgLevel || 0,
+        loaded: !!assets.background(lobby._level),
+      }),
       // Leave the level the way the Back button does — through the scene's single
       // exit path, so the guidance hand / booster hint / tutorial popup are torn
       // down rather than left behind on a hidden scene.
@@ -679,6 +735,11 @@ async function boot() {
       clearSoundLog: () => { sfxLog.length = 0; },
       manifest: MANIFEST,
       loadedGroups: () => [...assets._loaded],
+      // What boot actually PRELOADED, behind the splash: `core` + the levels
+      // flagged `preload` + the level the player was on. Distinct from
+      // loadedGroups(), which also grows with every group lazily fetched since —
+      // so this is the one that says the first lobby paint already had its art.
+      bootGroups: () => bootGroups.slice(),
       // Tile-face readiness (regression guard for the iOS "white tiles, no fruit"
       // bug): whether the emoji font was confirmed warm before the faces were
       // rasterized (`fontsReady`), and, per tile type, whether its fruit emoji
