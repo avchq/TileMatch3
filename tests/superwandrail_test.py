@@ -200,10 +200,10 @@ with sync_playwright() as p:
         ("…and the caption becomes the 'ready' one", pr, empty_caption)
     page.screenshot(path=f"{SC}/swrail_6_promo_ready.png")
 
-    # It is modal and it closes: the cross, and a tap on the dim around it.
-    ev("() => window.__game.lobby.superWandPromo.closeBtn.emit('pointertap')")
+    # It is modal and it closes: the OK button, and a tap on the dim around it.
+    ev("() => window.__game.lobby.superWandPromo.okBtn.emit('pointertap')")
     harness.frames(page, 3)
-    assert promo()["open"] is False, ("the cross closes it", promo())
+    assert promo()["open"] is False, ("the button closes it", promo())
     ev("window.__game.pressSuperWandRail()")
     harness.frames(page, 3)
     assert promo()["open"] is True, promo()

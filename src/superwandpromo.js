@@ -3,10 +3,11 @@
 // where the player finds out what the number is FOR: what the reward does, how
 // it is charged, and how close they are.
 //
-// Structure follows the reference promo layout: a ribbon header carrying a "?"
-// badge, the title and a close cross; a framed illustration of the sweep (the
-// upgraded wand blowing two complete sets apart); a live progress strip where
-// the reference puts its status bar; and one button along the bottom.
+// It is laid out like every other panel in this game — the same deep-blue rounded
+// card with a gold title inside its top edge, content in the middle and one
+// button along the bottom (cf. HowToPlayPopup and the win/lose overlays). The
+// content is a framed illustration of the sweep (the upgraded wand blowing two
+// complete sets apart) over a live progress strip.
 //
 // Everything is drawn, not loaded: this project has no promo artwork and no
 // particle system, so the illustration is the same Graphics + emoji vocabulary
@@ -24,16 +25,15 @@ const PANEL_W = 620;
 const PANEL_H = 880;
 
 // Panel-local geometry (0,0 = panel centre).
-const RIBBON_Y = -PANEL_H / 2 + 16;
-const RIBBON_H = 92;
-const ART_TOP = -350;
-const ART_H = 470;
+const TITLE_Y = -PANEL_H / 2 + 70;
+const ART_TOP = -318;
+const ART_H = 440;
 const ART_W = 540;
 const ART_CY = ART_TOP + ART_H / 2;
-const LINE_Y = 168;
-const CAP_Y = 232;
-const BAR_Y = 276;
-const BTN_Y = 366;
+const LINE_Y = 176;
+const CAP_Y = 240;
+const BAR_Y = 284;
+const BTN_Y = 372;
 const TRACK_W = 380;
 const TRACK_H = 26;
 
@@ -90,64 +90,23 @@ export class SuperWandPromo extends PIXI.Container {
     panel.eventMode = "static";
     this.group.addChild(panel);
 
+    // The title sits INSIDE the panel's top edge, in the gold-on-navy the rest of
+    // the game titles its panels with (tutorial_title, the win/lose overlays).
+    this.title = locText("superwand_title", {
+      fontFamily: "Arial", fontSize: 54, fontWeight: "900", fill: 0xffe27a,
+      stroke: 0x5a3a00, strokeThickness: 6,
+    });
+    this.title.anchor.set(0.5);
+    this.title.position.set(0, TITLE_Y);
+    fitTextWidth(this.title, PANEL_W - 80);
+    this.group.addChild(this.title);
+
     this._buildArt();
     this._buildStrip();
-    this._buildRibbon();
 
     this.okBtn = this._makeButton(t("ui_ok"), 300, 88, 0, BTN_Y, 0x39c06a,
       () => this.close());
     this.group.addChild(this.okBtn);
-  }
-
-  // The ribbon header: a bar wider than the panel (so it reads as a ribbon laid
-  // across it), a "?" badge at one end and the close cross at the other.
-  _buildRibbon() {
-    const w = PANEL_W + 52;
-    const g = new PIXI.Graphics();
-    g.beginFill(0x5a2f7e, 1)
-      .drawRoundedRect(-w / 2, RIBBON_Y - RIBBON_H / 2, w, RIBBON_H, 20).endFill();
-    g.lineStyle(5, 0xffe27a, 0.9)
-      .drawRoundedRect(-w / 2, RIBBON_Y - RIBBON_H / 2, w, RIBBON_H, 20);
-    g.eventMode = "static";
-    this.group.addChild(g);
-
-    const badge = new PIXI.Graphics();
-    badge.beginFill(0x22335e).drawCircle(0, 0, 34).endFill();
-    badge.lineStyle(5, 0xffe27a, 0.95).drawCircle(0, 0, 34);
-    badge.position.set(-w / 2 + 40, RIBBON_Y);
-    const q = new PIXI.Text("?", {
-      fontFamily: "Arial", fontSize: 40, fontWeight: "900", fill: 0xffe27a,
-    });
-    q.anchor.set(0.5);
-    q.position.copyFrom(badge.position);
-    this.group.addChild(badge, q);
-
-    this.title = locText("superwand_title", {
-      fontFamily: "Arial", fontSize: 44, fontWeight: "900", fill: 0xffe27a,
-      stroke: 0x5a3a00, strokeThickness: 6,
-    });
-    this.title.anchor.set(0.5);
-    this.title.position.set(0, RIBBON_Y);
-    fitTextWidth(this.title, w - 200); // clear of the badge and the cross
-    this.group.addChild(this.title);
-
-    this.closeBtn = new PIXI.Container();
-    const cg = new PIXI.Graphics();
-    cg.beginFill(0x22335e).drawCircle(0, 0, 32).endFill();
-    cg.lineStyle(5, 0xffe27a, 0.95).drawCircle(0, 0, 32);
-    const cx = new PIXI.Text("✕", {
-      fontFamily: "Arial", fontSize: 32, fontWeight: "900", fill: 0xffe27a,
-    });
-    cx.anchor.set(0.5);
-    this.closeBtn.addChild(cg, cx);
-    this.closeBtn.position.set(w / 2 - 40, RIBBON_Y);
-    this.closeBtn.eventMode = "static";
-    this.closeBtn.cursor = "pointer";
-    this.closeBtn.hitArea = new PIXI.Circle(0, 0, 34);
-    this.closeBtn.on("pointertap", () => this.close());
-    this.closeBtn.on("pointerover", () => this.closeBtn.scale.set(1.1));
-    this.closeBtn.on("pointerout", () => this.closeBtn.scale.set(1));
-    this.group.addChild(this.closeBtn);
   }
 
   // The illustration: the upgraded wand at the centre of a sunburst, blowing two
@@ -314,7 +273,7 @@ export class SuperWandPromo extends PIXI.Container {
    *  own (locText binds them), but a translation is rarely the same width. */
   relocalize() {
     this.okBtn.label.text = t("ui_ok");
-    fitTextWidth(this.title, PANEL_W + 52 - 200);
+    fitTextWidth(this.title, PANEL_W - 80);
     for (const c of [this.capStreak, this.capReady]) fitTextWidth(c, PANEL_W - 90);
   }
 

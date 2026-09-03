@@ -284,10 +284,11 @@ Only `howtoplay_test.py` leaves it open.
   — that a **tap opens the Super Wand promo**, the modal explaining what the
   number is for: every field it reports (title, illustration line, caption,
   button) is localized copy rather than a raw key, its meter tracks the streak
-  live and swaps to the "ready" caption once charged, the cross and a tap on
-  the dim outside the panel both close it, and leaving the lobby for a level
-  closes it too. Drives it via `window.__game.superWandRail()` and
-  `window.__game.superWandPromo()` / `pressSuperWandRail()`.
+  live and swaps to the "ready" caption once charged, the OK button and a tap
+  on the dim outside the panel both close it (there is no close cross), and
+  leaving the lobby for a level closes it too. Drives it via
+  `window.__game.superWandRail()` and `window.__game.superWandPromo()` /
+  `pressSuperWandRail()`.
 - **`tray_size_test.py`** — the bottom tray is sized to the **current level's tile
   size**, not a fixed 84px slot: the slot equals `clamp(TILE_DRAW*boardScale,
   slotMin, slotMax)` across levels, the 7 slots stay evenly spaced and the panel

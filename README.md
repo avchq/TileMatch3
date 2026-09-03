@@ -629,22 +629,25 @@ waterfall any Wand press runs.
   profile's `superWand` domain, so the pill ticks over without a scene rebuild
   the moment a streak win lands or a loss is accepted, and survives a reload
   the same way every other rail entry does.
-- **The promo.** The pill's tap opens a modal, in the same shape as the "How To
-  Play" popup: a full-view dim that swallows taps and closes on a tap outside
-  the panel, one centred `group` a resize re-centres by moving a single object,
-  and a `layout(DW, DH)`. It is a popup over the lobby, not a scene — `LobbyScene`
-  constructs it, adds it as its topmost child and hides it in `hide()`, so a trip
-  through a level never leaves it open. The 620×880 panel carries a ribbon header
-  (a "?" badge, the title and a close cross), a framed illustration, one
-  explanatory line, the same live progress strip described above, and an OK
-  button. The illustration is **drawn**, like every other effect in this game —
-  a 12-wedge gold sunburst (the same construction as the "How To Play" popup's
-  rays and the Daily Bonus screen's shine), the gold ✨ wand disc at its centre,
-  and six tiles blown outward, three 🍓 and three 🍋, because that is exactly
-  what one sweep clears: two complete sets, never a partial one. The strip
-  reads the profile the same way the rail pill does, toggling between two bound
-  labels — "Clear 5 levels in a row!" while filling, "Super Wand ready!" once
-  charged — so a language swap re-letters whichever is showing for free.
+- **The promo.** The pill's tap opens a modal, laid out like every other panel
+  in this game — the same deep-blue rounded card with a gold title inside its
+  top edge, content in the middle and one button along the bottom (cf. the "How
+  To Play" popup and the win/lose overlays): a full-view dim that swallows taps
+  and closes on a tap outside the panel, one centred `group` that a resize
+  re-centres by moving a single object, and a `layout(DW, DH)`. It is a popup
+  over the lobby, not a scene — `LobbyScene` constructs it, adds it as its
+  topmost child and hides it in `hide()`, so a trip through a level never
+  leaves it open. The 620×880 panel's content is a framed illustration of the
+  sweep over one explanatory line, the same live progress strip described
+  above, and an OK button — there is no close cross; the OK button and a tap on
+  the dim are the only ways out. The illustration is **drawn**, like every
+  other effect in this game — a 12-wedge gold sunburst (the same construction
+  as the "How To Play" popup's rays), the gold ✨ wand disc at its centre, and
+  six tiles blown outward, three 🍓 and three 🍋, because that is exactly what
+  one sweep clears: two complete sets, never a partial one. The strip reads the
+  profile the same way the rail pill does, toggling between two bound labels —
+  "Clear 5 levels in a row!" while filling, "Super Wand ready!" once charged —
+  so a language swap re-letters whichever is showing for free.
 - **Losing it.** The Super Wand is not a single-shot token — it is the **state
   of being on a win streak** — so sweeping (beyond the wand use it costs) takes
   nothing away from it. The only thing that ever clears it is a loss the player
