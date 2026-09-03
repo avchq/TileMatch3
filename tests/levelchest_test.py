@@ -139,8 +139,8 @@ with sync_playwright() as p:
     assert s["full"] is True and s["opened"] is True, ("milestone chest opened", s)
     snap("b1_reward_popup")
 
-    base = coins()                 # 25 from the win itself, already credited
-    assert base == 25, ("the level win credited its 25 coins", base)
+    base = coins()                 # the win itself pays nothing — only the chest does
+    assert base == 0, ("a level win credits no coins of its own", base)
     page.evaluate("window.__game.setChestAdResult('succeed')")
     page.evaluate("window.__game.pressChestDouble()")   # doubles 25 → 50, then grants
     page.wait_for_function("window.__game.chestState().claimed === true", timeout=24000)

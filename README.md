@@ -29,9 +29,22 @@ when they **complete** that level, which is also what ends the first-run flow: f
 then on every load lands on the lobby as usual. See `user.isNewPlayer()` /
 `progress.completed` in the User section below.
 
+Every level, not just the first, opens with the same small piece of theatre
+before it opens for taps: the stack is **dealt in layer by layer**, bottom layer
+first, each layer popping into place a beat after the one below it — so the pile
+visibly assembles itself and its depth is readable before you make a move,
+whether it's a shallow 2-layer level or a much deeper one (the beat tightens on
+a deeper board rather than making you wait longer, so the whole deal stays
+inside a fixed ceiling regardless of how many layers it has). Nothing on the
+board is tappable until the last layer has landed, and the level's own opening —
+the "How To Play" popup on level 1, the guided first moves, a helper's coached
+first use — waits for that moment too, so nothing is ever explained over a
+half-built board.
+
 ### The "How To Play" popup
-The very first thing level 1 does — before the player is handed any control — is
-open a modal **"How To Play"** popup over the freshly dealt board. It carries a
+The very first thing level 1 does — before the player is handed any control, and
+only once its board has finished dealing itself in — is open a modal **"How To
+Play"** popup over it. It carries a
 single line, **"Collect 3 identical tiles to remove them"**, over an animated
 demonstration of exactly that: a small **3×3 board** (three groups of three) above
 its own **tray**, with a pointing hand that collects matching tiles one by one —
@@ -63,8 +76,9 @@ tapping tiles. While a brand-new player is in level 1:
   is therefore no way to quit level 1 part-way; the only way out is to finish it.)
 - **The How To Play popup opens first** (above) and locks the level behind it;
   everything below starts when it closes.
-- **The first two moves are played for you.** As soon as the board is built the
-  game looks for three identical tiles that are all free to tap right now. Finding
+- **The first two moves are played for you.** As soon as the board has dealt
+  itself in the game looks for three identical tiles that are all free to tap
+  right now. Finding
   a group, it flies **two** of them into the tray on their own, with no input, and
   puts an **animated pointing hand** on the third — so the very first tap is
   guaranteed to complete a match and show the whole loop (collect →
@@ -253,8 +267,9 @@ its three buttons):
   touching code.
 
 **Coins** are a spendable currency shown in a **coin pill** at the top-right of
-both the lobby and the level HUD. You **earn 25 coins for clearing a level** (the
-win overlay shows the reward).
+both the lobby and the level HUD. Clearing a level itself **pays nothing** — the
+free coin sources are the **Level Chest**, the **Daily Bonus** and the **Fortune
+Wheel**; the shop's packages are the paid source.
 
 The **shop is a progression unlock like the helpers**: it only opens up once the
 player has **passed level 2** (`features.shop.unlockLevel` = 3 in
@@ -277,6 +292,18 @@ after the gather — when the last one lands, the level is won. It is **not offe
 level 1** — the teaching level is played by hand all the way to the win — so it
 first appears on level 2. The **cog** (top-left) opens Settings and the
 **‹ Back** button beside it leaves the level for the lobby with progress kept.
+
+The level's **top bar** is the translucent rounded panel behind that chrome
+(`HUD_BAR` in `src/game.js`: a 702×112 panel at `y = 40`, centred in the 750
+column). Everything it holds is aligned to it rather than to hand-picked
+coordinates: the **cog**, **‹ Back**, the **LEVEL** title and the **coin pill**
+are all centred on the panel's own centre line (`HUD_BAR.cy`), and the two
+outermost controls — the cog at the left end and the coin pill's **cart badge**,
+which overhangs the pill body (`makeCoinPill().reach`) — keep the same `pad` from
+their end of the panel, so the row is symmetric. The title sits on the column
+centre and is **scaled down** if a long localized string (or a four-digit level)
+would not fit the room the two end groups leave it. `tests/hudbar_test.py`
+enforces all of that.
 
 ### Feature buttons — the lobby rails
 The lobby's **feature entry buttons** are not pinned to fixed spots. They are
@@ -895,9 +922,9 @@ gets the first one filled and the second left as literal text. `{0}` and `{1}`
 are substituted one after another, so they must stay distinct tokens — they may
 be **reordered**, but not merged. The tests check all of this against English.
 
-A placeholder can be filled with **another translated string**: `win_subtitle`
-(`"{0}  +{1}"`) takes the win line and the coin reward, and `tasks_note_weekly`
-takes the localized countdown.
+A placeholder can be filled with **another translated string**: `reward_amount`
+(`"{0} {1}"`) takes a count and the localized item name (`itemName()`, e.g.
+`item_coin`), and `tasks_note_weekly` takes the localized countdown.
 
 **Singulars and plurals are two separate keys** (`item_coin` / `item_coin_plural`,
 `title_task_1` / `title_task_1_one`) rather than an "s" appended in code — most
@@ -1316,7 +1343,8 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   floats an **"Unlocks at Level N"** pill (`_showBoosterHint`), replacing any hint
   already up.
   The other side of that gate is the **coached first use** (`src/boostercoach.js`,
-  `BoosterCoach`). `loadLevel` ends with `_maybeCoachBooster()`, which asks
+  `BoosterCoach`). `loadLevel` ends by **dealing the board in** and, once it has
+  landed, running `_maybeCoachBooster()`, which asks
   `_owedCoach()` for the lowest-unlock helper that is unlocked but not yet in
   `user.boosterCoach`, checks `_coachCanAct(kind)` (never open a modal the helper
   can't close), and opens the overlay on `tutorialLayer`. The overlay **reparents
@@ -1362,6 +1390,30 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   leaves the level for the lobby mid-level (progress untouched) through `_exit()`
   — the single exit path, so the guidance hand and any floating hint can't be left
   behind on a hidden scene.
+  The **opening deal** (`_dealIn`, called from `loadLevel` right after
+  `_layoutBoard`) is how a board actually arrives on screen: every board tile
+  starts at alpha 0 and a shrunken `DEAL.fromScale`, and each **layer** — bottom
+  first — then tweens up to its home size and full opacity a beat after the layer
+  below it, via `easeOutBack` (so it overshoots a little before settling, which
+  reads as a pop) with the fade running at twice the pop's pace so a tile looks
+  solid well before it has finished settling. The beat between layers
+  (`DEAL.layerMs`, 70 ms) is squeezed — `min(layerMs, (maxMs - tileMs) / (layers -
+  1))` — to keep the *whole* deal inside `DEAL.maxMs` (480 ms), so the deepest
+  board in the campaign (the level data currently goes up to 5 layers) opens no
+  more slowly than a 2-layer one. Positions are never animated: every frame reads the
+  tile's `homeScale`, which is what `_layoutBoard` already wrote, so a resize
+  part-way through the deal is picked up rather than fought. `DEAL` sits as a
+  plain constant next to `HUD_BAR` and the Super Wand timings rather than in
+  `src/config.js`, for the same reason those are there — it is presentation, not
+  a progression or economy tunable. `_dealIn` resolves once the last layer has
+  landed, which is the promise `loadLevel` returns; a level swapped out mid-deal
+  (a reload, a Back press) is checked against `_guideRun` on every step, so it
+  simply abandons the animation on tiles that no longer belong to the current
+  board. `dealState()` is the read the debug API (`window.__game.dealState()`)
+  exposes for `deal_test.py`: whether the deal is still running, the beat this
+  board used, and, per layer, the moment it started (ms since the deal began) and
+  the live mean opacity of its tiles — so sampling it once per frame shows the
+  wave climbing the stack.
   The **"How To Play" popup** (`src/tutorial.js`, `HowToPlayPopup`) is opened by
   `loadLevel` whenever `levelNum === TUTORIAL_LEVEL` (1) — the gate is the level
   number, not `isNewPlayer()`. `_showTutorial()` locks the scene, adds the popup to
@@ -1391,10 +1443,14 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   `_firstRun = user.isNewPlayer() && levelNum === 1`, calls
   `_applyFirstRunChrome()` (hides `cog` + `backBtn`, `coinPill.setShopEnabled(false)`
   — the hidden controls drop out of `controls()` on their own, since the host skips
-  invisible objects) and, once the board is placed, fires `_runFirstRunGuide()`.
-  `loadLevel` returns with the board fully interactive — `_layoutBoard` positions
-  tiles outright, there is no build-in animation — so that *is* the "board
-  finished building" moment. The guide picks a triple with `_findGuideTriple()`
+  invisible objects) and, once the board has **dealt itself in**, fires
+  `_runFirstRunGuide()`. `_layoutBoard` places every tile outright — position,
+  scale, coverage — the moment `loadLevel` runs, but the board is not actually on
+  screen yet: it arrives over the next few hundred milliseconds through the
+  **opening deal** below, and `loadLevel` stays `locked` and returns its promise
+  only once that has resolved, so *that* is the "board finished building" moment,
+  not the synchronous return from `_layoutBoard`. The guide picks a triple with
+  `_findGuideTriple()`
   (free tiles grouped by `type`, lowest type id first, so it's deterministic for a
   given seeded board), locks input, `_collect`s two of them on a timer, then calls
   `_showHand(tile)` — a `PIXI.Text("👆")` plus a ripple `Graphics` on `fxLayer`,
@@ -1429,7 +1485,8 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   **Out of Moves** (`_lose()` → `_showLoseOverlay()`): a full tray no longer
   dead-ends. `_lose` shows a **modal** overlay (its dim is `eventMode:"static"`, so
   it swallows every tap and there's no close affordance) with **Home** (`onExit`),
-  **Replay** (`restart`), and **Continue**. Continue reuses the booster
+  **Replay** (`restart`, which reruns `loadLevel` and so returns the same
+  "board dealt in and unlocked" promise), and **Continue**. Continue reuses the booster
   **waterfall**: if the player can afford `continuePrice` (from `prices.json`'s
   `continue` key) the button shows a coin price and `_continueAfterLoss` **debits
   coins**; otherwise it shows a 📺 tag and grants a **free** continue via a stubbed
@@ -1539,8 +1596,8 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   applies the contents (`user.credit("coins", …)` + `user.grantBooster(kind, n)`).
   `shop.js` also exports **`makeCoinIcon(r)`** — the coin is **drawn as a gold coin**
   (not the 🪙 emoji, which some hosts render silver) so it's a consistent gold
-  everywhere it appears (HUD pill, shop balance header, package contents, the win
-  reward) — and **`makeCoinPill(user, onTap)`**, the shared coin-balance HUD control
+  everywhere it appears (HUD pill, shop balance header, package contents, the
+  Level Chest reward) — and **`makeCoinPill(user, onTap)`**, the shared coin-balance HUD control
   used by both the lobby and the level: a gold coin + the live balance + a small
   **shopping-cart** icon signalling that a tap opens the shop. It live-refreshes on
   any `wallet` change (parallel to `makeCogButton` in `settings.js`).
@@ -1550,8 +1607,9 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   it — the shop's **progression gate** (`user.isShopUnlocked()`, refreshed from
   `LobbyScene._refreshShopGate` / `GameScene._applyFirstRunChrome` and on every
   `progress` change, so clearing level 2 lights the cart up live) and the guided
-  first level, which withholds it on top of that. The coin reward for
-  a win is `economy.coinWinReward` in `src/config.js` (spent by `game.js` `_win()`). (Spending coins on helpers is
+  first level, which withholds it on top of that. Clearing a level pays no coins
+  itself — the shop's packages are the *paid* coin source, alongside the free
+  Level Chest, Daily Bonus and Fortune Wheel. (Spending coins on helpers is
   done on-demand inside a level, not in the shop.)
 - `src/fortunewheel.js` is the `FortuneWheelScene` — the daily prize-wheel overlay
   (modeled on `ShopScene`: full-screen dim + centred panel + `easeOutBack` pop +
@@ -1633,7 +1691,12 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   (skip the lobby), else `showLobby(currentLevel)`; `onLevelComplete` records the
   clear with `user.completeLevel(n)` — which is what makes the player no longer new
   **and** what pays out any helper unlock that just came due — before advancing the
-  level and returning to the lobby. On boot
+  level and returning to the lobby. `startLevel(level)` **`await`s
+  `scene.loadLevel(data, level)`**, so it only resolves once the level's board has
+  finished dealing itself in and is unlocked — the property the whole test suite's
+  `await window.__game.startLevel(n)` relies on, and why the boot's own first-run
+  branch can `await` it too, rather than assuming the level is already playable the
+  moment the call returns. On boot
   it `loadLevels()` (fetches `assets/config/levels.json`) then `buildLevelGroups()`
   to populate the asset manifest; the highest playable level is simply that list's
   length (`levels.length` — there is no separate `MAX_LEVEL` constant). It
@@ -1650,9 +1713,18 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   callback is mapped onto that range), the prices/turntable/dailybonus configs
   88%, scene construction + `resize()` 96%, first scene 100%. Progress is
   **monotonic** (a later stage reporting a smaller fraction can never walk the bar
-  backwards) and there is **no minimum display time** — `splash.hide()` runs the
-  moment the first scene is up, just *ahead* of the `window.__game` assignment, and
-  the fade-out drops `pointer-events` immediately so it can never swallow a tap
+  backwards) and there is **no minimum display time** — `splash.hide()` runs
+  **just before** the first scene is put up (immediately above the first-run
+  branch in `main.js`, ahead of both the `startLevel(1)` and `showLobby` paths),
+  rather than after the audio wiring a little further down, which is where it
+  used to sit. Both branches fill the canvas within that same tick, so nothing
+  renders in the gap and there is no blank frame — and it has to be this way
+  round now that level 1's board **deals itself in** over the next few hundred
+  milliseconds (see the opening deal above): held a moment longer, the splash
+  would still be covering the screen when the deal started, and a brand-new
+  player would miss the animation entirely. It is still kept **ahead of** the
+  `window.__game` assignment, and the fade-out drops `pointer-events` immediately
+  so it can never swallow a tap
   meant for the canvas. `show()`/`hide()` are **hold-counted**, so the mid-session
   lazy level load (`startLevel` → `assets.ensureLevel(n, onProgress)`, which now
   reports its 2 items) can reuse the same splash without a nested load hiding the
@@ -1721,7 +1793,7 @@ sections are:
 | `progression` | `tutorialLevel` (which level opens "How To Play" + the guided opening) and `autoComplete.minLevel` / `.maxTiles` (the window the free Auto Complete button is offered in) |
 | `features` | one gate/pacing block per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel`, `tasks.unlockLevel` / `.weeklyResetDay`, and `levelChest.repeatStart` (the Level Chest has no gate — it's derived from progress) |
 | `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — `coach` (`enabled`, `undoDelayMs`) for the guided first use, and `superWand` (`unlockLevel` / `streakLength` / `minTiles` / `extraRounds`) for the Wand's earned upgrade |
-| `economy` | `currencies`, the `startingWallet`, and `coinWinReward` (the only free coin faucet) |
+| `economy` | `currencies` and the `startingWallet` a new account starts with — clearing a level pays no coins, so the free supply comes from the Level Chest, Daily Bonus and Fortune Wheel, with the shop as the paid one |
 | `board` | `traySlots` — the base tray capacity, the core difficulty dial — plus `extraSlot` (`unlockLevel` / `grant`, the ad-funded 8th slot) and `warnings` (`pulseAtFree` / `bubbleAtFree`, the two near-full cues, counted against the *live* capacity) |
 | `persistence` | `saveDebounceMs` — the autosave debounce |
 | `language` | `defaultLanguage` (what an unrecognised device language falls back to) and `textDir` (the folder holding the per-locale string tables). The 13 **offered** codes are deliberately not here — that list is hard-coded in `src/i18n.js`; see Localization above |

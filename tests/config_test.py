@@ -11,7 +11,7 @@ import harness
 #   1. the config ships the intended values (the table below mirrors config.js —
 #      re-balancing the game means editing both, on purpose);
 #   2. the LIVE game really behaves the way the config says (gates, grants,
-#      starting inventory, tray capacity, win reward all read back from it), so
+#      starting inventory and tray capacity all read back from it), so
 #      a value here is genuinely the single source of truth and not a copy that
 #      drifted from a constant still buried in a module;
 #   3. there is no SECOND source: the moved constants are gone from the modules
@@ -42,8 +42,7 @@ EXPECT = {
                       "minTiles": 6, "extraRounds": 2},
     },
     "economy": {"currencies": ["coins", "gems"],
-                "startingWallet": {"coins": 0, "gems": 0},
-                "coinWinReward": 25},
+                "startingWallet": {"coins": 0, "gems": 0}},
     "board": {"traySlots": 7,
               "extraSlot": {"unlockLevel": 9, "grant": 1},
               "warnings": {"pulseAtFree": 2, "bubbleAtFree": 1}},
@@ -185,8 +184,9 @@ with sync_playwright() as p:
     print("TASKS AT GATE ->", t["unlocked"], t["buttonVisible"])
     assert t["unlocked"] is True and t["buttonVisible"] is True, t
 
-    # Winning a level pays exactly `economy.coinWinReward`, and Auto Complete
-    # is only ever offered inside the configured window.
+    # Winning a level pays NO coins at all — the free faucets are the reward
+    # features, not the clear itself — and Auto Complete is only ever offered
+    # inside the configured window.
     auto = C["progression"]["autoComplete"]
     page.evaluate("window.__game.credit('coins', 0)")
     before = page.evaluate("window.__game.balance('coins')")
@@ -222,7 +222,7 @@ with sync_playwright() as p:
     after = page.evaluate("window.__game.balance('coins')")
     print("WIN REWARD ->", before, "->", after)
     assert seen_auto, "the level-2 descent should pass through the Auto Complete window"
-    assert after - before == C["economy"]["coinWinReward"], (before, after)
+    assert after == before, ("a level win credits no coins", before, after)
     page.screenshot(path=f"{OUT}/config_win.png")
 
     # ---- 3) no second source of truth -----------------------------------
@@ -239,7 +239,7 @@ with sync_playwright() as p:
     # …and the modules the constants came from must not re-declare them
     # either: a new tunable belongs in config.js, never inline in a module.
     FORBIDDEN = {
-        "src/game.js": ["COIN_WIN_REWARD", "AUTO_MIN_LEVEL", "AUTO_MAX_TILES",
+        "src/game.js": ["AUTO_MIN_LEVEL", "AUTO_MAX_TILES",
                         "TUTORIAL_LEVEL", "TRAY_SLOTS"],
         "src/user/User.js": ["BOOSTER_UNLOCKS", "SHOP_UNLOCK_LEVEL", "TASKS_UNLOCK_LEVEL",
                              "EXTRA_SLOT_UNLOCK_LEVEL"],

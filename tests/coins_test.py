@@ -9,8 +9,10 @@ os.chdir(ROOT)
 BASE = harness.serve()
 
 # Coins are a spendable currency on the USER record (wallet.coins). They are shown
-# in a top-HUD pill (lobby + level), earned by winning a level, spent in the shop on
-# boosters, and topped up with real-money coin packs via the payment provider.
+# in a top-HUD pill (lobby + level), earned from the reward features (Level Chest,
+# daily bonus, fortune wheel — NOT from clearing a level, which pays nothing), spent
+# in the shop on boosters, and topped up with real-money coin packs via the payment
+# provider.
 with sync_playwright() as p:
     b, page, errs = harness.launch(p, viewport=(780, 1334))
     page.goto(f"{BASE}/index.html")
@@ -81,7 +83,9 @@ with sync_playwright() as p:
     assert {k: bcount(k) for k in ("wand", "undo", "shuffle")} == b_before, "single-item pack grants no boosters"
     print("after coin pack: coins", coins())
 
-    # 6) Winning a level awards coins (+reward) and the win overlay shows it.
+    # 6) Winning a level pays NO coins, and the win overlay carries no reward: the
+    #    subtitle is the plain "Great matching!" line — no "+N", no coin, and no
+    #    stale "You cleared levels 1-3".
     page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
     time.sleep(0.6)
     before_win = coins()
@@ -95,7 +99,7 @@ with sync_playwright() as p:
     assert page.evaluate("window.__game.state().boardCount") == 0, "level should be won"
     gained = coins() - before_win
     print("win reward gained:", gained)
-    assert gained == 25, ("level win should award 25 coins", gained)
+    assert gained == 0, ("a level win pays no coins", gained)
     overlay_txt = page.evaluate("""() => {
             const out = [];
             const walk = (n) => { if (!n) return; if (n.text) out.push(n.text); (n.children||[]).forEach(walk); };
@@ -103,7 +107,11 @@ with sync_playwright() as p:
             return out.join('|');
         }""")
     print("overlay text:", overlay_txt)
-    assert ("+%d" % 25) in overlay_txt, ("win overlay should show the coin reward", overlay_txt)
+    assert "+" not in overlay_txt, ("win overlay must not show a coin reward", overlay_txt)
+    assert "cleared levels" not in overlay_txt, (
+        "the stale 'You cleared levels 1-3' line is gone", overlay_txt)
+    assert "Great matching!" in overlay_txt, (
+        "the win subtitle is the plain congratulation line", overlay_txt)
 
     # 7) The coin balance persists across a reload (it's on the user record).
     page.evaluate("window.__game.flushSave()")

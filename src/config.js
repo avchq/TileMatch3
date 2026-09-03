@@ -299,7 +299,7 @@ export const CONFIG = deepFreeze({
   },
 
   // --------------------------------------------------------------------------
-  //  ECONOMY — currencies and the free coin faucet
+  //  ECONOMY — currencies and the wallet a new account starts with
   // --------------------------------------------------------------------------
   //  Coin PRICES (buying a helper at 0 stock, and the Out-of-Moves continue) are
   //  a data table and live in assets/config/prices.json instead.
@@ -311,17 +311,11 @@ export const CONFIG = deepFreeze({
     currencies: ["coins", "gems"],
 
     // The wallet a brand-new account starts with. Zero coins means the first
-    // helper buy must be earned by clearing levels (or bought in the shop),
-    // which is what gives `coinWinReward` its pull. Seed it if playtests show
+    // helper buy must be earned: clearing a level itself pays nothing, so the
+    // free coin sources are the Level Chest, the daily bonus and the fortune
+    // wheel — packages in the shop are the paid one. Seed it if playtests show
     // players stalling before their first purchase.
     startingWallet: { coins: 0, gems: 0 },
-
-    // Coins paid for clearing a level (the win overlay shows the reward). This
-    // is the game's only FREE coin faucet — packages in the shop are the paid
-    // source — so it sets how fast a non-paying player can afford the helper
-    // buys and the Out-of-Moves continue in prices.json. Balance the two
-    // together: at 25/level, a 300-coin continue costs about a dozen wins.
-    coinWinReward: 25,
   },
 
   // --------------------------------------------------------------------------

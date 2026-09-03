@@ -16,7 +16,6 @@ const DESIGN_H = 1334;
 // ---- Tunables (src/config.js) ---------------------------------------------
 // Aliased here so the code below reads the same as it always has; config.js is
 // where each of them is explained and where they are edited.
-const COIN_WIN_REWARD = CONFIG.economy.coinWinReward;   // coins paid for a win
 const AUTO_MIN_LEVEL = CONFIG.progression.autoComplete.minLevel;  // no Auto Complete below this level
 const AUTO_MAX_TILES = CONFIG.progression.autoComplete.maxTiles;  // …nor above this many tiles left
 const TUTORIAL_LEVEL = CONFIG.progression.tutorialLevel; // level that opens "How To Play" + the guide
@@ -48,6 +47,38 @@ const slotMaxFor = (n) =>
 
 const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1140;
+
+// THE OPENING DEAL — how a board arrives at the start of a level. It is not
+// painted all at once: the stack is dealt LAYER BY LAYER, bottom layer first,
+// each layer popping in a beat after the one below it, so the player watches the
+// pile being built and reads its depth before making a move. Presentation, so
+// deliberately here rather than in config.js (see _dealIn).
+//   layerMs   — the beat between one layer starting and the next.
+//   tileMs    — how long a single layer's pop takes (fade + scale).
+//   maxMs     — ceiling on the WHOLE deal. A deep board tightens the beat to fit
+//               inside it rather than making the player wait longer, so a
+//               10-layer level opens as briskly as a 2-layer one.
+//   fromScale — the size a tile starts at; easeOutBack carries it past 1 and
+//               back, which is the pop.
+const DEAL = { layerMs: 240, tileMs: 300, maxMs: 700, fromScale: 0.55 };
+
+// The level's top bar: the translucent rounded panel behind the chrome, plus the
+// rules everything inside it is placed by. The panel is symmetric about the
+// column's centre (equal margins left and right of DESIGN_W/2), so its contents
+// are laid out symmetrically too: every element is centred on `cy`, and the
+// OUTERMOST controls (the cog at the left end, the coin pill's cart badge at the
+// right) keep the same `pad` from their end of the panel. Sizes are outer
+// bounds, borders included, so a round button's `pad` reads the same as the
+// pill's. See _buildHud; tests/hudbar_test.py enforces it.
+const HUD_BAR = {
+  x: 24, y: 40, w: DESIGN_W - 48, h: 112, r: 26,
+  pad: 14,        // gap from a panel end to the outermost control's outer edge
+  gap: 12,        // gap between the cog and the Back button
+  cogR: 40,       // cog outer radius (76 square + its 4px border)
+  backR: 40,      // Back button outer radius (r 38 + its 4px border)
+};
+HUD_BAR.cy = HUD_BAR.y + HUD_BAR.h / 2;      // every element's vertical centre
+HUD_BAR.right = HUD_BAR.x + HUD_BAR.w;
 
 // Level Chest reward glyphs. Coins/lightning draw a gold coin instead of an
 // emoji (see makeCoinIcon), matching how the wheel and daily gift show them.
@@ -136,6 +167,9 @@ export class GameScene extends PIXI.Container {
     this._handTile = null;  // the tile it points at (so it can follow a re-layout)
     this._handAnim = null;  // its ticker loop
     this._guideRun = 0;     // generation token: invalidates an in-flight guided opening
+    this._dealing = false;  // true while the opening deal (_dealIn) is still running
+    this._dealLog = [];     // per layer: when it started appearing, ms into the deal
+    this._dealStepMs = 0;   // the beat actually used for the current board
     this._tutorial = null;  // the "How To Play" popup, while it is up
     this._boosterHint = null; // the floating "Unlocks at Level N" label, when shown
     // ---- tray capacity (the 8th slot) --------------------------------------
@@ -714,22 +748,29 @@ export class GameScene extends PIXI.Container {
   }
 
   _buildHud() {
-    // top bar
+    // top bar — the panel every control below is aligned inside (see HUD_BAR).
     const bar = new PIXI.Graphics();
-    bar.beginFill(0x0a1226, 0.35).drawRoundedRect(24, 40, DESIGN_W - 48, 120, 28).endFill();
+    bar.beginFill(0x0a1226, 0.35)
+      .drawRoundedRect(HUD_BAR.x, HUD_BAR.y, HUD_BAR.w, HUD_BAR.h, HUD_BAR.r).endFill();
     this.hudTop.addChild(bar);
+    this.hudBar = bar;
 
+    // Level title — centred on the bar (which is itself centred on the column).
     this.levelText = new PIXI.Text(t("hud_level", 1), {
       fontFamily: "Arial", fontSize: 40, fontWeight: "900", fill: 0xffffff,
       stroke: 0x1a2a52, strokeThickness: 6,
     });
     this.levelText.anchor.set(0.5);
-    this.levelText.position.set(DESIGN_W / 2, 84);
+    this.levelText.position.set(DESIGN_W / 2, HUD_BAR.cy);
     this.hudTop.addChild(this.levelText);
 
-    // Coin balance pill — top-right of the HUD bar. Tapping it opens the shop.
+    // Coin balance pill — right end of the HUD bar. Tapping it opens the shop.
+    // Its cart badge overhangs the pill body, so the pill is placed by that
+    // outer reach rather than by its own centre: the badge's right edge is what
+    // has to keep `pad` from the panel's end, mirroring the cog at the left one.
     this.coinPill = makeCoinPill(this.user, () => this.onShop && this.onShop());
-    this.coinPill.position.set(DESIGN_W - 108, 84);
+    this.coinPill.position.set(HUD_BAR.right - HUD_BAR.pad - this.coinPill.reach.right,
+      HUD_BAR.cy);
     this.hudTop.addChild(this.coinPill);
 
     // buttons row — round, icon-only. Placed BELOW the tray panel (whose bottom
@@ -767,16 +808,39 @@ export class GameScene extends PIXI.Container {
     this.extraBtn = this._makeExtraSlotButton();
     this.hudBottom.addChild(this.extraBtn);
 
-    // Settings (cog) — top-left. Opens the settings screen via the host.
+    // Settings (cog) — left end of the HUD bar, `pad` in from its edge. Opens the
+    // settings screen via the host.
+    const cogCX = HUD_BAR.x + HUD_BAR.pad + HUD_BAR.cogR;
     const cog = makeCogButton(this.audio, () => this.onSettings && this.onSettings());
-    cog.position.set(60, 84);
+    cog.position.set(cogCX, HUD_BAR.cy);
     this.hudTop.addChild(cog);
     this.cog = cog;
 
     // Back — sits next to the cog. Stops the level and returns to the lobby;
     // any user-record changes made during the level are left intact (persisted).
-    this.backBtn = this._makeRoundButton("‹", 38, 148, 84, 0x334063, () => this._exit());
+    this.backBtn = this._makeRoundButton("‹", 38,
+      cogCX + HUD_BAR.cogR + HUD_BAR.gap + HUD_BAR.backR, HUD_BAR.cy, 0x334063,
+      () => this._exit());
     this.hudTop.addChild(this.backBtn);
+
+    // The title has only the room the two end groups leave it — and the bar is
+    // symmetric, so that room is the NARROWER side doubled. A long localized
+    // title (or a four-digit level) is scaled down to fit rather than running
+    // under the coin pill.
+    this._levelTextMaxW = 2 * Math.min(
+      DESIGN_W / 2 - (this.backBtn.x + HUD_BAR.backR + HUD_BAR.gap),
+      (this.coinPill.x + this.coinPill.reach.left) - HUD_BAR.gap - DESIGN_W / 2);
+    this._fitLevelText();
+  }
+
+  // Keep the level title inside the room between Back and the coin pill. Called
+  // whenever its text changes (a new level, a language switch).
+  _fitLevelText() {
+    const t2 = this.levelText;
+    if (!t2 || t2.destroyed) return;
+    t2.scale.set(1);
+    const w = t2.width;
+    if (w > this._levelTextMaxW) t2.scale.set(this._levelTextMaxW / w);
   }
 
   _makeButton(label, w, h, cx, cy, color, onClick) {
@@ -976,6 +1040,7 @@ export class GameScene extends PIXI.Container {
     this.levelNum = levelNum;
     this.rawArr = rawArr;
     this.levelText.text = t("hud_level", levelNum);
+    this._fitLevelText();
     // The very first level a brand-new player sees is the guided one: stripped
     // chrome (see _applyFirstRunChrome) plus the opening demo moves below.
     this._firstRun = !!(this.user && this.user.isNewPlayer() && levelNum === 1);
@@ -997,7 +1062,9 @@ export class GameScene extends PIXI.Container {
     this.tray.forEach((t) => t.container.destroy());
     this.tray = [];
     this.history = [];
-    this.locked = false;
+    // Locked until the board has finished dealing itself in (_dealIn, below):
+    // there is nothing to tap while the stack is still arriving.
+    this.locked = true;
     this._autoRunning = false; // clear in case a prior level ended via Auto Complete
     this._superWandRunning = false; // …and in case a level was swapped out mid-sweep
     this._loseBtns = null;     // drop any stale Out-of-Moves overlay refs
@@ -1032,25 +1099,35 @@ export class GameScene extends PIXI.Container {
     this._updateExtraSlot();
     this._updateTrayWarning();
 
-    // The board is fully built and interactive the moment the calls above return
-    // (_layoutBoard places tiles outright — there's no build-in animation), so
-    // this is the "board finished building" moment the opening waits for.
-    // On level 1 the "How To Play" popup comes first and hands over to the guided
-    // opening when it closes; every other level starts play straight away.
-    if (levelNum === TUTORIAL_LEVEL) this._showTutorial();
-    else if (this._firstRun) this._runFirstRunGuide();
-    // ...and on any other level, a helper that just came off its gate gets its
-    // coached first use here. Level 1 never reaches this branch, and nothing is
-    // owed there anyway — every helper is still locked.
-    else this._maybeCoachBooster();
+    // _layoutBoard has PLACED every tile, but the board is not on screen yet: it
+    // deals itself in layer by layer (_dealIn), and the level's opening waits for
+    // the last layer to land, so nothing is explained over a half-built board.
+    // The returned promise is that "board finished building" moment — main.js's
+    // startLevel awaits it, so a caller (and every test) resumes on a board that
+    // is complete, unlocked and playable.
+    const run = this._guideRun; // the board this deal belongs to
+    return this._dealIn(run).then(() => {
+      // A reload, or leaving for the lobby, mid-deal: that board's opening is not
+      // ours to run, and it already owns `locked`.
+      if (this._guideRun !== run || this.destroyed || !this.visible) return;
+      this.locked = false;
+      // On level 1 the "How To Play" popup comes first and hands over to the
+      // guided opening when it closes; every other level starts play straight away.
+      if (levelNum === TUTORIAL_LEVEL) this._showTutorial();
+      else if (this._firstRun) this._runFirstRunGuide();
+      // ...and on any other level, a helper that just came off its gate gets its
+      // coached first use here. Level 1 never reaches this branch, and nothing is
+      // owed there anyway — every helper is still locked.
+      else this._maybeCoachBooster();
 
-    // …and a Super Wand charged on the LAST level's complete screen is announced
-    // here, on the first board where it can actually be spent. It rides after the
-    // coaching deliberately: a helper still owed its lesson gets taught the
-    // ordinary Wand first (_superWandActive is false while a coaching is up).
-    if (this.user && this.user.superWandNeedsAnnounce() && this._superWandActive()) {
-      this._playSuperWandUpgrade();
-    }
+      // …and a Super Wand charged on the LAST level's complete screen is announced
+      // here, on the first board where it can actually be spent. It rides after the
+      // coaching deliberately: a helper still owed its lesson gets taught the
+      // ordinary Wand first (_superWandActive is false while a coaching is up).
+      if (this.user && this.user.superWandNeedsAnnounce() && this._superWandActive()) {
+        this._playSuperWandUpgrade();
+      }
+    });
   }
 
   // ---- the "How To Play" popup ---------------------------------------------
@@ -1291,6 +1368,96 @@ export class GameScene extends PIXI.Container {
       t.homeX = px; t.homeY = py; t.homeScale = s;
       this.boardLayer.addChild(t.container);
     }
+  }
+
+  // ---- the opening deal ----------------------------------------------------
+
+  // Deal the freshly built board in, LAYER BY LAYER from the bottom up, instead
+  // of painting it whole. Every board tile starts invisible and undersized; each
+  // layer then pops to its home size (easeOutBack, so it overshoots a little) a
+  // beat after the layer below it, and the stack visibly assembles itself.
+  //
+  // The beat is squeezed to keep the whole deal inside DEAL.maxMs, so the wait
+  // before play does not grow with the depth of the level. Positions are NOT
+  // animated: each frame reads the tile's `homeScale`, which is what _layoutBoard
+  // wrote, so a resize part-way through the deal is picked up rather than fought.
+  //
+  // `run` is loadLevel's board token: a level swapped out mid-deal leaves this
+  // running on tiles that are no longer on the board, so every step checks it.
+  // Resolves when the last layer has landed — see loadLevel.
+  _dealIn(run) {
+    const tiles = this.tiles.filter((t) => !t.inTray && !t.matched);
+    this._dealLog = [];
+    this._dealing = false;
+    this._dealStepMs = 0;
+    if (!tiles.length) return Promise.resolve();
+
+    const layers = [...new Set(tiles.map((t) => t.layer))].sort((a, b) => a - b);
+    const step = layers.length > 1
+      ? Math.min(DEAL.layerMs, Math.max(0, DEAL.maxMs - DEAL.tileMs) / (layers.length - 1))
+      : 0;
+    this._dealStepMs = step;
+    this._dealing = true;
+
+    const show = (t, e) => {
+      if (t.container.destroyed || t.inTray || t.matched) return;
+      // The fade runs at twice the pop's pace: a tile is solid well before it has
+      // finished settling, so the layer reads as landing rather than dissolving in.
+      t.container.alpha = Math.min(1, e * 2);
+      t.container.scale.set((t.homeScale || 1) * (DEAL.fromScale + (1 - DEAL.fromScale) * easeOutBack(e)));
+    };
+    for (const t of tiles) show(t, 0);
+
+    const ticker = this.app.ticker;
+    const start = performance.now();
+    return Promise.all(layers.map((layer, i) => delay(ticker, i * step).then(() => {
+      if (this._guideRun !== run || this.destroyed) return null;
+      this._dealLog.push({ layer, at: performance.now() - start });
+      const group = tiles.filter((t) => t.layer === layer);
+      return tween(ticker, {
+        duration: DEAL.tileMs,
+        ease: (x) => x, // the easing is applied per-tile in show(), on the raw t
+        onUpdate: (e) => { for (const t of group) show(t, e); },
+      });
+    }))).then(() => {
+      if (this._guideRun !== run || this.destroyed) return;
+      this._dealing = false;
+      // Land every tile exactly where _layoutBoard put it, whatever the easing's
+      // overshoot was doing on the final frame.
+      for (const t of tiles) {
+        if (t.container.destroyed || t.inTray || t.matched) continue;
+        t.container.alpha = 1;
+        t.container.scale.set(t.homeScale || 1);
+      }
+    });
+  }
+
+  // The deal as the debug API reports it (window.__game.dealState()): whether it
+  // is still running, the beat this board used, and per layer both the moment it
+  // started appearing (ms into the deal) and the live mean opacity of its tiles —
+  // so a sample taken mid-deal shows the wave climbing the stack.
+  dealState() {
+    const byLayer = new Map();
+    for (const t of this.tiles) {
+      if (t.inTray || t.matched || t.container.destroyed) continue;
+      if (!byLayer.has(t.layer)) byLayer.set(t.layer, []);
+      byLayer.get(t.layer).push(t.container.alpha);
+    }
+    const startedAt = new Map(this._dealLog.map((d) => [d.layer, d.at]));
+    return {
+      animating: this._dealing,
+      layerDelayMs: this._dealStepMs,
+      durationMs: DEAL.tileMs,
+      layers: [...byLayer.keys()].sort((a, b) => a - b).map((layer) => {
+        const alphas = byLayer.get(layer);
+        return {
+          layer,
+          count: alphas.length,
+          alpha: alphas.reduce((sum, a) => sum + a, 0) / alphas.length,
+          startedAt: startedAt.has(layer) ? startedAt.get(layer) : null,
+        };
+      }),
+    };
   }
 
   // ---- interaction ---------------------------------------------------------
@@ -2120,7 +2287,9 @@ export class GameScene extends PIXI.Container {
   }
 
   restart() {
-    if (this.rawArr) this.loadLevel(this.rawArr, this.levelNum);
+    // Returns loadLevel's promise (the board finished dealing in), so a caller
+    // can wait for a playable board the same way startLevel does.
+    return this.rawArr ? this.loadLevel(this.rawArr, this.levelNum) : Promise.resolve();
   }
 
   // Reshuffle the FACES of the tiles still on the play board into a fresh,
@@ -2232,8 +2401,6 @@ export class GameScene extends PIXI.Container {
   _win() {
     this.locked = true;
     this.audio.play("win");
-    // Award coins for clearing the level (the free source that seeds the shop).
-    if (this.user) this.user.credit("coins", COIN_WIN_REWARD);
     // "Tiles matched" is a lifetime task counter (src/tasks.js), and only tiles
     // from a level the player actually FINISHES count towards it. Clearing the
     // level means every one of its tiles was matched, so the level's own tile
@@ -2261,11 +2428,10 @@ export class GameScene extends PIXI.Container {
     const last = this.levelNum >= 3;
     this._showOverlay(
       last ? `🏆 ${t("you_win")}` : t("Language2"),
-      t("win_subtitle", t(last ? "win_all_cleared" : "win_great_matching"), COIN_WIN_REWARD),
+      t("win_great_matching"),
       t("btn_go"),
       // hand control back to the lobby, which advances to the next level
       () => this.onLevelComplete && this.onLevelComplete(this.levelNum),
-      COIN_WIN_REWARD, // show a gold coin next to the reward
       chestLevel,      // 0 = no chest (a replay); else the level whose chest to show
       streakInfo       // null = no Super Wand bar (locked, replayed, or already charged)
     );
@@ -2439,7 +2605,7 @@ export class GameScene extends PIXI.Container {
     this._returnTrayToBoard();
   }
 
-  _showOverlay(title, subtitle, btnLabel, onBtn, coinReward = 0, chestLevel = 0, streakInfo = null) {
+  _showOverlay(title, subtitle, btnLabel, onBtn, chestLevel = 0, streakInfo = null) {
     this._loseBtns = null; // this path is the win overlay — no lose buttons live
     this.overlayLayer.removeChildren();
     this._resetChestOverlay();
@@ -2491,18 +2657,8 @@ export class GameScene extends PIXI.Container {
     const st = new PIXI.Text(subtitle, {
       fontFamily: "Arial", fontSize: 30, fill: 0xd7e2ff,
     });
+    st.anchor.set(0.5); st.position.set(0, subY);
     group.addChild(tt, st);
-    if (coinReward) {
-      // Lay out "subtitle" + a gold coin icon as a centred unit.
-      const icon = makeCoinIcon(16);
-      const gap = 12;
-      const total = st.width + gap + 32; // 32 = coin diameter
-      st.anchor.set(0, 0.5); st.position.set(-total / 2, subY);
-      icon.position.set(-total / 2 + st.width + gap + 16, subY);
-      group.addChild(icon);
-    } else {
-      st.anchor.set(0.5); st.position.set(0, subY);
-    }
 
     const btn = this._makeButton(btnLabel, 320, 92, 0, btnY, 0x39c06a, () => {
       this.overlayLayer.removeChildren();
@@ -2940,6 +3096,7 @@ export class GameScene extends PIXI.Container {
   relocalize() {
     if (this.levelText && !this.levelText.destroyed) {
       this.levelText.text = t("hud_level", this.levelNum || 1);
+      this._fitLevelText();
     }
     if (this.autoBtn && !this.autoBtn.destroyed) {
       this.autoBtn.label.text = `✓ ${t("auto_complete")}`;

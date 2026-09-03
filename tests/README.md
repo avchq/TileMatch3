@@ -157,6 +157,20 @@ wants another language sets `localStorage['tm3.language']` before loading — se
   again, so the next boot replays the first-run flow. Drives it via the
   `window.__game` hooks `isNewPlayer` / `completedLevel` / `completeLevel` /
   `pressWinContinue`.
+- **`deal_test.py`** — the **opening deal**: every level's board arrives **layer
+  by layer**, bottom layer first, instead of being painted outright. Sampling
+  `window.__game.dealState()` once per animation frame through a level start, it
+  checks the board is unpainted and `locked` on the very first frame; that there
+  is a frame with the bottom layer solid while the top has not begun (the wave);
+  that a lower layer is never fainter than an upper one and no layer ever fades
+  back; that the recorded per-layer start times are **ordered with a real gap**
+  and the whole deal stays inside its ceiling (`DEAL.maxMs`); that on settling
+  every layer reaches full opacity, every tile is back at exactly its
+  `homeScale`, the board is `unlocked`, and `startLevel` did not resolve before
+  any of that was true; and, on level 1, that the **"How To Play"** popup does
+  **not** open while the board is still arriving — only once the deal has landed.
+  Drives it entirely through `dealState()` plus `state().locked`; writes
+  `deal_level1_after.png`, `deal_mid.png` and `deal_done.png` for the eye.
 - **`howtoplay_test.py`** — the **"How To Play" popup** that opens at the very
   start of level 1: it is up with the right title and line, the level is locked
   behind it (a `solveTap` collects nothing and the guided opening hasn't started),
@@ -221,6 +235,15 @@ Only `howtoplay_test.py` leaves it open.
   cog and Back button and **nothing else**: no text anywhere in the level scene
   reads "*n* tiles left". Checked on a fresh board, after collecting tiles and
   after an undo (the moments the old remaining-tiles counter re-rendered).
+- **`hudbar_test.py`** — the level's top bar is **aligned**: the cog, Back, the
+  LEVEL title and the coin pill all sit **inside** the translucent panel, are
+  **vertically centred** in it, and the outermost two (cog, the pill's cart
+  badge) keep the **same margin** from their end of it — checked in design-space
+  units across three viewports, plus the longest localized title (`ru`, level
+  999) to confirm it is scaled to fit the room between Back and the pill instead
+  of running under either. (Regression guard: the cog used to poke out past the
+  panel's left edge, the cart badge hung ~20px past its right edge, and the whole
+  row was centred 16px above the panel's own centre line.)
 - **`cog_corner_test.py`** — the settings cog is pinned to the **top-left corner**
   of the screen in both the lobby and inside a level, and stays there on viewports
   taller than the 750×1334 design canvas (regression guard: the lobby cog used to
@@ -636,7 +659,8 @@ Only `howtoplay_test.py` leaves it open.
   below the 8th slot's gate and `traySlots + extraSlot.grant` cells at it (with
   the capacity still at the base until the video is watched),
   Auto Complete is never offered outside its `minLevel`/`maxTiles` window, and a
-  win pays exactly `coinWinReward`); and that there is **no second source** — the
+  win credits **no coins** — the free faucets are the reward screens, not the win
+  itself); and that there is **no second source** — the
   JSON prize tables no longer carry the gates, and the modules the constants came
   from derive them from `CONFIG` instead of re-declaring a literal.
   It also covers the `language` section: an unrecognised tag maps to nothing, a
@@ -649,11 +673,12 @@ Only `howtoplay_test.py` leaves it open.
   non-empty id, level 1, nothing completed, zeroed wallet, **no helpers** and no
   unlocks paid out, music/sound on) and progress persists across a reload.
 - **`coins_test.py`** — coins are a spendable wallet currency with a top-HUD coin
-  pill (lobby + level) that updates live on credit; winning a level awards coins
-  (the win overlay shows the reward); the Shop lists packages for sale and buying one
-  via the mock payment provider grants its contents — a bundle grants coins **and** a
-  mix of boosters, a single-item pack grants only coins; the balance persists across
-  a reload.
+  pill (lobby + level) that updates live on credit; the Shop lists packages for sale
+  and buying one via the mock payment provider grants its contents — a bundle grants
+  coins **and** a mix of boosters, a single-item pack grants only coins; winning a
+  level pays **no** coins and the win overlay carries no reward — its subtitle is the
+  plain "Great matching!" line, with no "+N", no coin icon and no stale "You cleared
+  levels 1–3"; the balance persists across a reload.
 - **`shopunlock_test.py`** — the **shop's progression gate**
   (`SHOP_UNLOCK_LEVEL` = 3, i.e. **after passing level 2**). Drives `shopState()`
   (`unlocked` / `completed` / `lobbyEnabled` / `lobbyCart` / `gameEnabled`) and

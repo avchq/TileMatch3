@@ -313,7 +313,11 @@ async function boot() {
     if (!data) return false;
     lobby.hide();
     scene.visible = true;
-    scene.loadLevel(data, level);
+    // loadLevel resolves when the board has finished DEALING ITSELF IN (the
+    // layer-by-layer opening in game.js) and is unlocked, so whoever started the
+    // level — the lobby's Play button, or the test API — resumes on a board that
+    // is complete and playable rather than one still arriving.
+    await scene.loadLevel(data, level);
     return true;
   }
 
@@ -329,6 +333,18 @@ async function boot() {
     showLobby(currentLevel, { celebrate: true });
   };
 
+  splash.set(1, t("loading_ready"));
+
+  // Boot is done: release its hold on the splash and let it fade. This happens
+  // BEFORE the first scene is put up — deliberately. Both branches below fill the
+  // canvas within this same tick (nothing is rendered in between, so there is no
+  // blank frame), and level 1's board deals itself in over the next few hundred
+  // milliseconds: behind a splash still holding the screen, a new player would
+  // miss the opening animation entirely.
+  // Kept ahead of the window.__game assignment below, so a test that waits on
+  // __game never finds the overlay still swallowing canvas taps.
+  splash.hide();
+
   // First-run flow: a brand-new player (never played, no progress, never cleared
   // level 1) is dropped straight into level 1 — no lobby in the way. Everyone
   // else lands on the lobby at their saved level. Completing that first level
@@ -338,7 +354,6 @@ async function boot() {
   // lobby rather than leaving the player on a blank screen.)
   const enteredFirstLevel = user.isNewPlayer() && (await startLevel(currentLevel));
   if (!enteredFirstLevel) showLobby(currentLevel);
-  splash.set(1, t("loading_ready"));
 
   // Apply the persisted music/sound preferences (without re-persisting them),
   // then wire any later change back into the User profile (which autosaves).
@@ -371,11 +386,6 @@ async function boot() {
   document.addEventListener("visibilitychange", () => {
     audio.setPageVisible(document.visibilityState === "visible");
   });
-
-  // The first scene is up: release boot's hold and let the splash fade away.
-  // Kept here, ahead of the window.__game assignment below, so a test that waits
-  // on __game never finds the overlay still swallowing canvas taps.
-  splash.hide();
 
   // ---- test / debug API (used by the headless verification driver) ---------
   // Rolling record of the SFX one-shots the audio manager actually emitted,
@@ -1033,6 +1043,11 @@ async function boot() {
       setPageVisible: (v) => audio.setPageVisible(v),
       flushSave: () => store._flush(),
       reset: () => store.reset(),
+      // The start-of-level deal: is the board still arriving, what beat did it
+      // use, and per layer when it started appearing (ms into the deal) plus the
+      // live mean opacity of its tiles. deal_test.py samples this mid-deal to
+      // assert the layers really come up bottom-first, one behind the other.
+      dealState: () => scene.dealState(),
       state: () => ({
         level: scene.levelNum,
         boardCount: scene.boardCount,

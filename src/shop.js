@@ -120,6 +120,12 @@ export function makeCoinPill(user, onTap) {
   cart.position.set(cartCX, 0);
   c.addChild(cart);
 
+  // How far the pill reaches from its own origin, borders included. The cart
+  // badge overhangs the body on the right and stands proud of it top and bottom,
+  // so a caller aligning the pill inside a HUD bar has to place it by THIS, not
+  // by the pill body — see GameScene._buildHud.
+  c.reach = { left: -w / 2 - 1.5, right: cartCX + cartR + 1.5, halfH: cartR + 1.5 };
+
   c.update = () => { label.text = String(user ? user.balance("coins") : 0); };
   c.update();
 
