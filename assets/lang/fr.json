@@ -16,6 +16,7 @@
   "loading_board": "Préparation du plateau…",
   "loading_level": "Chargement du niveau {0}…",
   "loading_ready": "Prêt",
+  "level_load_failed": "Chargement échoué. Touchez à nouveau.",
   "settings_title": "Réglages",
   "music": "Musique",
   "sound": "Son",

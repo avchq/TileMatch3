@@ -31,7 +31,7 @@ with sync_playwright() as p:
     # existing files as stand-in assets (level4.json / a background).
     page.evaluate("""() => {
           window.__game.manifest.level4 = {
-            backgrounds: { 4: 'assets/bg/bg2.jpg' },
+            backgrounds: { 4: 'assets/bg/bg2.png' },
             levels: { 4: 'assets/levels/level3.json' },
           };
         }""")

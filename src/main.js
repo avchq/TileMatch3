@@ -16,6 +16,7 @@ import { CONFIG } from "./config.js";
 import { createSplash } from "./splash.js";
 import { i18n, t, LANGUAGES, detectLanguage, mapTag, bcp47 } from "./i18n.js";
 import { LanguagePickerScene } from "./languagepicker.js";
+import { fetchJSON } from "./net.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -140,38 +141,43 @@ async function boot() {
   // Coin prices for in-level consumable purchases (buying a helper when its stock
   // hits 0). Kept in a JSON config so they're tunable without touching code; on a
   // fetch failure we fall back to no prices (purchases simply stay unavailable).
+  //
+  // This and the four optional tables below go through fetchJSON (src/net.js),
+  // so each is bounded by CONFIG.network.fetchTimeoutMs. Degrading gracefully
+  // requires the fetch to SETTLE: a try/catch cannot rescue a promise that never
+  // does, and an un-timed one here parked boot at "Loading settings… 80%".
   splash.set(P.assets, t("loading_settings"));
   let prices = { boosters: {} };
-  try { prices = await fetch("assets/config/prices.json").then((r) => r.json()); }
-  catch (_) { /* keep the empty default */ }
+  try { prices = await fetchJSON("assets/config/prices.json"); }
+  catch (e) { console.warn("prices.json:", e.message); /* keep the empty default */ }
 
   // Fortune Wheel prize table + constants (groups, both odds sets, unlock level,
   // spins per cycle). Same defensive load as prices.json — a failure leaves the
   // wheel with no groups, so its lobby button simply stays hidden.
   let turntable = null;
-  try { turntable = await fetch("assets/config/turntable.json").then((r) => r.json()); }
-  catch (_) { /* keep null — FortuneWheelScene falls back to safe defaults */ }
+  try { turntable = await fetchJSON("assets/config/turntable.json"); }
+  catch (e) { console.warn("turntable.json:", e.message); /* keep null — FortuneWheelScene falls back to safe defaults */ }
 
   // Daily Bonus prize pool + unlock level. Same defensive load — a failure leaves
   // the scene with no prizes, so its lobby button (which gates on canClaim, and
   // canClaim requires a non-empty pool) simply stays hidden.
   let dailybonus = null;
-  try { dailybonus = await fetch("assets/config/dailybonus.json").then((r) => r.json()); }
-  catch (_) { /* keep null — DailyBonusScene falls back to safe defaults */ }
+  try { dailybonus = await fetchJSON("assets/config/dailybonus.json"); }
+  catch (e) { console.warn("dailybonus.json:", e.message); /* keep null — DailyBonusScene falls back to safe defaults */ }
 
   // The Tasks goal table (achievement chains + the weekly list). Same defensive
   // load — a failure leaves the scene with no goals, which makes hasTable() false
   // and so the lobby's Tasks button simply stays hidden.
   let tasksCfg = null;
-  try { tasksCfg = await fetch("assets/config/tasks.json").then((r) => r.json()); }
-  catch (_) { /* keep null — TasksScene falls back to empty lists */ }
+  try { tasksCfg = await fetchJSON("assets/config/tasks.json"); }
+  catch (e) { console.warn("tasks.json:", e.message); /* keep null — TasksScene falls back to empty lists */ }
 
   // The Level Chest schedule (50 milestones, each level + reward). Same defensive
   // load — a failure leaves an empty schedule, so the level-complete screen simply
   // shows no chest. Chest progress is derived from user.completedLevel(), not stored.
   let levelChestCfg = null;
-  try { levelChestCfg = await fetch("assets/config/levelChest.json").then((r) => r.json()); }
-  catch (_) { /* keep null — LevelChest falls back to an empty schedule */ }
+  try { levelChestCfg = await fetchJSON("assets/config/levelChest.json"); }
+  catch (e) { console.warn("levelChest.json:", e.message); /* keep null — LevelChest falls back to an empty schedule */ }
   const levelChest = new LevelChest(levelChestCfg);
   splash.set(P.configs, t("loading_board"));
 
@@ -270,14 +276,23 @@ async function boot() {
     _rollAcc += app.ticker.deltaMS;
     if (_rollAcc >= 4000) {
       _rollAcc = 0;
-      wheel.checkRollover();
-      // Same for the weekly task list: a screen left open across the Monday
-      // boundary rolls the period over and re-arms every weekly goal live.
-      tasks.checkRollover();
-      // The daily-bonus button reappears purely because the calendar day changed
-      // (no user-state mutation fires), so refresh it here too — a lobby left open
-      // across midnight re-shows the gift live, like the wheel's fresh free spin.
-      lobby.refreshFeatures();
+      // Wrapped because this runs INSIDE the Pixi ticker: an exception escaping
+      // here aborts the remaining ticker listeners for that frame — the renderer
+      // among them — and, as an error on a live session, used to paint the
+      // boot-error overlay over the game. A broken rollover must cost a rollover,
+      // not the frame loop.
+      try {
+        wheel.checkRollover();
+        // Same for the weekly task list: a screen left open across the Monday
+        // boundary rolls the period over and re-arms every weekly goal live.
+        tasks.checkRollover();
+        // The daily-bonus button reappears purely because the calendar day changed
+        // (no user-state mutation fires), so refresh it here too — a lobby left open
+        // across midnight re-shows the gift live, like the wheel's fresh free spin.
+        lobby.refreshFeatures();
+      } catch (e) {
+        console.error("rollover:", e);
+      }
     }
   });
 
@@ -333,6 +348,13 @@ async function boot() {
       splash.show(t("loading_level", level));
       try {
         await assets.ensureLevel(level, (done, total) => splash.set(total ? done / total : 1));
+      } catch (e) {
+        // ensureLevel now REJECTS on a partial group instead of pretending it
+        // loaded (see src/assets.js). Swallow it here so the splash always comes
+        // down, and let the `!data` check below decide whether the level is
+        // actually playable: a level whose BACKGROUND failed still is, and the
+        // group stays unloaded so the missing piece is retried later.
+        console.warn(`level ${level} assets incomplete:`, e.message);
       } finally { splash.hide(); }
     }
     const data = assets.levelData(level);
@@ -363,7 +385,20 @@ async function boot() {
     assets.ensureLevel(n).catch(() => {});
   }
 
-  lobby.onPlay = (level) => startLevel(level);
+  // The Play button. startLevel is async, so its promise MUST be consumed here:
+  // discarding it turned any throw inside loadLevel into an unhandled rejection,
+  // which in production painted the boot-error overlay across a live game (see
+  // the data-booted note below). Consuming it is also the only place that can
+  // tell the player a level's assets did not arrive — without this, a failed
+  // fetch left the button silently doing nothing on every tap.
+  lobby.onPlay = (level) => {
+    startLevel(level).then((ok) => {
+      if (!ok) lobby.flashHint(t("level_load_failed"));
+    }, (e) => {
+      console.error("startLevel:", e);
+      lobby.flashHint(t("level_load_failed"));
+    });
+  };
 
   scene.onLevelComplete = (completed) => {
     // record the clear (this is what ends the first-run flow: once level 1 is
@@ -386,6 +421,22 @@ async function boot() {
   // Kept ahead of the window.__game assignment below, so a test that waits on
   // __game never finds the overlay still swallowing canvas taps.
   splash.hide();
+
+  // THE SPLASH IS DOWN — from here on the canvas is what the player is looking
+  // at, and index.html's inline boot-error handler reads this flag to know it:
+  // an error before this point still means "boot never finished" (paint the red
+  // splash and say why); an error after it must leave the game alone and be
+  // logged instead. boot().catch below applies the same rule.
+  //
+  // It is a DOM attribute, and it is set OUTSIDE the DEBUG: block below on
+  // purpose. The flag used to be `window.__game`, which only exists in dev and
+  // in tests: esbuild strips the DEBUG block from production, so in the shipped
+  // bundle the guard never fired and the FIRST post-boot error — an unhandled
+  // rejection from any discarded promise — dropped an opaque, input-swallowing
+  // overlay over a running game, permanently, escapable only by a reload. Do
+  // not move this line inside a DEBUG block, and do not gate it on anything
+  // that gets stripped. tests/debugseam_test.py enforces both halves.
+  document.documentElement.dataset.booted = "1";
 
   // First-run flow: a brand-new player (never played, no progress, never cleared
   // level 1) is dropped straight into level 1 — no lobby in the way. Everyone
@@ -1154,6 +1205,12 @@ async function boot() {
 
 boot().catch((e) => {
   console.error(e);
+  // Same rule as index.html's handler: only speak for a boot that never
+  // finished. boot() keeps going after the first scene is on screen (audio
+  // preferences, the gesture unlock, the debug API), and a throw in that tail
+  // must not slam an opaque red splash over a game the player is already
+  // looking at.
+  if (document.documentElement.dataset.booted) return;
   // Keep the splash up and say what went wrong, rather than fading out onto a
   // blank canvas.
   splash.fail("Error: " + e.message);

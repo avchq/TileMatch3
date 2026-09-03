@@ -16,6 +16,7 @@
   "loading_board": "보드 준비 중…",
   "loading_level": "레벨 {0} 불러오는 중…",
   "loading_ready": "준비 완료",
+  "level_load_failed": "불러오기 실패. 다시 탭하세요.",
   "settings_title": "설정",
   "music": "음악",
   "sound": "효과음",

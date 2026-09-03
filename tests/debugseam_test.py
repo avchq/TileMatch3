@@ -171,6 +171,39 @@ build_py = open(os.path.join(ROOT, "tools", "build.py"), encoding="utf-8").read(
 check("--drop-labels=DEBUG" in build_py,
       "tools/build.py passes --drop-labels=DEBUG, so the label really strips")
 
+# ---- nothing OUTSIDE the module tree may READ a debug seam ----------------
+# The mirror image of the check above, and the one that would have caught
+# BOOT-001. index.html is a classic script: esbuild never touches it, so it
+# survives into production intact — while everything it names inside a DEBUG
+# block does not. Its boot-error handler asked `window.__game` whether the game
+# had finished starting, which is always false in the artifact players run, so
+# the FIRST post-boot error painted an opaque red overlay across a live session
+# and left it there. Every test ran the dev tree, where the symbol exists and
+# the guard worked, so the whole suite was blind to it.
+#
+# The rule: index.html may not READ a stripped symbol at all, in any form — not
+# just assign one. The replacement flag is `<html data-booted>`, set by boot()
+# outside every DEBUG block. Comments are blanked first, so the explanation
+# beside that guard is free to name the old symbol.
+STRIPPED = re.compile(r"__(game|splash)\b")
+html = blank_noncode(open(os.path.join(ROOT, "index.html"), encoding="utf-8").read())
+hits = sorted({m.group(0) for m in STRIPPED.finditer(html)})
+check(not hits,
+      "index.html never names a DEBUG-stripped symbol"
+      + (f" — FOUND: {hits}" if hits else ""))
+check("data-booted" in open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+      or "dataset.booted" in html,
+      "index.html's boot guard reads the data-booted flag instead")
+main_js = open(os.path.join(ROOT, "src", "main.js"), encoding="utf-8").read()
+main_code = blank_noncode(main_js)
+flag = "documentElement.dataset.booted = "
+pos = main_code.find(flag)
+check(pos >= 0, "src/main.js sets documentElement.dataset.booted")
+if pos >= 0:
+    inside = any(a <= pos <= b for a, b in debug_ranges(main_code))
+    check(not inside,
+          "…and sets it OUTSIDE any DEBUG block, so production gets it too")
+
 if failures:
     print(f"\nDEBUG SEAM TEST FAILED — {len(failures)} check(s):")
     for f in failures:

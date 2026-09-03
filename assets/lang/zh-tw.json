@@ -16,6 +16,7 @@
   "loading_board": "準備牌面…",
   "loading_level": "載入第 {0} 關…",
   "loading_ready": "準備就緒",
+  "level_load_failed": "載入失敗，點擊重試",
   "settings_title": "設定",
   "music": "音樂",
   "sound": "音效",

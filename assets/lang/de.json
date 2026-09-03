@@ -16,6 +16,7 @@
   "loading_board": "Spielfeld wird vorbereitet…",
   "loading_level": "Level {0} wird geladen…",
   "loading_ready": "Bereit",
+  "level_load_failed": "Ladefehler. Nochmal tippen.",
   "settings_title": "Einstellungen",
   "music": "Musik",
   "sound": "Ton",

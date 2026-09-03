@@ -92,10 +92,24 @@
     (function () {
       var shown = false;
       function showBootError(what) {
-        // Only ever speak for a boot that never finished. Once window.__game
-        // exists the game is up and running, and a later stray error must not
-        // slam a red overlay across a live session.
-        if (shown || window.__game) return;
+        // Only ever speak for a boot that never finished. Once the game is up
+        // and running a later stray error must not slam a red overlay across a
+        // live session — #splash is `position: fixed; inset: 0` and opaque, so
+        // it swallows every tap on the canvas underneath and the only way out
+        // is a reload, losing everything since the last autosave.
+        //
+        // The "is it up?" flag is `<html data-booted>`, set by boot() in
+        // src/main.js the moment the first scene is on screen. It USED TO BE
+        // `window.__game` — which was wrong in the one build that matters:
+        // __game lives inside a `DEBUG:` block that esbuild deletes from every
+        // production bundle, so in the artifact players actually run the guard
+        // could never fire and the FIRST post-boot error killed the session.
+        // Nothing caught it because the whole test suite runs the dev tree,
+        // where __game exists and the guard worked. Keep this flag out of any
+        // DEBUG block. (tests/debugseam_test.py asserts this file never names
+        // __game again; tests/bootguard_test.py asserts the overlay stays down
+        // after boot.)
+        if (shown || document.documentElement.dataset.booted) return;
         shown = true;
         var el = document.getElementById("splash");
         var status = document.getElementById("splash-status");

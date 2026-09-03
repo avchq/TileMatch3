@@ -667,6 +667,31 @@ Only `howtoplay_test.py` leaves it open.
   import**, which must paint the splash's error state with a message rather than
   freeze at "Starting up… 0%". Finishes with a plain boot under the `iPhone 13`
   and `Galaxy S9+` device profiles.
+- **`bootguard_test.py`** — two boot-time defects that were both session-killers
+  with no way out but a reload, and both invisible to the rest of the suite
+  because every other test runs the dev tree. **BOOT-001**: the boot-error
+  overlay's guard used to ask `window.__game` whether boot had finished — a
+  symbol only the dev tree has, since `--drop-labels=DEBUG` strips it from
+  production — so in the shipped bundle the guard could never fire and the first
+  post-boot error (an unhandled rejection, an uncaught throw) dropped the opaque
+  `#splash` over a running game permanently. This test deletes `window.__game`
+  before firing a synthetic rejection and a synthetic throw, so the dev tree
+  behaves like a production bundle, then asserts `<html data-booted>` is set, the
+  splash's error state never lights up, and the canvas — not the splash — is
+  still the topmost element under a tap. **BOOT-002**: a failed asset fetch used
+  to permanently poison a level's group (see Asset management in the root
+  README), so it routes a level's JSON fetch to a 503 and asserts
+  `ensureLevel()` **rejects** (the old code resolved), the group stays out of
+  `loadedGroups()`, and `startLevel()` reports failure instead of half-starting —
+  then lets the route through and asserts the very next attempt is a real retry
+  that succeeds. A follow-up case fails only a level's *background* and confirms
+  the level data that did arrive is kept (and the level is still playable without
+  its art) while the retry re-fetches just the missing piece. A final case routes
+  a level's fetch to a request that never answers at all and asserts it gives up
+  within a bounded time instead of hanging — the config knob it reads
+  (`CONFIG.network.fetchTimeoutMs`) confirming the bound is `src/config.js`, not
+  an inlined constant. Slower than most (60-90s): the stalled-fetch case
+  deliberately waits out a timeout plus its retry.
 
 ### Key parameters
 
@@ -689,7 +714,12 @@ Only `howtoplay_test.py` leaves it open.
   from derive them from `CONFIG` instead of re-declaring a literal.
   It also covers the `language` section: an unrecognised tag maps to nothing, a
   fresh player lands on `defaultLanguage`, and the active table really came from
-  `textDir`.
+  `textDir`. The `EXPECT` table also carries the `network` section
+  (`fetchTimeoutMs` / `retryAttempts` / `retryBackoffMs`), and the no-second-source
+  check now includes `src/i18n.js`'s `LOAD_TIMEOUT_MS` (must be derived from
+  `CONFIG.network.fetchTimeoutMs`, not a standalone literal) and asserts
+  `src/net.js` itself reads `CONFIG.network` rather than carrying its own numbers
+  as the source of truth.
 
 ### User profile & persistence
 
@@ -818,6 +848,16 @@ Only `howtoplay_test.py` leaves it open.
   are present *and* guarded — so dropping a label is caught as readily as adding
   an unguarded seam — and that `tools/build.py` really does pass
   `--drop-labels=DEBUG`. No browser, no server; runs in milliseconds.
+  It also checks the mirror-image mistake that caused BOOT-001
+  (`bootguard_test.py`): `index.html` is a classic script esbuild never touches,
+  so it ships into production unchanged, and it must not even **read** `__game`
+  or `__splash` — a `window.x =` guard is not enough if something elsewhere just
+  asks whether the (always-undefined-in-production) symbol exists. It asserts
+  `index.html` names neither symbol at all (comments blanked first, so the
+  explanation beside the old guard is free to mention them) and that it reads
+  `data-booted`/`dataset.booted` instead, then asserts `src/main.js` sets
+  `documentElement.dataset.booted` **outside** any `DEBUG:` block, using the same
+  brace-matched ranges as the seam check above.
 
 - **`cloudfront_test.py`** — a deploy finishes by pointing a CloudFront
   distribution's `OriginPath` at the build just uploaded and invalidating the

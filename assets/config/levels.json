@@ -17,15 +17,15 @@
   { "background": "assets/bg/bg12.jpg",  "data": "assets/levels/level16.json", "types": [13, 18] },
   { "background": "assets/bg/bg13.jpg",  "data": "assets/levels/level17.json", "types": [13, 18] },
   { "background": "assets/bg/bg1.jpg",  "data": "assets/levels/level18.json", "types": [13, 18] },
-  { "background": "assets/bg/bg2.jpg",  "data": "assets/levels/level19.json", "types": [13, 18] },
+  { "background": "assets/bg/bg2.png",  "data": "assets/levels/level19.json", "types": [13, 18] },
   { "background": "assets/bg/bg3.jpg",  "data": "assets/levels/level20.json", "types": [13, 18] },
-  { "background": "assets/bg/bg4.png",  "data": "assets/levels/level21.json", "types": [13, 18] },
-  { "background": "assets/bg/bg5.png",  "data": "assets/levels/level22.json", "types": [13, 18] },
+  { "background": "assets/bg/bg4.jpg",  "data": "assets/levels/level21.json", "types": [13, 18] },
+  { "background": "assets/bg/bg5.jpg",  "data": "assets/levels/level22.json", "types": [13, 18] },
   { "background": "assets/bg/bg6.jpg",  "data": "assets/levels/level23.json", "types": [13, 18] },
   { "background": "assets/bg/bg7.jpg",  "data": "assets/levels/level24.json", "types": [13, 18] },
   { "background": "assets/bg/bg8.jpg",  "data": "assets/levels/level25.json", "types": [13, 18] },
   { "background": "assets/bg/bg9.jpg",  "data": "assets/levels/level26.json", "types": [13, 18] },
-  { "background": "assets/bg/bg10.png",  "data": "assets/levels/level27.json", "types": [13, 18] },
-  { "background": "assets/bg/bg11.png",  "data": "assets/levels/level28.json", "types": [13, 18] }
+  { "background": "assets/bg/bg10.jpg",  "data": "assets/levels/level27.json", "types": [13, 18] },
+  { "background": "assets/bg/bg11.jpg",  "data": "assets/levels/level28.json", "types": [13, 18] }
 
 ]

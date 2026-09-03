@@ -15,7 +15,17 @@ Pixi starts. If boot **fails**, the splash stays up and turns red with the
 reason instead of fading onto a blank canvas — including for failures that
 happen *before* `boot()` exists (a bad import, a module that throws while being
 evaluated), which an inline handler in `index.html` catches, since `boot()`'s own
-`.catch()` cannot see those. `boot_resilience_test.py` guards it. See the boot section below for what fills the bar.
+`.catch()` cannot see those. `boot_resilience_test.py` guards it. That inline
+handler must also go quiet the instant the game is actually up, so a later,
+unrelated error can't slam the same opaque overlay across a live session — it
+reads `<html data-booted>`, a flag `boot()` sets outside any `DEBUG:` block the
+moment the first scene is on screen, rather than `window.__game` as it used to.
+That mattered only in production: `__game` lives inside a `DEBUG:` block esbuild
+strips from the shipped bundle, so there the guard could never fire, and the
+first post-boot error — an unhandled promise rejection, say — dropped the
+input-swallowing splash over a running game with no way out but a reload.
+`bootguard_test.py` deletes `window.__game` before triggering the error so the
+dev tree behaves like that bundle. See the boot section below for what fills the bar.
 
 After it fades you land on the **lobby** screen, which shows a big
 **"Level &lt;n&gt;"** button for the level you're on, anchored to the **bottom edge**
@@ -1287,7 +1297,15 @@ below.
 Any test or debug hook hung off `window` **must** live inside a `DEBUG: { … }`
 block, because `--drop-labels=DEBUG` is the only thing that strips it from a
 production bundle. `tests/debugseam_test.py` enforces this by reading the source:
-an unguarded `window.x =` anywhere under `src/` fails the suite.
+an unguarded `window.x =` anywhere under `src/` fails the suite. The same test
+also checks the other direction: `index.html` — a classic script esbuild never
+touches, so it ships into production unchanged — must not even **read** `__game`
+or `__splash` either, since both are always `undefined` there. Its inline
+boot-error handler used to ask `window.__game` whether boot had finished, which
+made the guard a no-op in the one build that matters and let the first post-boot
+error plaster a permanent, input-swallowing overlay over a live game (see the
+splash paragraph in Gameplay above); it now reads `<html data-booted>`, set by
+`boot()` outside any `DEBUG:` block.
 
 A **dirty working tree is refused** — a build named after a commit must contain
 that commit. `--allow-dirty` overrides and tags the build `<commit>-dirty`, which
@@ -1864,6 +1882,7 @@ sections are:
 | `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — `coach` (`enabled`, `undoDelayMs`) for the guided first use, and `superWand` (`unlockLevel` / `streakLength` / `minTiles` / `extraRounds`) for the Wand's earned upgrade |
 | `economy` | `currencies` and the `startingWallet` a new account starts with — clearing a level pays no coins, so the free supply comes from the Level Chest, Daily Bonus and Fortune Wheel, with the shop as the paid one |
 | `board` | `traySlots` — the base tray capacity, the core difficulty dial — plus `extraSlot` (`unlockLevel` / `grant`, the ad-funded 8th slot) and `warnings` (`pulseAtFree` / `bubbleAtFree`, the two near-full cues, counted against the *live* capacity) |
+| `network` | `fetchTimeoutMs` / `retryAttempts` / `retryBackoffMs` — how long any boot or level-load fetch (`src/net.js`) is given before it's aborted, and the bounded retry for a plausibly transient failure (a network error, a timeout, a 5xx — never a 4xx). A robustness bound, not gameplay tuning; see Asset management below |
 | `persistence` | `saveDebounceMs` — the autosave debounce |
 | `language` | `defaultLanguage` (what an unrecognised device language falls back to) and `textDir` (the folder holding the per-locale string tables). The 13 **offered** codes are deliberately not here — that list is hard-coded in `src/i18n.js`; see Localization above |
 
@@ -1903,10 +1922,27 @@ editing:
 - `src/assets.js` builds its load **manifest** from the loaded table via
   `buildLevelGroups()` (level *N* ↔ entry *N-1*), so a new entry is automatically
   loadable.
+- Each entry's `background` path must match the file on disk **including its
+  extension** — `assets/bg/` is a mix of `.jpg` and `.png`. A mismatch is a 404,
+  and since a group is only marked loaded once every one of its assets arrives
+  (see Asset management below), that 404 now leaves the *whole level* unloaded
+  rather than just a missing background.
 
 ### Asset management (`src/assets.js` + `src/audio.js`)
 Assets are organised into groups: a shared `core` group plus one `levelN` group
-per level, the latter generated from the `levels.json` config above.
+per level, the latter generated from the `levels.json` config above. **A group
+is only marked loaded if every one of its assets arrived.** That used to be the
+other way round: each job swallowed its own failure, so the group's
+`Promise.all` always resolved, the group was added to the loaded set regardless,
+and the memo at the top of `loadGroup()` then short-circuited every later
+attempt — one transient 5xx on a level's JSON meant the Play button did nothing
+on **every** tap for the rest of the session, with no message and no way to
+retry short of a reload. Now a failed job is recorded and `loadGroup()` /
+`ensureLevel()` **reject** with the URLs that didn't make it, leaving the group
+unloaded so a later call is a real retry; whatever *did* arrive is kept, so a
+retry after only a background failed re-fetches the background alone, not the
+level data beside it. Progress still ticks once per job whatever happens, so the
+loading bar still reaches 100% either way.
 - **Preload** — on boot, `AssetManager.preload()` loads the essential minimum:
   `core` audio + every level flagged `preload: true` in the config (backgrounds
   + level data) — **plus the group for the level the player is on**. That last
@@ -1916,12 +1952,21 @@ per level, the latter generated from the `levels.json` config above.
   background and swap art under them a moment later, because the lobby wears the
   art of the level it offers. For anyone still on levels 1–3 it adds nothing.
   `preload()`'s `onProgress(done, total)` callback drives the biggest slice
-  of the **splash screen's** progress bar (see `src/splash.js` above).
+  of the **splash screen's** progress bar (see `src/splash.js` above). Unlike
+  `loadGroup()`, `preload()` is deliberately **non-fatal**: a missing sound or a
+  stalled background must not kill boot, so it collects and returns the groups
+  that failed (logged, not thrown) rather than rejecting — but a failed group is
+  still left unloaded, so it is retried the same way a lazy load would be.
 - **Lazy load** — any level *not* flagged for preload is fetched on demand via
   `ensureLevel(n, onProgress)`, so its assets download only when the player reaches
   it. Three callers, in the order they matter:
   - `startLevel`, for the level being entered — the only one that shows the splash
-    with a real bar for the wait.
+    with a real bar for the wait. A rejection here (the level's assets are
+    incomplete) is caught so the splash still comes down, and `startLevel` reports
+    failure rather than half-starting the level; the lobby's Play handler catches
+    that and calls `lobby.flashHint(t("level_load_failed"))` — a transient pill
+    above the button ("Couldn't load. Tap to try again.") — so a refused tap says
+    so instead of doing nothing, and the very next tap is a genuine retry.
   - **Prefetch ahead**: `startLevel` also fires `prefetchLevel(level + 1)` once the
     board is up. Winning goes *straight* to the lobby for `level + 1`, which wears
     that level's background, so fetching it on arrival is too late — the player
@@ -1936,6 +1981,23 @@ per level, the latter generated from the `levels.json` config above.
 
   Loads are idempotent and de-duplicated (cached results + shared in-flight
   promises), so nothing is fetched twice however many of these fire for one level.
+- **Every fetch this file waits on is bounded**, through `src/net.js`: a timeout
+  (`CONFIG.network.fetchTimeoutMs`) turns a stalled connection into a failure
+  instead of a hang, and a plausibly-transient one (a network error, a timeout, a
+  5xx — never a 4xx) gets a bounded retry with backoff and jitter
+  (`retryAttempts` / `retryBackoffMs`). `PIXI.Assets.load`, used for background
+  images, has no timeout of its own, so it's wrapped in `net.js`'s `withTimeout()`
+  instead — the underlying load isn't cancelled (Pixi caches by URL, so a later
+  retry rejoins it), only the caller's wait on it is bounded. The same module
+  bounds every other boot-critical fetch outside this file: `levelConfig.js`'s
+  `loadLevels()` (fatal if it never settles — the game has no levels without it),
+  and the five optional tables `main.js` loads next (prices, turntable,
+  dailybonus, tasks, levelChest), each of which already degraded gracefully to
+  an empty default on a *failed* fetch but, before this, could still hang boot
+  forever on one that never settled at all. `src/i18n.js` keeps its own copy of
+  just the timeout, reading the same `CONFIG.network.fetchTimeoutMs` value,
+  because it runs before every other module and must not depend on one that
+  could itself fail to load.
 - **The lobby never flashes the wrong background.** `LobbyScene._buildBackground`
   resolves its texture as *this level's own art* → *the art already on screen* →
   *level 1*. That middle step is the point: asked for a level whose group has not

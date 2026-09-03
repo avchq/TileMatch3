@@ -16,6 +16,7 @@
   "loading_board": "Подготовка поля…",
   "loading_level": "Загрузка уровня {0}…",
   "loading_ready": "Готово",
+  "level_load_failed": "Не удалось загрузить. Нажмите ещё раз.",
   "settings_title": "Настройки",
   "music": "Музыка",
   "sound": "Звук",

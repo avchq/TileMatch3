@@ -16,6 +16,7 @@
   "loading_board": "ボードを準備中…",
   "loading_level": "レベル{0}を読み込み中…",
   "loading_ready": "準備完了",
+  "level_load_failed": "読み込み失敗。タップして再試行",
   "settings_title": "設定",
   "music": "音楽",
   "sound": "効果音",

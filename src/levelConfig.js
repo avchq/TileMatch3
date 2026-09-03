@@ -18,6 +18,7 @@
 // lazy-load on demand the first time the player reaches them.
 
 import { mulberry32 } from "./level.js";
+import { fetchJSON } from "./net.js";
 
 // The loaded level table, populated once at boot by loadLevels(). Empty until
 // then; typesForLevel() reads it, so loadLevels() must resolve before any level
@@ -28,8 +29,12 @@ let LEVELS = [];
 // the loaded array. Must run once during boot before any level loads. This is
 // essential config, so a fetch failure is fatal (unlike prices/turntable, which
 // degrade gracefully) — the game has no levels without it.
+//
+// Bounded (see src/net.js): fatal must mean "boot stops and says why", not
+// "boot waits forever". An un-timed fetch here parked the splash at 10% with no
+// error on a stalled connection; now it fails loudly and boot().catch paints it.
 export async function loadLevels() {
-  LEVELS = await fetch("assets/config/levels.json").then((r) => r.json());
+  LEVELS = await fetchJSON("assets/config/levels.json");
   return LEVELS;
 }
 

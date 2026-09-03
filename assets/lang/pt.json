@@ -16,6 +16,7 @@
   "loading_board": "Preparando tabuleiro…",
   "loading_level": "Carregando nível {0}…",
   "loading_ready": "Pronto",
+  "level_load_failed": "Falha ao carregar. Toque novamente.",
   "settings_title": "Ajustes",
   "music": "Música",
   "sound": "Som",

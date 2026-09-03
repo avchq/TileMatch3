@@ -3,10 +3,10 @@
 // next level the player is on. Styled to match the in-game chrome (rounded
 // buttons, same palette + backgrounds) in the spirit of the original game.
 
-import { tween, easeOutBack } from "./tween.js";
+import { tween, delay, easeOutBack } from "./tween.js";
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill } from "./shop.js";
-import { buildColumnBackground, fitTextWidth } from "./layout.js";
+import { buildColumnBackground, fitTextWidth, makeHintPill } from "./layout.js";
 import { FeatureRail, RAIL_LEFT_X, RAIL_RIGHT_X } from "./featurerail.js";
 import { t, locText } from "./i18n.js";
 import { CONFIG } from "./config.js";
@@ -839,6 +839,42 @@ export class LobbyScene extends PIXI.Container {
       onUpdate: (e) => this.playBtn.scale.set(0.2 + 0.8 * e),
       onComplete: () => this._startPulse(),
     });
+  }
+
+  /**
+   * Float a short refusal above the Play button: fades in, holds, fades out.
+   * Only one is ever alive — a second call replaces it.
+   *
+   * The one caller today is boot's Play handler, telling the player a level's
+   * assets did not arrive. That message matters more than it looks: before the
+   * asset layer stopped marking a failed group as loaded, a single failed fetch
+   * left this button doing NOTHING on every subsequent tap, with no explanation
+   * and no way to retry short of a reload. Now the tap is refused out loud and
+   * the next one really does try again.
+   *
+   * Deliberately not in controls(): it is transient, like GameScene's hints, and
+   * the overlap test walks the persistent chrome.
+   */
+  flashHint(text) {
+    if (this._flash) { this._flash.destroy({ children: true }); this._flash = null; }
+    const c = makeHintPill(text);
+    const half = c.__w / 2 + 8;
+    // Above the standing "Tap to start" hint at y=1040, not on top of it.
+    c.position.set(Math.min(DESIGN_W - half, Math.max(half, DESIGN_W / 2)), 972);
+    this.botHud.addChild(c);
+    this._flash = c;
+    // Guard every frame on `destroyed`: a second call destroys this pill while
+    // its tween is still running, and a tween body that throws inside the ticker
+    // takes the whole frame loop with it (see the note on _animateTo in game.js).
+    const fade = (e) => { if (!c.destroyed) c.alpha = e; };
+    tween(this.app.ticker, 180, { onUpdate: fade })
+      .then(() => delay(this.app.ticker, 1600))
+      .then(() => tween(this.app.ticker, 260, { onUpdate: (e) => fade(1 - e) }))
+      .then(() => {
+        if (this._flash !== c) return;   // replaced mid-fade; the newer one owns the slot
+        c.destroy({ children: true });
+        this._flash = null;
+      });
   }
 
   hide() {

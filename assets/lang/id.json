@@ -16,6 +16,7 @@
   "loading_board": "Menyiapkan papan…",
   "loading_level": "Memuat level {0}…",
   "loading_ready": "Siap",
+  "level_load_failed": "Gagal memuat. Ketuk untuk coba lagi.",
   "settings_title": "Pengaturan",
   "music": "Musik",
   "sound": "Suara",

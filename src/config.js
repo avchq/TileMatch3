@@ -380,6 +380,34 @@ export const CONFIG = deepFreeze({
   },
 
   // --------------------------------------------------------------------------
+  //  NETWORK — how patient the game is with the server
+  // --------------------------------------------------------------------------
+  //  Every fetch boot or a level load WAITS ON goes through src/net.js, which
+  //  reads these. They are robustness bounds, not gameplay tuning: the point is
+  //  that a request which never settles becomes a failure the game can report,
+  //  instead of a loading screen frozen at a percentage forever.
+  network: {
+    // How long any single request may take before it is aborted and treated as
+    // a failure. Covers the level table, the five optional config tables, level
+    // data, audio and (via a race, since Pixi has no timeout of its own)
+    // background images. Generous on purpose — this is the "the connection is
+    // dead" threshold, not a latency budget; a slow 3G fetch of a background
+    // must still be allowed to finish.
+    fetchTimeoutMs: 8000,
+
+    // Total attempts per request, not extra ones: 2 means one retry. Only
+    // failures that are plausibly transient are retried — a network error, a
+    // timeout, or a 5xx. A 4xx is the server saying the file is not there, and
+    // asking twice does not change that.
+    retryAttempts: 2,
+
+    // Delay before the first retry. Later attempts back off by 3x with +/-25%
+    // jitter, so an outage that hits many clients at once does not produce a
+    // synchronised retry storm when it clears.
+    retryBackoffMs: 400,
+  },
+
+  // --------------------------------------------------------------------------
   //  PERSISTENCE — how eagerly the profile is written back
   // --------------------------------------------------------------------------
   persistence: {

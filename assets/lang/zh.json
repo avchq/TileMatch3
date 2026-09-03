@@ -16,6 +16,7 @@
   "loading_board": "正在准备棋盘…",
   "loading_level": "正在加载第 {0} 关…",
   "loading_ready": "准备就绪",
+  "level_load_failed": "加载失败，点击重试",
   "settings_title": "设置",
   "music": "音乐",
   "sound": "音效",

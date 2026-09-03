@@ -16,6 +16,7 @@
   "loading_board": "Preparazione griglia…",
   "loading_level": "Caricamento livello {0}…",
   "loading_ready": "Pronto",
+  "level_load_failed": "Caricamento fallito. Tocca di nuovo.",
   "settings_title": "Impostazioni",
   "music": "Musica",
   "sound": "Suoni",

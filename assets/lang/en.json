@@ -16,6 +16,7 @@
   "loading_board": "Preparing board…",
   "loading_level": "Loading level {0}…",
   "loading_ready": "Ready",
+  "level_load_failed": "Couldn't load. Tap to try again.",
   "settings_title": "Settings",
   "music": "Music",
   "sound": "Sound",

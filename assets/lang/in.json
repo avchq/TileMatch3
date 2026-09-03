@@ -16,6 +16,7 @@
   "loading_board": "बोर्ड तैयार हो रहा है…",
   "loading_level": "लेवल {0} लोड हो रहा है…",
   "loading_ready": "तैयार",
+  "level_load_failed": "लोड नहीं हुआ, फिर से टैप करें।",
   "settings_title": "सेटिंग्स",
   "music": "संगीत",
   "sound": "ध्वनि",

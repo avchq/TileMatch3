@@ -47,6 +47,12 @@ EXPECT = {
               "extraSlot": {"unlockLevel": 9, "grant": 1},
               "warnings": {"pulseAtFree": 2, "bubbleAtFree": 1}},
     "persistence": {"saveDebounceMs": 400},
+    # Robustness bounds rather than gameplay tuning, but they are still knobs and
+    # they still belong in one place: every fetch boot or a level load WAITS ON
+    # goes through src/net.js and reads these. The rule they enforce is that a
+    # request which never settles becomes a reportable failure instead of a
+    # loading screen frozen at a percentage forever.
+    "network": {"fetchTimeoutMs": 8000, "retryAttempts": 2, "retryBackoffMs": 400},
     # The two tunable parts of the localization. The 13 OFFERED codes are
     # deliberately NOT here — the spec has that list hard-coded in the program
     # (LANGUAGES in src/i18n.js), so adding a language stays three edits.
@@ -244,6 +250,12 @@ with sync_playwright() as p:
         "src/user/User.js": ["BOOSTER_UNLOCKS", "SHOP_UNLOCK_LEVEL", "TASKS_UNLOCK_LEVEL",
                              "EXTRA_SLOT_UNLOCK_LEVEL"],
         "src/user/UserStore.js": ["SAVE_DEBOUNCE_MS"],
+        # The language table's fetch bound. It reads CONFIG.network.fetchTimeoutMs
+        # like src/net.js does, so every bounded fetch in the game agrees on what
+        # "the connection is dead" means — but defensively, because i18n runs
+        # before everything and must survive a stale cached config (see
+        # boot_resilience_test.py guard 1).
+        "src/i18n.js": ["LOAD_TIMEOUT_MS"],
     }
     for path, names in FORBIDDEN.items():
         src = text(path)
@@ -254,6 +266,13 @@ with sync_playwright() as p:
             assert "CONFIG" in m.group(1), (
                 path, name, "must be derived from CONFIG (src/config.js), got: "
                 + m.group(1).strip())
+
+    # src/net.js is the single place the network bounds are read, so it must
+    # read them from CONFIG rather than carrying its own numbers as the truth.
+    # (It keeps literal fallbacks for the stale-config case; the point is that
+    # CONFIG wins whenever it is there.)
+    net = text("src/net.js")
+    assert "CONFIG.network" in net, "src/net.js must read its bounds from CONFIG.network"
 
     print("ERRORS:", len(errors))
     for e in errors[:10]:

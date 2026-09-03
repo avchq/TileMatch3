@@ -16,6 +16,18 @@
 //   - audio  -> decoded to an AudioBuffer (played from RAM, no per-play GET)
 //   - images -> PIXI.Texture (PIXI.Assets caches by URL)
 //   - levels -> parsed JSON
+//
+// A GROUP IS ONLY "LOADED" IF EVERY ONE OF ITS ASSETS ARRIVED. This used to be
+// the other way round: each job swallowed its own failure, so `Promise.all`
+// always resolved, the group was marked loaded regardless, and the memo at the
+// top of loadGroup() then short-circuited every later attempt. One transient
+// 5xx on a level's JSON permanently disabled that level — the Play button did
+// nothing, forever, with no message and no way to retry short of a reload.
+// Now a failed job is recorded, the group is left UNLOADED, and loadGroup()
+// REJECTS with the failed URLs. The work that did succeed is kept, so a retry
+// re-fetches only what is actually missing.
+
+import { fetchJSON, fetchBuffer, withTimeout } from "./net.js";
 
 // The group a level's assets (its background + board data) live in. Exported so
 // boot can name the group for the level the player is ON — see main.js.
@@ -96,19 +108,36 @@ export class AssetManager {
 
   /**
    * Preload a set of groups (the essential minimum). Resolves once every asset
-   * is in memory. `onProgress(loaded, total)` is called as items complete.
+   * has either arrived or failed. `onProgress(loaded, total)` is called as items
+   * complete.
+   *
+   * DELIBERATELY NON-FATAL: a group that fails here is left unloaded and
+   * reported, and boot carries on. Boot must not die because one sound file
+   * 404'd — but it must not pretend the group is in memory either, because that
+   * is what made the failure permanent (see the note at the top of this file).
+   * Leaving it unloaded is what lets the on-demand path retry it later.
+   *
+   * Returns the array of errors, one per failed group (empty on full success).
    */
   async preload(groups = PRELOAD_GROUPS, onProgress) {
     const total = groups.reduce((s, g) => s + this._groupSize(g), 0);
     let done = 0;
     const tick = () => { done++; onProgress && onProgress(done, total); };
-    await Promise.all(groups.map((g) => this.loadGroup(g, tick)));
+    const settled = await Promise.all(
+      groups.map((g) => this.loadGroup(g, tick).then(() => null, (e) => e)));
+    const failed = settled.filter(Boolean);
+    for (const e of failed) console.warn("preload:", e.message);
+    return failed;
   }
 
   /**
    * Lazy-load a level's assets on demand. No-op if already loaded.
    * `onProgress(loaded, total)` is called as items complete, so the caller can
    * show a real bar (a level group is 2 items: its background + its data).
+   *
+   * REJECTS if any of the group's assets failed — callers must catch. The
+   * rejection is the point: it is what tells the Play button to say so and stay
+   * pressable, instead of silently doing nothing (see loadGroup).
    */
   async ensureLevel(n, onProgress) {
     const group = levelGroup(n);
@@ -124,6 +153,12 @@ export class AssetManager {
   /**
    * Load one group's assets. Idempotent: returns immediately if already loaded,
    * and shares a single in-flight promise across concurrent callers.
+   *
+   * Resolves only when EVERY asset in the group arrived; otherwise rejects with
+   * an Error carrying `.failed` (the URLs that did not make it) and leaves the
+   * group unloaded so a later call tries again. Anything that DID arrive is
+   * kept and skipped on the retry — a retry after a failed background re-fetches
+   * the background alone, not the level data beside it.
    */
   loadGroup(group, tick) {
     if (this._loaded.has(group)) return Promise.resolve();
@@ -132,40 +167,52 @@ export class AssetManager {
     const g = MANIFEST[group];
     if (!g) return Promise.reject(new Error(`Unknown asset group "${group}"`));
 
+    const failed = [];
     const jobs = [];
+    // Every job ticks progress exactly once whatever happens — including the
+    // already-satisfied ones a retry skips — so the bar still reaches 100% and
+    // `_groupSize` stays the honest denominator.
+    const job = (url, run) => jobs.push(
+      Promise.resolve().then(run)
+        .catch((e) => { failed.push(url); console.warn(`asset "${url}" failed:`, e); })
+        .finally(() => tick && tick())
+    );
 
     for (const spec of g.audio || []) {
-      jobs.push(
-        fetch(spec.url)
-          .then((r) => r.arrayBuffer())
-          .then((buf) => this.audio.register(spec.name, buf, spec))
-          .catch((e) => console.warn(`audio "${spec.name}" failed:`, e))
-          .finally(() => tick && tick())
-      );
+      job(spec.url, async () => {
+        if (this.audio.buffers[spec.name]) return;    // already decoded
+        await this.audio.register(spec.name, await fetchBuffer(spec.url), spec);
+      });
     }
 
     for (const [num, url] of Object.entries(g.backgrounds || {})) {
-      jobs.push(
-        PIXI.Assets.load(url)
-          .then((tex) => { this.backgrounds[num] = tex; })
-          .catch((e) => console.warn(`background ${num} failed:`, e))
-          .finally(() => tick && tick())
-      );
+      job(url, async () => {
+        if (this.backgrounds[num]) return;            // already in the texture cache
+        // PIXI.Assets.load has no timeout of its own, and a stalled image would
+        // otherwise hold this group's Promise.all — and the loading splash in
+        // front of it — open forever.
+        this.backgrounds[num] = await withTimeout(PIXI.Assets.load(url), url);
+      });
     }
 
     for (const [num, url] of Object.entries(g.levels || {})) {
-      jobs.push(
-        fetch(url)
-          .then((r) => r.json())
-          .then((data) => { this.levels[num] = data; })
-          .catch((e) => console.warn(`level ${num} failed:`, e))
-          .finally(() => tick && tick())
-      );
+      job(url, async () => {
+        if (this.levels[num]) return;                 // already parsed
+        this.levels[num] = await fetchJSON(url);
+      });
     }
 
+    // `jobs` never rejects (each one catches into `failed`), so this always
+    // runs and `_inflight` is always cleared — which is what makes the next
+    // call a real retry rather than a re-await of a settled failure.
     const p = Promise.all(jobs).then(() => {
-      this._loaded.add(group);
       this._inflight.delete(group);
+      if (failed.length) {
+        const err = new Error(`asset group "${group}" incomplete: ${failed.join(", ")}`);
+        err.failed = failed;
+        throw err;
+      }
+      this._loaded.add(group);
     });
     this._inflight.set(group, p);
     return p;

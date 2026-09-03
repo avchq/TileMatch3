@@ -53,13 +53,20 @@ function langCfg() {
   };
 }
 
-// How long to wait for a language table before giving up on it. A robustness
-// constant rather than a tuning knob, so it lives here beside the fetch. It
-// exists because i18n.init() is the FIRST await in boot(), ahead of the
-// renderer: an un-timed fetch that never settles would freeze the game at 0%
-// with no canvas and no diagnostics. On a timeout the load simply fails and
-// init() falls through to the default table.
-const LOAD_TIMEOUT_MS = 8000;
+// How long to wait for a language table before giving up on it. It exists
+// because i18n.init() is the FIRST await in boot(), ahead of the renderer: an
+// un-timed fetch that never settles would freeze the game at 0% with no canvas
+// and no diagnostics. On a timeout the load simply fails and init() falls
+// through to the default table.
+//
+// The value lives in CONFIG.network.fetchTimeoutMs, shared with src/net.js so
+// every bounded fetch in the game agrees on what "the connection is dead"
+// means. Read the same defensive way as langCfg() above — this module must
+// survive a stale cached config from before the section existed, which is the
+// exact failure boot_resilience_test.py guard 1 reproduces. This module does
+// NOT import src/net.js: it runs before everything and must not depend on a
+// module that could itself fail to load.
+const LOAD_TIMEOUT_MS = ((typeof CONFIG === "object" && CONFIG && CONFIG.network) || {}).fetchTimeoutMs || 8000;
 
 // --------------------------------------------------------------------------
 //  The offered languages — HARD-CODED, in the order the picker lists them.
