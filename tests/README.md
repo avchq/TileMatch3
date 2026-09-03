@@ -157,20 +157,26 @@ wants another language sets `localStorage['tm3.language']` before loading — se
   again, so the next boot replays the first-run flow. Drives it via the
   `window.__game` hooks `isNewPlayer` / `completedLevel` / `completeLevel` /
   `pressWinContinue`.
-- **`deal_test.py`** — the **opening deal**: every level's board arrives **layer
-  by layer**, bottom layer first, instead of being painted outright. Sampling
-  `window.__game.dealState()` once per animation frame through a level start, it
-  checks the board is unpainted and `locked` on the very first frame; that there
-  is a frame with the bottom layer solid while the top has not begun (the wave);
-  that a lower layer is never fainter than an upper one and no layer ever fades
-  back; that the recorded per-layer start times are **ordered with a real gap**
-  and the whole deal stays inside its ceiling (`DEAL.maxMs`); that on settling
-  every layer reaches full opacity, every tile is back at exactly its
-  `homeScale`, the board is `unlocked`, and `startLevel` did not resolve before
-  any of that was true; and, on level 1, that the **"How To Play"** popup does
-  **not** open while the board is still arriving — only once the deal has landed.
-  Drives it entirely through `dealState()` plus `state().locked`; writes
-  `deal_level1_after.png`, `deal_mid.png` and `deal_done.png` for the eye.
+- **`deal_test.py`** — the **opening deal**: every level's board arrives as a
+  **wave crossing it from the bottom-left corner to the top-right one**,
+  popping each tile in as the wave reaches it, instead of being painted
+  outright. Sampling `window.__game.dealState()` once per animation frame
+  through a level start, it checks a tile's delay never runs backwards along
+  the wave's axis (moving right, up, or onto a higher layer can only push a
+  tile's deal later); that on the ground layer the first tile dealt is the
+  bottom-left end of the axis and the last is the top-right end, with the
+  delay only growing along it; that the board is `locked` and all but
+  unpainted on the very first frame, with the far corner still at zero; that
+  there is a frame where the near corner is solid while the far one has not
+  begun, with no tile ever fading back out and, on that frame, no tile the
+  wave deals later sitting ahead of one it deals earlier; that on settling
+  every tile reaches full opacity and exactly its `homeScale`, the board is
+  `unlocked`, and `startLevel` did not resolve before any of that was true;
+  and, on level 1, that the **"How To Play"** popup does **not** open while
+  the board is still arriving — only once the deal has landed. Drives it
+  entirely through `dealState()` plus `state().locked`; writes
+  `deal_level1_after.png`, `deal_wave_early.png`, `deal_wave_late.png` and
+  `deal_done.png` for the eye.
 - **`howtoplay_test.py`** — the **"How To Play" popup** that opens at the very
   start of level 1: it is up with the right title and line, the level is locked
   behind it (a `solveTap` collects nothing and the guided opening hasn't started),

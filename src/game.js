@@ -49,18 +49,23 @@ const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1140;
 
 // THE OPENING DEAL — how a board arrives at the start of a level. It is not
-// painted all at once: the stack is dealt LAYER BY LAYER, bottom layer first,
-// each layer popping in a beat after the one below it, so the player watches the
-// pile being built and reads its depth before making a move. Presentation, so
-// deliberately here rather than in config.js (see _dealIn).
-//   layerMs   — the beat between one layer starting and the next.
-//   tileMs    — how long a single layer's pop takes (fade + scale).
-//   maxMs     — ceiling on the WHOLE deal. A deep board tightens the beat to fit
-//               inside it rather than making the player wait longer, so a
-//               10-layer level opens as briskly as a 2-layer one.
+// painted all at once: a WAVE crosses the board from the BOTTOM-LEFT corner to
+// the TOP-RIGHT one, popping each tile in as it reaches it, so the player
+// watches the pile assemble itself and can read its shape and its depth before
+// making a move. Presentation, so deliberately here rather than in config.js
+// (see _dealIn).
+//   waveMs    — how long the wave takes to cross the board: the gap between the
+//               bottom-left tile popping and the top-right one.
+//   layerMs   — how far a tile is set back per LAYER it sits above the base, so
+//               a covering tile always lands after the ones it rests on and the
+//               stack still builds upwards as the wave sweeps across it.
+//   tileMs    — how long a single tile's pop takes (fade + scale).
+//   maxMs     — ceiling on the WHOLE deal. A big or deep board compresses the
+//               wave to fit inside it rather than making the player wait longer,
+//               so a 10-layer level opens as briskly as a 2-layer one.
 //   fromScale — the size a tile starts at; easeOutBack carries it past 1 and
 //               back, which is the pop.
-const DEAL = { layerMs: 240, tileMs: 300, maxMs: 700, fromScale: 0.55 };
+const DEAL = { waveMs: 400, layerMs: 70, tileMs: 300, maxMs: 700, fromScale: 0.55 };
 
 // The level's top bar: the translucent rounded panel behind the chrome, plus the
 // rules everything inside it is placed by. The panel is symmetric about the
@@ -168,8 +173,7 @@ export class GameScene extends PIXI.Container {
     this._handAnim = null;  // its ticker loop
     this._guideRun = 0;     // generation token: invalidates an in-flight guided opening
     this._dealing = false;  // true while the opening deal (_dealIn) is still running
-    this._dealLog = [];     // per layer: when it started appearing, ms into the deal
-    this._dealStepMs = 0;   // the beat actually used for the current board
+    this._deal = null;      // the running board's deal: per-tile delays and its span
     this._tutorial = null;  // the "How To Play" popup, while it is up
     this._boosterHint = null; // the floating "Unlocks at Level N" label, when shown
     // ---- tray capacity (the 8th slot) --------------------------------------
@@ -1372,54 +1376,79 @@ export class GameScene extends PIXI.Container {
 
   // ---- the opening deal ----------------------------------------------------
 
-  // Deal the freshly built board in, LAYER BY LAYER from the bottom up, instead
-  // of painting it whole. Every board tile starts invisible and undersized; each
-  // layer then pops to its home size (easeOutBack, so it overshoots a little) a
-  // beat after the layer below it, and the stack visibly assembles itself.
+  // Deal the freshly built board in as a WAVE running across it from the
+  // BOTTOM-LEFT corner to the TOP-RIGHT one, instead of painting it whole. Every
+  // board tile starts invisible and undersized; the wave reaches each in turn and
+  // pops it to its home size (easeOutBack, so it overshoots a little), and the
+  // pile assembles itself diagonally in front of the player.
   //
-  // The beat is squeezed to keep the whole deal inside DEAL.maxMs, so the wait
-  // before play does not grow with the depth of the level. Positions are NOT
+  // Each tile's place on the wave is read off the GRID, not the screen: the axis
+  // is (gx - minX) + (gy - minY), normalised by the board's own span so a wide
+  // board and a tall one sweep in the same time. gy counts upwards on screen (see
+  // _layoutBoard), so 0 really is the bottom-left corner and 1 the top-right one.
+  // On top of that each layer is set back by DEAL.layerMs, which keeps a covering
+  // tile landing after the ones it rests on — the wave crosses the board and
+  // climbs the stack at the same time.
+  //
+  // The whole thing is then squeezed to fit inside DEAL.maxMs, so the wait before
+  // play does not grow with the size or the depth of the level. Positions are NOT
   // animated: each frame reads the tile's `homeScale`, which is what _layoutBoard
   // wrote, so a resize part-way through the deal is picked up rather than fought.
   //
   // `run` is loadLevel's board token: a level swapped out mid-deal leaves this
-  // running on tiles that are no longer on the board, so every step checks it.
-  // Resolves when the last layer has landed — see loadLevel.
+  // running on tiles that are no longer on the board, so the tween checks it.
+  // Resolves when the last tile has landed — see loadLevel.
   _dealIn(run) {
     const tiles = this.tiles.filter((t) => !t.inTray && !t.matched);
-    this._dealLog = [];
+    this._deal = null;
     this._dealing = false;
-    this._dealStepMs = 0;
     if (!tiles.length) return Promise.resolve();
 
-    const layers = [...new Set(tiles.map((t) => t.layer))].sort((a, b) => a - b);
-    const step = layers.length > 1
-      ? Math.min(DEAL.layerMs, Math.max(0, DEAL.maxMs - DEAL.tileMs) / (layers.length - 1))
-      : 0;
-    this._dealStepMs = step;
-    this._dealing = true;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const t of tiles) {
+      minX = Math.min(minX, t.gx); maxX = Math.max(maxX, t.gx);
+      minY = Math.min(minY, t.gy); maxY = Math.max(maxY, t.gy);
+    }
+    const spanX = Math.max(1e-6, maxX - minX);
+    const spanY = Math.max(1e-6, maxY - minY);
+    // 0 at the bottom-left corner of the board, 1 at the top-right one.
+    const wave = (t) => ((t.gx - minX) / spanX + (t.gy - minY) / spanY) / 2;
+    const raw = (t) => wave(t) * DEAL.waveMs + t.layer * DEAL.layerMs;
+
+    let last = 0;
+    for (const t of tiles) last = Math.max(last, raw(t));
+    // Compress if the sweep plus one pop would overrun the ceiling.
+    const squeeze = last + DEAL.tileMs > DEAL.maxMs && last > 0
+      ? Math.max(0, DEAL.maxMs - DEAL.tileMs) / last
+      : 1;
+    const delays = new Map(tiles.map((t) => [t, raw(t) * squeeze]));
+    const spread = last * squeeze;
+    const total = spread + DEAL.tileMs;
 
     const show = (t, e) => {
       if (t.container.destroyed || t.inTray || t.matched) return;
       // The fade runs at twice the pop's pace: a tile is solid well before it has
-      // finished settling, so the layer reads as landing rather than dissolving in.
+      // finished settling, so it reads as landing rather than dissolving in.
       t.container.alpha = Math.min(1, e * 2);
       t.container.scale.set((t.homeScale || 1) * (DEAL.fromScale + (1 - DEAL.fromScale) * easeOutBack(e)));
     };
     for (const t of tiles) show(t, 0);
+    this._deal = { delays, spread, total };
+    this._dealing = true;
 
-    const ticker = this.app.ticker;
-    const start = performance.now();
-    return Promise.all(layers.map((layer, i) => delay(ticker, i * step).then(() => {
-      if (this._guideRun !== run || this.destroyed) return null;
-      this._dealLog.push({ layer, at: performance.now() - start });
-      const group = tiles.filter((t) => t.layer === layer);
-      return tween(ticker, {
-        duration: DEAL.tileMs,
-        ease: (x) => x, // the easing is applied per-tile in show(), on the raw t
-        onUpdate: (e) => { for (const t of group) show(t, e); },
-      });
-    }))).then(() => {
+    // One ticker loop for the whole board rather than a tween per tile: each
+    // frame just asks how far past its own delay every tile is.
+    return tween(this.app.ticker, {
+      duration: total,
+      ease: (x) => x,
+      onUpdate: (e) => {
+        if (this._guideRun !== run || this.destroyed) return;
+        const at = e * total;
+        for (const t of tiles) {
+          show(t, Math.max(0, Math.min(1, (at - delays.get(t)) / DEAL.tileMs)));
+        }
+      },
+    }).then(() => {
       if (this._guideRun !== run || this.destroyed) return;
       this._dealing = false;
       // Land every tile exactly where _layoutBoard put it, whatever the easing's
@@ -1433,30 +1462,23 @@ export class GameScene extends PIXI.Container {
   }
 
   // The deal as the debug API reports it (window.__game.dealState()): whether it
-  // is still running, the beat this board used, and per layer both the moment it
-  // started appearing (ms into the deal) and the live mean opacity of its tiles —
-  // so a sample taken mid-deal shows the wave climbing the stack.
+  // is still running, how long it takes, and every board tile with its grid
+  // position, the delay the wave gave it and its live opacity — so a sample taken
+  // mid-deal shows the wave's front crossing the board.
   dealState() {
-    const byLayer = new Map();
-    for (const t of this.tiles) {
-      if (t.inTray || t.matched || t.container.destroyed) continue;
-      if (!byLayer.has(t.layer)) byLayer.set(t.layer, []);
-      byLayer.get(t.layer).push(t.container.alpha);
-    }
-    const startedAt = new Map(this._dealLog.map((d) => [d.layer, d.at]));
+    const deal = this._deal;
     return {
       animating: this._dealing,
-      layerDelayMs: this._dealStepMs,
-      durationMs: DEAL.tileMs,
-      layers: [...byLayer.keys()].sort((a, b) => a - b).map((layer) => {
-        const alphas = byLayer.get(layer);
-        return {
-          layer,
-          count: alphas.length,
-          alpha: alphas.reduce((sum, a) => sum + a, 0) / alphas.length,
-          startedAt: startedAt.has(layer) ? startedAt.get(layer) : null,
-        };
-      }),
+      durationMs: DEAL.tileMs,   // one tile's pop
+      waveMs: deal ? deal.spread : 0, // first tile to last, after any squeeze
+      totalMs: deal ? deal.total : 0, // the whole deal
+      tiles: this.tiles
+        .filter((t) => !t.inTray && !t.matched && !t.container.destroyed)
+        .map((t) => ({
+          id: t.id, gx: t.gx, gy: t.gy, layer: t.layer,
+          delayMs: deal && deal.delays.has(t) ? deal.delays.get(t) : null,
+          alpha: t.container.alpha,
+        })),
     };
   }
 

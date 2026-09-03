@@ -30,16 +30,17 @@ then on every load lands on the lobby as usual. See `user.isNewPlayer()` /
 `progress.completed` in the User section below.
 
 Every level, not just the first, opens with the same small piece of theatre
-before it opens for taps: the stack is **dealt in layer by layer**, bottom layer
-first, each layer popping into place a beat after the one below it — so the pile
-visibly assembles itself and its depth is readable before you make a move,
-whether it's a shallow 2-layer level or a much deeper one (the beat tightens on
-a deeper board rather than making you wait longer, so the whole deal stays
-inside a fixed ceiling regardless of how many layers it has). Nothing on the
-board is tappable until the last layer has landed, and the level's own opening —
-the "How To Play" popup on level 1, the guided first moves, a helper's coached
-first use — waits for that moment too, so nothing is ever explained over a
-half-built board.
+before it opens for taps: a **wave crosses the board from the bottom-left
+corner to the top-right one**, popping each tile into place as it reaches it,
+so the pile visibly assembles itself diagonally in front of the player and its
+depth is readable before you make a move, whether it's a shallow 2-layer level
+or a much deeper one (a tile also lands a beat after the tiles it rests on, so
+the wave climbs the stack as it crosses the board, and the whole sweep is
+squeezed to fit inside a fixed ceiling rather than making you wait longer on a
+deeper board). Nothing on the board is tappable until the last tile has landed,
+and the level's own opening — the "How To Play" popup on level 1, the guided
+first moves, a helper's coached first use — waits for that moment too, so
+nothing is ever explained over a half-built board.
 
 ### The "How To Play" popup
 The very first thing level 1 does — before the player is handed any control, and
@@ -1391,29 +1392,42 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   — the single exit path, so the guidance hand and any floating hint can't be left
   behind on a hidden scene.
   The **opening deal** (`_dealIn`, called from `loadLevel` right after
-  `_layoutBoard`) is how a board actually arrives on screen: every board tile
-  starts at alpha 0 and a shrunken `DEAL.fromScale`, and each **layer** — bottom
-  first — then tweens up to its home size and full opacity a beat after the layer
-  below it, via `easeOutBack` (so it overshoots a little before settling, which
-  reads as a pop) with the fade running at twice the pop's pace so a tile looks
-  solid well before it has finished settling. The beat between layers
-  (`DEAL.layerMs`, 70 ms) is squeezed — `min(layerMs, (maxMs - tileMs) / (layers -
-  1))` — to keep the *whole* deal inside `DEAL.maxMs` (480 ms), so the deepest
-  board in the campaign (the level data currently goes up to 5 layers) opens no
-  more slowly than a 2-layer one. Positions are never animated: every frame reads the
-  tile's `homeScale`, which is what `_layoutBoard` already wrote, so a resize
-  part-way through the deal is picked up rather than fought. `DEAL` sits as a
+  `_layoutBoard`) is how a board actually arrives on screen: instead of painting
+  the whole stack at once, a **wave crosses the board from the bottom-left
+  corner to the top-right one**, and every board tile starts invisible and
+  undersized (`DEAL.fromScale`) until the wave reaches it, at which point it
+  pops up to its home size and full opacity via `easeOutBack` (so it overshoots
+  a little before settling, which reads as a pop), with the fade running at
+  twice the pop's pace so a tile looks solid well before it has finished
+  settling. A tile's place on the wave is read off its **grid** position, not
+  its screen one: the axis is `((gx - minX)/spanX + (gy - minY)/spanY) / 2`,
+  each direction normalised by the board's own span, so 0 is always the
+  bottom-left corner and 1 the top-right one regardless of whether the board is
+  wide or tall, and `gy` counts upwards on screen, which is what puts the
+  bottom of the board at the low end of the axis. On top of that, a tile is set
+  back by `DEAL.layerMs` for every **layer** it sits above the base, so a
+  covering tile still lands after the tiles it rests on — the wave crosses the
+  board and climbs the stack at the same time. The whole sweep (`DEAL.waveMs`
+  end to end) is then squeezed to fit inside `DEAL.maxMs`, so the deepest board
+  in the campaign (the level data currently goes up to 5 layers) opens no more
+  slowly than a 2-layer one — the wave tightens rather than making the player
+  wait longer. Positions are never animated: every frame reads the tile's
+  `homeScale`, which is what `_layoutBoard` already wrote, so a resize
+  part-way through the deal is picked up rather than fought. It runs as a
+  single ticker loop over the whole board — each frame asks how far past its
+  own delay every tile is — rather than a tween per tile. `DEAL` sits as a
   plain constant next to `HUD_BAR` and the Super Wand timings rather than in
   `src/config.js`, for the same reason those are there — it is presentation, not
-  a progression or economy tunable. `_dealIn` resolves once the last layer has
+  a progression or economy tunable. `_dealIn` resolves once the last tile has
   landed, which is the promise `loadLevel` returns; a level swapped out mid-deal
   (a reload, a Back press) is checked against `_guideRun` on every step, so it
   simply abandons the animation on tiles that no longer belong to the current
   board. `dealState()` is the read the debug API (`window.__game.dealState()`)
-  exposes for `deal_test.py`: whether the deal is still running, the beat this
-  board used, and, per layer, the moment it started (ms since the deal began) and
-  the live mean opacity of its tiles — so sampling it once per frame shows the
-  wave climbing the stack.
+  exposes for `deal_test.py`: whether the deal is still running, the timings
+  (one tile's pop, the wave's spread after any squeeze, and the whole deal), and
+  every board tile with its grid position, the delay the wave gave it and its
+  live opacity — so sampling it once per frame shows the wave's front crossing
+  the board.
   The **"How To Play" popup** (`src/tutorial.js`, `HowToPlayPopup`) is opened by
   `loadLevel` whenever `levelNum === TUTORIAL_LEVEL` (1) — the gate is the level
   number, not `isNewPlayer()`. `_showTutorial()` locks the scene, adds the popup to
