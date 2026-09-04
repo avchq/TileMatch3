@@ -1426,7 +1426,18 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   `_autoAvailable()` tests `levelNum >= AUTO_MIN_LEVEL` first.
   Input is locked for the whole sweep
   (`_autoRunning`), which is reset in `loadLevel` so the next level's helper row
-  returns. On a win it calls back to the host
+  returns. The top-left **Back** button is locked down with it, through
+  `_setBackEnabled(false)` — *disabled, not hidden*: it keeps its place in the
+  bar but is greyed to `alpha` 0.4 and set `eventMode: "none"`, the same
+  treatment `_setBoosterButton` gives a helper with no move to make. It has to
+  be: the sweep has moved every remaining tile onto `fxLayer` and is animating
+  it across three awaits, so leaving for the lobby and entering another level
+  would destroy those containers mid-tween — and that exception is raised inside
+  a Pixi ticker listener, where `Ticker._tick` re-arms `requestAnimationFrame`
+  only *after* `update()` returns, so the whole render loop stops for good
+  rather than merely dropping a frame. `_applyFirstRunChrome` re-arms the button
+  on every board build, and the sweep re-arms it itself before the win overlay.
+  On a win it calls back to the host
   (`onLevelComplete`) rather than self-looping; the top-left **Back** button
   leaves the level for the lobby mid-level (progress untouched) through `_exit()`
   — the single exit path, so the guidance hand and any floating hint can't be left

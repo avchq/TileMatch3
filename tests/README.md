@@ -487,6 +487,18 @@ Only `howtoplay_test.py` leaves it open.
   **sound**: `soundLog()` must hold one `tile_bop` per tile landing in the tray
   plus the one that opens the gather. Continue advances a level,
   and the next level's helper row recovers (the `_autoRunning` reset).
+  Finally it pins **PRAC-01**: for the whole sweep the top-left **Back** button
+  is *disabled but not hidden* (`eventMode` `"none"`, `alpha` 0.4, still
+  `visible`), and a **real mouse click** on it neither leaves the level nor
+  interrupts the sweep — `emit("pointertap")` would bypass hit-testing and prove
+  nothing, so this part of the test drives the pointer for real, taking both
+  buttons' rects from `controls()`. Leaving mid-sweep used to destroy the tiles
+  the tween was still writing to, and that throw — raised inside a Pixi ticker
+  listener — killed the rAF loop permanently. The test therefore also asserts
+  `app.ticker.lastTime` has advanced afterwards; `harness.frames()` cannot see
+  this, because it drives its own `requestAnimationFrame`, which keeps working
+  after Pixi's loop has died. Back is asserted live again at the win overlay and
+  on the next board (`_applyFirstRunChrome` re-arms it).
 
 ### Fortune Wheel
 

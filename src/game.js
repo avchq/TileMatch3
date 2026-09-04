@@ -1196,7 +1196,18 @@ export class GameScene extends PIXI.Container {
     const full = !this._firstRun;
     this.cog.visible = full;
     this.backBtn.visible = full;
+    this._setBackEnabled(true); // a sweep on the previous board may have parked it
     this.coinPill.setShopEnabled(full && (!this.user || this.user.isShopUnlocked()));
+  }
+
+  // Arm or park the Back button WITHOUT moving it: greyed and event-dead, the
+  // same treatment _setBoosterButton gives a helper with no move to make. Used
+  // by the Auto Complete sweep, which destroys the very tiles it is animating
+  // and so cannot survive the level being left underneath it.
+  _setBackEnabled(on) {
+    this.backBtn.eventMode = on ? "static" : "none";
+    this.backBtn.cursor = on ? "pointer" : "default";
+    this.backBtn.alpha = on ? 1 : 0.4;
   }
 
   // Three identical tiles that are all free to tap right now, or null. Scanned in
@@ -2279,6 +2290,12 @@ export class GameScene extends PIXI.Container {
     for (const n of [this.shuffleBtn, this.wandBtn, this.undoBtn,
       this.shuffleBadge, this.wandBadge, this.undoBadge, this.autoBtn,
       this.extraBtn]) n.visible = false;
+    // Back goes with them — parked, not hidden, so the bar keeps its shape. The
+    // sweep stages the tiles on fxLayer and animates them across three awaits;
+    // leaving for the lobby and entering another level would destroy those
+    // containers mid-tween, and that throw lands inside a Pixi ticker listener,
+    // where it stops the rAF loop for good rather than just failing a frame.
+    this._setBackEnabled(false);
 
     const ticker = this.app.ticker;
     const remaining = [
@@ -2313,6 +2330,7 @@ export class GameScene extends PIXI.Container {
       return tween(ticker, {
         duration: 320, ease: easeOutCubic,
         onUpdate: (e) => {
+          if (cont.destroyed) return; // never write through a torn-down tile
           cont.x = sx + (tx - sx) * e;
           cont.y = sy + (ty - sy) * e;
           cont.scale.set(ss + (ts - ss) * e);
@@ -2332,6 +2350,7 @@ export class GameScene extends PIXI.Container {
       await tween(ticker, {
         duration: 460, ease: easeInOutQuad,
         onUpdate: (e) => {
+          if (cont.destroyed) return; // never write through a torn-down tile
           const u = 1 - e;
           cont.x = u * u * p0x + 2 * u * e * C.x + e * e * slot0.x;
           cont.y = u * u * p0y + 2 * u * e * C.y + e * e * slot0.y;
@@ -2351,6 +2370,7 @@ export class GameScene extends PIXI.Container {
     this.history = [];
     this.boardCount = 0;
     this._autoRunning = false;
+    this._setBackEnabled(true);
     this._win();
   }
 

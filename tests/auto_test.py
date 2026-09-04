@@ -134,6 +134,94 @@ with sync_playwright() as p:
     print("next level HUD:", a)
     assert a["helpersVisible"] is True and a["autoVisible"] is False, ("helper row recovered", a)
 
+    # ---- PRAC-01: Back is DISABLED for the duration of the sweep -----------
+    # The sweep stages every remaining tile on fxLayer and animates it for ~2s.
+    # Leaving the level mid-sweep destroys those containers while the tween is
+    # still writing to them, and that throw happens inside a Pixi ticker
+    # listener — Ticker._tick re-arms requestAnimationFrame only AFTER update()
+    # returns, so the rAF loop never restarts: frozen canvas, dead input, only a
+    # reload recovers. Auto Complete + Back + Play was three ordinary taps.
+    # So the sweep takes the Back button with the helper row: greyed and
+    # event-dead (NOT hidden — it stays exactly where it was), re-armed by
+    # _applyFirstRunChrome on the next board.
+    #
+    # Level 2 is used again because the descent above already proved that board
+    # reaches the gate (levels are seeded, so it does so identically).
+    page.evaluate("window.__game.startLevel(2)")
+    time.sleep(0.7)
+    reached, _ = descend(gate_should_show=True)
+    assert reached, "level 2 should reach an auto-completable end state again"
+
+    # Real pointer events only: emit('pointertap') calls the listener directly
+    # and would sail straight past eventMode "none", proving nothing.
+    box = page.eval_on_selector(
+        "canvas", "c => { const r=c.getBoundingClientRect(); return {x:r.x,y:r.y}; }")
+    scale = page.evaluate("window.__game.view()")["rootScale"]
+
+    def rect(scene, name):
+        for c in page.evaluate("window.__game.controls()"):
+            if c["scene"] == scene and c["name"] == name:
+                return c
+        raise AssertionError(f"no visible control {scene}/{name}")
+
+    def tap(r):
+        """Click the centre of a controls() rect. No sleep — the caller is
+        racing a ~2s animation and needs the tap to land inside it."""
+        page.mouse.click(box["x"] + (r["x"] + r["w"] / 2) * scale,
+                         box["y"] + (r["y"] + r["h"] / 2) * scale)
+
+    def backstate():
+        return page.evaluate("""() => {
+            const b = window.__game.scene.backBtn;
+            return { visible: b.visible, eventMode: b.eventMode, alpha: b.alpha,
+                     running: window.__game.scene._autoRunning };
+        }""")
+
+    auto_rect = rect("level", "autoBtn")
+    back_rect = rect("level", "back")
+    assert backstate()["eventMode"] == "static", "Back is live before the sweep"
+
+    t0 = page.evaluate("window.__game.app.ticker.lastTime")
+    tap(auto_rect)                      # a real tap on Auto Complete
+
+    bs = backstate()
+    print("back during sweep:", bs)
+    assert bs["running"] is True, ("the sweep should be running", bs)
+    assert bs["visible"] is True, ("Back stays on screen — disabled, not hidden", bs)
+    assert bs["eventMode"] == "none", ("Back must not accept taps mid-sweep", bs)
+    assert bs["alpha"] < 1, ("…and must read as disabled", bs)
+
+    # Nothing slow between here and the tap: the sweep is only ~1.5s on a
+    # six-tile board, and the tap has to land inside it to mean anything.
+    tap(back_rect)                      # tap it anyway: nothing must happen
+    assert page.evaluate("window.__game.inLobby()") is False, \
+        "Back must not leave the level mid-sweep"
+    assert page.evaluate("window.__game.scene._autoRunning") is True, \
+        "…and must not interrupt the sweep either"
+    page.screenshot(path=f"{SC}/auto_back_disabled.png")
+
+    # The sweep still finishes exactly as it did before.
+    harness.settle(page, "window.__game.state().overlay === true", timeout=15000)
+    s = st()
+    print("after interrupted-then-finished sweep:", s)
+    assert s["boardCount"] == 0 and s["tray"] == [], ("sweep completed normally", s)
+
+    # The freeze itself. harness.frames() CANNOT see this: it drives its own
+    # requestAnimationFrame, which keeps working after Pixi's rAF loop has died.
+    harness.settle(page, f"window.__game.app.ticker.lastTime > {t0}", timeout=5000)
+    assert page.evaluate("window.__game.app.ticker.started") is True, \
+        "the Pixi ticker must still be running"
+
+    # Back is re-armed once the sweep hands over, and again on the next board.
+    bs = backstate()
+    assert bs["eventMode"] == "static" and bs["alpha"] == 1, ("Back re-armed at the win", bs)
+    page.evaluate("window.__game.pressWinContinue()")
+    harness.settle(page, "window.__game.inLobby() === true", timeout=5000)
+    page.evaluate("window.__game.startLevel(2)")
+    harness.settle(page, "window.__game.inLobby() === false", timeout=15000)
+    bs = backstate()
+    assert bs["eventMode"] == "static" and bs["alpha"] == 1, ("fresh board has a live Back", bs)
+
     print("PAGE ERRORS:", len(errs), errs[:5])
     assert not errs
     print("AUTO COMPLETE TEST PASSED")
