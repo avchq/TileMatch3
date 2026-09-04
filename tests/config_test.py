@@ -24,7 +24,13 @@ EXPECT = {
         "shop": {"unlockLevel": 3},
         "fortuneWheel": {"unlockLevel": 5, "spinsPerCycle": 6, "headlinePrize": "lightning"},
         "dailyBonus": {"unlockLevel": 1},
-        "tasks": {"unlockLevel": 10, "weeklyResetDay": 1},
+        # `activities` is the task-counter ROSTER, not a tuning knob: it is the
+        # one enumeration of the vocabulary the emitters, the goal table and the
+        # glyph map all have to agree on (tasks_test.py holds them to it).
+        "tasks": {"unlockLevel": 10, "weeklyResetDay": 1,
+                  "activities": ["levelsCompleted", "tilesMatched", "boostersUsed",
+                                 "undoUsed", "shuffleUsed", "wandUsed", "coinsSpent",
+                                 "dailyBonusClaimed", "wheelSpins", "shopPurchases"]},
         "levelChest": {"repeatStart": 6},
     },
     "boosters": {

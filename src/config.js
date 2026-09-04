@@ -168,6 +168,30 @@ export const CONFIG = deepFreeze({
       // (and the "Reset in: 3d-14h" countdown) to a different weekday; the
       // current week ends early or runs long exactly once, then settles.
       weeklyResetDay: 1,
+
+      // EVERY ACTIVITY CODE A GOAL ROW MAY WATCH. This is a CONTRACT, not a
+      // knob: the vocabulary appears in three places that are joined by nothing
+      // but string equality — the `user.bumpStat("…")` call sites that emit it,
+      // the `activity` / `titles` rows in assets/config/tasks.json that score
+      // against it, and the glyph map at the top of src/tasks.js. Listing it
+      // here once is what lets the tests hold the three in agreement, and what
+      // makes a mistyped counter loud (User.bumpStat warns on a code that is not
+      // in this list) instead of a task row silently stuck at 0/N forever.
+      //
+      // Adding a code here does NOT make anything count it: a new activity also
+      // needs a `bumpStat` call site at the moment it happens, a row + `titles`
+      // entry in tasks.json (and that text key in all 13 language files) and an
+      // icon in src/tasks.js. The list is the roster, not the mechanism.
+      //
+      // The three helper counters keep `boosters.kinds` order, because that is
+      // where they come from: User.useBooster emits `kind + "Used"`, so adding a
+      // fourth helper to `boosters.kinds` adds its counter here too.
+      activities: [
+        "levelsCompleted", "tilesMatched", "boostersUsed",
+        "undoUsed", "shuffleUsed", "wandUsed",
+        "coinsSpent", "dailyBonusClaimed",
+        "wheelSpins", "shopPurchases",
+      ],
     },
 
     // THE LEVEL CHEST (src/levelchest.js) — the progress bar with a treasure

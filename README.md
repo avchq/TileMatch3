@@ -549,6 +549,21 @@ Note how few call sites that is: helpers all spend through `User.useBooster` and
 coins only ever leave through `User.debit`, so those two counters catch every
 route — including any added later — without a site to forget.
 
+**The ten codes are a contract, and it is written down once.** They appear in
+three places joined by nothing but string equality — the `bumpStat("…")` call
+sites in the table above, the `activity` / `titles` rows in
+`assets/config/tasks.json` that score against them, and the glyph map at the top
+of `src/tasks.js`. Rename one emitter and its task row still renders, still shows
+`0/N`, and can never be finished — silently. So the roster is enumerated once, in
+**`CONFIG.features.tasks.activities`** (`src/config.js`), and
+`User.bumpStat` **warns** (a `console.warn`, in a `DEBUG:` block, so it is
+stripped from a production build) on a code that is not on it. It still records
+the count: refusing the write would turn a typo into silent data loss instead of
+a silent row. The three helper counters keep `boosters.kinds` order because that
+is where they come from — `User.useBooster` emits `kind + "Used"`, so a fourth
+helper brings its counter with it. `tests/tasks_test.py` holds all three copies
+to the roster, in both directions.
+
 **Tiles are counted per completed level, not per match.** Clearing a level means
 every one of its tiles was matched, so `_win()` credits the level's own tile
 count — a fixed number set once in `loadLevel` and never added to. Tallying
@@ -570,11 +585,14 @@ with a `tiers[]` of `{target, reward}`) and `weekly[]` (flat `{activity, target,
 reward}` rows), rewards written as `{type, amount}` with the same
 `coins`/`undo`/`wand`/`shuffle` vocabulary as the wheel and the gift. Adding
 **tiers** to an existing chain is a change to that file alone; adding a genuinely
-**new kind** of task needs three things — the rows, a `titles` entry naming its
+**new kind** of task needs four things — the rows, a `titles` entry naming its
 **text key** (plus that key in all 13 language files, see
-[Localization](#localization)) and an icon in the `ACTIVITY` map at the top of
-`src/tasks.js`, which is now glyphs only. The feature's **gate and reset weekday**
-sit in **`src/config.js`** (`features.tasks`) with every other key parameter.
+[Localization](#localization)), an icon in the `ACTIVITY` map at the top of
+`src/tasks.js`, which is now glyphs only, and its code in
+`features.tasks.activities` with a `bumpStat` call site at the moment the
+activity really happens. The feature's **gate, reset weekday and activity
+roster** sit in **`src/config.js`** (`features.tasks`) with every other key
+parameter.
 
 **Note:** the shipped `unlockLevel` is **10**, and this port ships 13 levels — so
 it is reachable but late. Lower `features.tasks.unlockLevel` in `src/config.js` to
@@ -2024,7 +2042,7 @@ sections are:
 | Section | What's in it |
 | --- | --- |
 | `progression` | `tutorialLevel` (which level opens "How To Play" + the guided opening) and `autoComplete.minLevel` / `.maxTiles` (the window the free Auto Complete button is offered in) |
-| `features` | one gate/pacing block per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel`, `tasks.unlockLevel` / `.weeklyResetDay`, and `levelChest.repeatStart` (the Level Chest has no gate — it's derived from progress) |
+| `features` | one gate/pacing block per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel`, `tasks.unlockLevel` / `.weeklyResetDay` / `.activities` (the task-counter roster), and `levelChest.repeatStart` (the Level Chest has no gate — it's derived from progress) |
 | `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — `coach` (`enabled`, `undoDelayMs`) for the guided first use, and `superWand` (`unlockLevel` / `streakLength` / `minTiles` / `extraRounds`) for the Wand's earned upgrade |
 | `economy` | `currencies` and the `startingWallet` a new account starts with — clearing a level pays no coins, so the free supply comes from the Level Chest, Daily Bonus and Fortune Wheel, with the shop as the paid one |
 | `board` | `traySlots` — the base tray capacity, the core difficulty dial — plus `extraSlot` (`unlockLevel` / `grant`, the ad-funded 8th slot) and `warnings` (`pulseAtFree` / `bubbleAtFree`, the two near-full cues, counted against the *live* capacity) |
@@ -2210,10 +2228,13 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   and `weekly {week, claimed, base}`; read/written via
   `stat`/`bumpStat`/`weeklyStat`, `isTaskClaimed`/`markTaskClaimed` and
   `rollTaskWeek`, with the `isTasksUnlocked()` gate alongside `isShopUnlocked()`,
-  emitting a `tasks` domain. The two `claimed` lists are the same idempotent
-  one-time ledger as `boosterUnlocks`; `base` is a snapshot of `stats` taken at
-  the week's start, so weekly progress is a subtraction rather than a second set
-  of counters),
+  emitting a `tasks` domain. `stats` is a keyed map like the wallet, so the model
+  stores any code — but it checks the one it is handed against
+  `CONFIG.features.tasks.activities` and warns (development only) on a stranger,
+  because a counter nothing watches is a task row stuck at `0/N` forever. The two
+  `claimed` lists are the same idempotent one-time ledger as `boosterUnlocks`;
+  `base` is a snapshot of `stats` taken at the week's start, so weekly progress is
+  a subtraction rather than a second set of counters),
   and the **Super Wand** streak state (`superWand` — `streak`/`charged`/`announced`,
   mutated via `recordSuperWandWin`/`breakSuperWandStreak` — there is no
   "spend" of this state; sweeping costs an ordinary Wand use, tracked in the

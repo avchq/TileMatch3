@@ -573,9 +573,26 @@ Only `howtoplay_test.py` leaves it open.
   that ends on a Claim button scrolling **without** claiming (a plain tap on the
   same button still does); and the **v6→v7 migration** deriving
   `stats.levelsCompleted` from `progress.completed` with a matching week baseline.
+  It also guards the **activity vocabulary** itself (SEP-03): the ten codes are
+  enumerated once, in `CONFIG.features.tasks.activities`, and the check reads that
+  roster live from `config()` and holds all three copies to it — every `activity`
+  and `titles` key in `assets/config/tasks.json`, every key of the `ACTIVITY`
+  glyph map in `src/tasks.js`, and every code actually **emitted** under `src/`.
+  The emitter half is pure **source analysis** (the `rewards_test.py` idiom:
+  comments stripped, then `bumpStat("…")` collected across `src/`, plus the three
+  `kind + "Used"` counters derived from `boosters.kinds` the way
+  `User.useBooster` synthesises them) and it asserts set **equality**, so it fails
+  in both directions — a rostered code nothing bumps is a task row stuck at `0/N`
+  forever, and an emitted code the roster does not list is a typo. A last section
+  covers the runtime half: `bumpStat('nonsenseActivity')` must produce exactly one
+  `console.warn` naming it and still record the count (it warns, it does not
+  refuse), while a rostered code stays silent — and since the diagnostic is a
+  *warning*, the file's closing `assert not errs` still holds. It runs after the
+  profile reset because it has to bump counters to do its job.
   Drives it via the `window.__game` task hooks (`tasksState`, `tasksList`,
   `openTasks`/`closeTasks`, `setTasksTab`, `pressTaskClaim`, `taskClaimRect`,
-  `tasksScroll`/`scrollTasks`, `taskStats`/`bumpStat`, `setTasksWeek`).
+  `tasksScroll`/`scrollTasks`, `taskStats`/`taskStat`/`bumpStat`, `setTasksWeek`,
+  and `config()` for the roster).
   **Waiting:** claims are asynchronous (a reward flies for ~540 ms and the row then
   animates away), so wait on `tasksState().busy` going false rather than sleeping —
   a *refused* claim never sets it, so the double-claim and drag cases fall straight

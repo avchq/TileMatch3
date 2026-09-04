@@ -16,6 +16,7 @@ const BOOSTER_UNLOCKS = CONFIG.boosters.unlocks;
 const SUPER_WAND = CONFIG.boosters.superWand;
 const SHOP_UNLOCK_LEVEL = CONFIG.features.shop.unlockLevel;
 const TASKS_UNLOCK_LEVEL = CONFIG.features.tasks.unlockLevel;
+const TASK_ACTIVITIES = CONFIG.features.tasks.activities;
 const EXTRA_SLOT_UNLOCK_LEVEL = CONFIG.board.extraSlot.unlockLevel;
 
 // The wallet / inventory a brand-new account starts with (config.js). Copied on
@@ -382,12 +383,27 @@ export class User {
   // ---- tasks / achievements ------------------------------------------------
   /** Lifetime total for a tracked activity (0 if it has never happened). */
   stat(activity) { return this.tasks.stats[activity] || 0; }
-  /** Add to a lifetime counter. Activity codes are open — the model does not
-   *  know (or need to know) which ones the goal table watches, exactly as the
-   *  wallet does not know which currencies exist. */
+  /** Add to a lifetime counter. `stats` is a keyed map, exactly as the wallet
+   *  is — the model does not need to know which counters the goal table watches
+   *  to store one. But a code nobody watches is a bug that shows up as a task
+   *  row stuck at 0/N forever with nothing logged, so the vocabulary is
+   *  enumerated in CONFIG.features.tasks.activities and a stranger is reported.
+   *  It is still RECORDED: refusing the write would turn a typo into silent data
+   *  loss instead of a silent row. */
   bumpStat(activity, n = 1) {
     const v = Math.max(0, Math.floor(n) || 0);
     if (!activity || !v) return this.stat(activity);
+    DEBUG: {
+      // Development only — `tools/build.py` passes --drop-labels=DEBUG to
+      // esbuild, which deletes this block from a production bundle. A WARN, not
+      // an error: tests/harness.py collects console *errors* into the list
+      // dozens of tests assert is empty, and a counter typo should fail the one
+      // test that checks the roster, not redden the whole suite.
+      if (!TASK_ACTIVITIES.includes(activity)) {
+        console.warn("[tasks] unknown activity", JSON.stringify(activity),
+          "— not in CONFIG.features.tasks.activities, so no goal row can score it");
+      }
+    }
     this.tasks.stats[activity] = this.stat(activity) + v;
     this._emit("tasks");
     return this.tasks.stats[activity];

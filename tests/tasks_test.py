@@ -8,9 +8,12 @@
 # chain rule with finished tiers stacked on top, claiming (exact payout, once
 # only, persisted), the weekly list scoring against a week baseline and resetting
 # on the configured weekday, the red dot, the tab auto-select, the scrolling
-# list, and the v6 -> v7 profile migration.
+# list, and the v6 -> v7 profile migration. It also guards the ACTIVITY
+# VOCABULARY itself (SEP-03): the ten codes are enumerated once, in
+# CONFIG.features.tasks.activities, and every emitter, every goal row and every
+# glyph has to agree with that roster.
 
-import subprocess, time, sys, os, json
+import subprocess, time, sys, os, re, json
 from playwright.sync_api import sync_playwright
 
 import harness
@@ -23,6 +26,12 @@ os.chdir(ROOT)
 BASE = harness.serve()
 with sync_playwright() as p:
     b, page, errs = harness.launch(p, viewport=(780, 1334))
+    # `harness.watch()` (inside launch) collects console *errors*, which the tail
+    # asserts is empty. The unknown-activity diagnostic is deliberately a WARNING
+    # — a mistyped counter is a bug, but not one that should redden every suite
+    # run — so it needs its own collector (the tests/savefail_test.py idiom).
+    warns = []
+    page.on("console", lambda m: warns.append(m.text) if m.type == "warning" else None)
     page.goto(f"{BASE}/index.html")
     page.evaluate("() => localStorage.clear()")
     page.reload()
@@ -66,6 +75,84 @@ with sync_playwright() as p:
     time.sleep(0.3)
     page.evaluate("window.__game.exitLevel()")
     time.sleep(0.4)
+
+    # ---- 0. The activity vocabulary is a closed contract (SEP-03) --------
+    # Every task is scored by matching a string in tasks.json against a key in
+    # user.tasks.stats. Ten such strings are emitted from five modules, re-listed
+    # as glyphs in src/tasks.js and as title keys in the goal table — joined by
+    # nothing but string equality. A typo or a rename in any emitter orphans a
+    # row permanently and SILENTLY: it renders, shows 0/N forever, and never
+    # becomes claimable. i18n_test.py catches a missing title key; nothing caught
+    # a counter that nothing bumps. CONFIG.features.tasks.activities is the
+    # roster, and these three checks are what make it load-bearing.
+    #
+    # Checks (a)-(c) are pure reads plus source analysis — no state is touched,
+    # so they sit here and fail fast. The console-warning half is section 12, at
+    # the end, because it has to bump a counter to do its job.
+    ACT = page.evaluate("window.__game.config().features.tasks.activities")
+    KINDS = page.evaluate("window.__game.config().boosters.kinds")
+    print("ACTIVITY ROSTER ->", ACT)
+    assert ACT, "CONFIG.features.tasks.activities must enumerate the activity codes"
+    assert len(set(ACT)) == len(ACT), ("no duplicates in the roster", ACT)
+
+    def src(path):
+        with open(os.path.join(ROOT, path), encoding="utf-8") as fh:
+            return fh.read()
+
+    # (a) every activity the SHIPPED GOAL TABLE watches is in the roster — a row
+    #     naming a code nothing emits can never be finished.
+    goals = json.loads(src("assets/config/tasks.json"))
+    goal_rows = list(goals["achievements"]) + list(goals["weekly"])
+    for row in goal_rows:
+        assert row["activity"] in ACT, (
+            "tasks.json row " + row["id"] + " watches '" + row["activity"] + "', which is "
+            "not in CONFIG.features.tasks.activities — nothing will ever score it")
+    assert set(goals["titles"]) <= set(ACT), (
+        "tasks.json titles name activities outside the roster",
+        sorted(set(goals["titles"]) - set(ACT)))
+    print("  ok   %d goal rows + %d title keys all name a rostered activity"
+          % (len(goal_rows), len(goals["titles"])))
+
+    # (b) every rostered activity has a GLYPH. src/tasks.js falls back to a
+    #     neutral ❔ for an activity it doesn't know, which is the visible half of
+    #     the same silent failure.
+    block = re.search(r"const ACTIVITY = \{(.*?)\n\};", src("src/tasks.js"), re.S)
+    assert block, "the ACTIVITY glyph map moved — update this test"
+    glyphs = set(re.findall(r"^\s+(\w+):", block.group(1), re.M))
+    assert glyphs == set(ACT), (
+        "src/tasks.js's ACTIVITY glyph map and the roster disagree",
+        {"only in tasks.js": sorted(glyphs - set(ACT)),
+         "only in config": sorted(set(ACT) - glyphs)})
+    print("  ok   every rostered activity has a glyph in src/tasks.js")
+
+    # (c) every rostered activity is really EMITTED, and nothing else is. This is
+    #     the check that catches a renamed emitter, which nothing else can: the
+    #     roster would still list the old code, the goal row would still render,
+    #     and it would sit at 0/N for good. Seven codes are emitted as literals;
+    #     the three helper counters are synthesised at User.js `bumpStat(kind +
+    #     "Used")` from CONFIG.boosters.kinds, so they are derived here the same
+    #     way rather than grepped for.
+    #     Comments are stripped first: config.js's own preamble quotes the call
+    #     shape, and a mention is not an emission.
+    def code(path):
+        body = re.sub(r"/\*.*?\*/", " ", src(path), flags=re.S)
+        return re.sub(r"//[^\n]*", " ", body)
+
+    literals = set()
+    for base, _dirs, names in os.walk(os.path.join(ROOT, "src")):
+        for name in sorted(names):
+            if not name.endswith(".js"):
+                continue
+            rel = os.path.relpath(os.path.join(base, name), ROOT)
+            literals |= set(re.findall(r'bumpStat\(\s*"([^"]+)"', code(rel)))
+    emitted = literals | {k + "Used" for k in KINDS}
+    print("EMITTED ->", sorted(emitted))
+    assert emitted == set(ACT), (
+        "the emitters and CONFIG.features.tasks.activities disagree — a counter "
+        "nothing bumps is a task row stuck at 0/N forever",
+        {"emitted but not rostered": sorted(emitted - set(ACT)),
+         "rostered but never emitted": sorted(set(ACT) - emitted)})
+    print("  ok   every rostered activity is emitted, and every emitted one is rostered")
 
     # ---- 1. The gate ----------------------------------------------------
     s = st()
@@ -479,6 +566,33 @@ with sync_playwright() as p:
     assert prof["tasks"]["stats"] == {}, ("reset clears the counters", prof["tasks"])
     assert prof["tasks"]["claimed"] == [], ("reset clears the claim ledger", prof["tasks"])
     assert st()["unlocked"] is False, ("reset re-locks the feature", st())
+
+    # ---- 12. An unknown activity is loud, a known one is silent ---------
+    # The other half of SEP-03. The roster above is checked statically; this is
+    # what happens at RUNTIME when something bumps a code that isn't on it.
+    # `bumpStat` still records the count — refusing the write would turn a typo
+    # into silent data loss instead of a silent row — but it says so. The
+    # diagnostic lives in a `DEBUG:` block, so it is stripped from a production
+    # bundle exactly like the window.__game console (see tools/build.py).
+    # Runs last, after the reset above: it has to bump counters to do its job.
+    def act_warns():
+        return [w for w in warns if "unknown activity" in w]
+
+    before = len(act_warns())
+    page.evaluate("window.__game.bumpStat('wheelSpins', 1)")
+    time.sleep(0.2)
+    assert len(act_warns()) == before, (
+        "a rostered activity must not warn", act_warns()[before:])
+
+    page.evaluate("window.__game.bumpStat('nonsenseActivity', 1)")
+    time.sleep(0.2)
+    hit = [w for w in act_warns() if "nonsenseActivity" in w]
+    print("UNKNOWN ACTIVITY WARNING ->", hit)
+    assert len(hit) == 1, (
+        "an activity outside CONFIG.features.tasks.activities must be reported "
+        "exactly once (console.warn, not error)", act_warns())
+    assert page.evaluate("window.__game.taskStat('nonsenseActivity')") == 1, (
+        "the diagnostic must not swallow the write — it warns, it does not refuse")
 
     print("ERRORS:", len(errs))
     for e in errs[:10]:
