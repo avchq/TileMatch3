@@ -4,12 +4,20 @@
 //
 //   identify()      -> { id, platform, name }
 //   load(id)        -> plain object | null   (a previously-saved User.toJSON())
-//   save(id, data)  -> void                  (data is User.toJSON())
+//   save(id, data)  -> void                  (data is User.toJSON(); REJECTS if
+//                                             the write did not land)
 //   clear(id)       -> void                  (remove the saved record for id)
 //
 // All four are async (return Promises) so cloud-backed adapters (FBInstant,
 // Telegram, Devvit) drop in without changing the contract. identity is a fixed,
 // platform-owned id — clear() wipes the DATA, never the identity.
+//
+// save() is the one method that must NOT swallow a failure. identify(), load()
+// and clear() each have a safe answer when storage misbehaves (mint an id, treat
+// the record as absent, treat it as already gone) and degrade quietly. A write
+// that silently did not land is different: it is data loss, and only the caller
+// can decide what to do about it. UserStore.save is that caller, and it is the
+// single place the failure is absorbed — see src/user/UserStore.js.
 //
 // The LocalStorageAdapter is fully working and is the default on the open web.
 // The three platform adapters are STUBS: they extend LocalStorageAdapter so that
@@ -54,7 +62,10 @@ export class LocalStorageAdapter {
   }
 
   async save(id, data) {
-    try { localStorage.setItem(this._key(id), JSON.stringify(data)); } catch (_) {}
+    // Deliberately NOT swallowed (see the contract note above). Safari private
+    // browsing throws on every setItem and a full quota throws on this one; both
+    // are data loss, and UserStore.save is the one place that decides about it.
+    localStorage.setItem(this._key(id), JSON.stringify(data));
   }
 
   async clear(id) {

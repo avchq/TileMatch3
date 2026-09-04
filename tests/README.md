@@ -757,6 +757,21 @@ Only `howtoplay_test.py` leaves it open.
 - **`reset_test.py`** — resetting the profile restores progress, wallet, and
   settings to defaults while preserving the identity (`id`), and the reset
   persists across a reload.
+- **`savefail_test.py`** — a **failed profile write is reported, not swallowed**.
+  Two injections, because the two halves of the contract are separable: the real
+  adapter against a real broken `localStorage` (`Storage.prototype.setItem`
+  patched *after* boot to throw `QuotaExceededError` for `tm3.user:` keys only,
+  so identity and language keep working), and a rejecting `store.adapter.save` —
+  the cloud-backend shape, using the same monkey-patch-through-`window.__game.store`
+  idiom as `reset_test.py`. Under both, `store.saveFailures` climbs,
+  `lastSaveError` carries the real error, the `onSaveError` hook fires once, and a
+  `console.warn` is emitted — deliberately a **warning**, so `harness.watch()`'s
+  console-*error* list (which most tests assert is empty) stays clean and the game
+  is shown to keep playing. It also asserts nothing landed while storage was
+  broken, that a rejected write does not wedge the store (`_saving` is released
+  and the next change still writes), that repairing storage lets the pending state
+  through and survive a reload — the retry-on-next-change the store documents —
+  and a control case proving a healthy write still counts zero failures.
 
 ### Assets & loading
 
@@ -806,6 +821,19 @@ Only `howtoplay_test.py` leaves it open.
   non-empty array of `{background,data,types,preload?}`, the asset manifest's
   per-level groups are derived from it (one per entry, no phantoms), and the
   preload set is exactly `core` + the `preload:true` levels.
+- **`bgbudget_test.py`** — background art must fit the column it is drawn into.
+  Every background reaches the screen through `buildColumnBackground`, which
+  *cover-fits* it into the centred 750-design-unit column (plus a blurred backdrop
+  for the side margins), so resolution past that point is downloaded on the boot
+  path and decoded into VRAM only to be thrown away by the scaler. Static — no
+  browser: decoded texture bytes are exactly `w*h*4`, so the files themselves
+  decide the answer and a live measurement would only add flakiness. Reads the
+  JPEG/PNG headers of everything in `assets/bg/` and asserts each is a JPEG, is no
+  wider relative to its height than the 750:1334 crop the column can ever show, is
+  within 1500×2668 (2× the design column), and exists if `levels.json` names it;
+  then that the `preload:true` payload behind the splash stays under 1.5 MB and the
+  whole set under 5 MB. It caught two 6000×4000 JPEGs (92 MB of VRAM each) and an
+  11.8 MB three-file boot payload.
 
 ### Audio lifecycle
 

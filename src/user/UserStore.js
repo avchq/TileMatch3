@@ -18,6 +18,11 @@ export class UserStore {
     this._saveTimer = null;
     this._saving = null;  // in-flight save promise (serializes async adapter writes)
     this._dirty = false;  // a change arrived while a save was in flight
+    // A lost write is the one storage failure that costs the player something,
+    // so it is recorded rather than swallowed anonymously (see save()).
+    this.onSaveError = null;   // (err) => void — the host's chance to react
+    this.saveFailures = 0;     // writes lost this session
+    this.lastSaveError = null; // the most recent one
     this._flush = this._flush.bind(this);
   }
 
@@ -80,8 +85,20 @@ export class UserStore {
           this._dirty = false;
           await this.adapter.save(id, this._pendingData);
         } while (this._dirty);
-      } catch (_) {
-        // swallow — a failed save is retried on the next change
+      } catch (err) {
+        // The adapter contract is that save() REJECTS when the bytes did not
+        // land. Absorb it HERE and only here — save() is called from a debounce
+        // timer and from a pagehide handler, neither of which can handle a
+        // rejection — and the next change reschedules a write, so the retry this
+        // comment used to promise is now a real one rather than a description of
+        // an adapter that never failed. What must not happen is that it stays
+        // silent: a player on a full quota, or in Safari private browsing (which
+        // throws on every setItem), otherwise loses a whole session with nothing
+        // logged and nothing shown.
+        this.saveFailures++;
+        this.lastSaveError = err;
+        console.warn("[UserStore] profile save failed:", err && err.message);
+        try { if (this.onSaveError) this.onSaveError(err); } catch (_) {}
       } finally {
         this._saving = null;
       }

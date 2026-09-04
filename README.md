@@ -1320,7 +1320,8 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   layer strings of `x|y` grid positions — bottom layer first, upper layers
   offset by 0.5 so a tile straddles up to four below it.
 - **Backgrounds** (`assets/bg/*.jpg`) and **audio** (`assets/audio/*.mp3`) are
-  the original native assets, copied and renamed — except the Fortune
+  the original native assets, copied and renamed (the backgrounds additionally
+  re-encoded to the column crop — see *Background art budget*) — except the Fortune
   Wheel's spin clicks (`wheel-spin-click-slow-down-fast-101154.mp3`), which are
   an added stock sound the original had no equivalent of.
 - **Tile faces** are regenerated at runtime (`src/icons.js`) as emoji on white
@@ -1850,6 +1851,19 @@ the obfuscated artifact, and asserts the cheat console is really gone.
     edges — a rail's `x` and slot ladder are plain design-space coordinates on the
     `topHud` layer, so pinning one to an outer edge needs no per-element anchoring
     logic.
+  - **Background art budget.** Because both copies are *cover-fits*, source
+    resolution stops mattering the moment the art covers the column, and the
+    layout contract bounds that exactly: the column is always exactly 750 design
+    units wide and the design area is always at least 1334 tall, so the visible
+    crop of a background is **never wider, relative to its height, than
+    750:1334** — anything wider is width no device ever shows. The shipped set is
+    therefore centre-cropped to that aspect and capped at **1500×2668** (2× the
+    design column, which already covers a DPR-3 phone's 1170×2532 column), JPEG
+    q82. Oversized art is not just download weight: a texture decodes to `w*h*4`
+    bytes of VRAM whatever it is drawn at, and a 6000×4000 JPEG costs 96 MB on its
+    own — the kind of spike mobile Safari kills a tab for. `tests/bgbudget_test.py`
+    holds the line (aspect, dimensions, and the preload payload behind the splash).
+
   - The **board is sized to the 750 column**, not the viewport
     (`GameScene._layoutBoard` fits it by `min((min(viewW,750)-60)/spanX,
     areaH/spanY)`), so on a wide screen the tiles stay column-sized and the play
@@ -1934,10 +1948,10 @@ editing:
   `buildLevelGroups()` (level *N* ↔ entry *N-1*), so a new entry is automatically
   loadable.
 - Each entry's `background` path must match the file on disk **including its
-  extension** — `assets/bg/` is a mix of `.jpg` and `.png`. A mismatch is a 404,
-  and since a group is only marked loaded once every one of its assets arrives
-  (see Asset management below), that 404 now leaves the *whole level* unloaded
-  rather than just a missing background.
+  extension** (`assets/bg/` is all `.jpg` — see *Background art budget* below). A
+  mismatch is a 404, and since a group is only marked loaded once every one of its
+  assets arrives (see Asset management below), that 404 now leaves the *whole
+  level* unloaded rather than just a missing background.
 
 ### Asset management (`src/assets.js` + `src/audio.js`)
 Assets are organised into groups: a shared `core` group plus one `levelN` group
@@ -2125,7 +2139,13 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   the exact SDK calls (`// TODO(SDK):`) to swap in later (`FBInstant.player`,
   `Telegram.WebApp.CloudStorage`, Devvit KV) — no code outside this file changes
   when a platform is wired in for real. Identity is platform-owned and fixed;
-  `clear()` wipes the *data*, never the id.
+  `clear()` wipes the *data*, never the id. **`save()` is the one method that
+  rejects.** `identify` / `load` / `clear` each have a safe answer when storage
+  misbehaves (mint an id, treat the record as absent, treat it as already gone)
+  and degrade quietly; a write that silently did not land is data loss instead,
+  so it is reported rather than swallowed — Safari private browsing throws on
+  every `setItem`, and so does a full quota. `UserStore.save` is the single place
+  that absorbs it.
 - **`payments.js`** — the **real-money purchase** contract, mirroring `adapters.js`
   (one small async surface per platform): `getCatalog()` + `purchase(productId)`.
   It exports the **`PACKAGES`** catalog — each package has an id, price, label, a
@@ -2157,6 +2177,13 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   save is **serialized (last-write-wins)** so the slow, async cloud adapters
   can't race two writes out of order; the exit-flush only writes when a change
   is actually pending, so a bare refresh never resurrects data you just cleared.
+  It is also the **one place a failed write is absorbed**: `save()` is driven
+  from a debounce timer and a `pagehide` handler, neither of which can handle a
+  rejection, so the adapter's rejection is caught here — counted
+  (`saveFailures` / `lastSaveError`), logged with a `console.warn`, and offered
+  to the host through an assignable `onSaveError(err)` hook. The next change
+  reschedules a write, so a transient failure really is retried; a persistent one
+  is at least no longer invisible.
   `reset()` wipes the record on **whatever backend is active** (not by clearing
   `localStorage` by hand — that does nothing on a cloud backend) and returns the
   profile to defaults, keeping identity.
