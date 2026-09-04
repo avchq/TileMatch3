@@ -14,8 +14,9 @@
 // PACING (unlock level, spins per cycle, headline prize) come from
 // CONFIG.features.fortuneWheel in src/config.js, alongside every other gate.
 
-import { tween, delay, easeInCubic, easeOutCubic, easeInOutQuad, easeOutBack } from "./tween.js";
+import { tween, delay, easeInCubic, easeOutCubic, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
+import { rewardBooster, grantReward, makeRewardIcon, flyReward, bumpReward } from "./rewards.js";
 import { fitPanel } from "./layout.js";
 import { CONFIG } from "./config.js";
 import { t, locText } from "./i18n.js";
@@ -35,20 +36,11 @@ const SPIN_SFX = "wheel_spin";
 const SPIN_SFX_LOOP_END = 0.58;      // s — where the recording starts winding down
 const SPIN_SFX_MIN_RATE = 0.3;       // click cadence with the wheel nearly stopped
 
-// How each config prize `type` is granted in this port. Coins credit the wallet;
-// undo/wand/shuffle grant boosters. There is no Hint or Lightning helper here, so
-// Hint is baked into the config as `wand`, and Lightning grants a coins bonus
-// (while staying the headline prize — see cfg.headlinePrize).
-const PRIZE_GRANT = {
-  coins: { cur: "coins" },
-  undo: { booster: "undo" },
-  wand: { booster: "wand" },
-  shuffle: { booster: "shuffle" },
-  lightning: { cur: "coins" },
-};
-
-// Glyphs for the non-coin prize types (coins use the drawn gold coin icon).
-const PRIZE_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀", lightning: "⚡" };
+// How a prize `type` is granted, which glyph it wears and how it flies to its
+// counter all live in src/rewards.js — the wheel, the daily gift, tasks and the
+// level chest share one table each. There is no Hint or Lightning helper in this
+// port, so Hint is baked into the config as `wand`, and Lightning grants a coins
+// bonus while staying the headline prize (see cfg.headlinePrize).
 
 export class FortuneWheelScene extends PIXI.Container {
   constructor(app, audio, user, cfg) {
@@ -332,10 +324,7 @@ export class FortuneWheelScene extends PIXI.Container {
 
   // ---- wheel rendering -----------------------------------------------------
   _makeIconFor(prize, size) {
-    if (prize.type === "coins") return makeCoinIcon(size);
-    const t = new PIXI.Text(PRIZE_EMOJI[prize.type] || "❔", { fontFamily: "Arial", fontSize: size * 1.7 });
-    t.anchor.set(0.5);
-    return t;
+    return makeRewardIcon(prize.type, size);
   }
 
   _rebuild() { this._buildWheel(this.currentPrizes()); }
@@ -608,56 +597,30 @@ export class FortuneWheelScene extends PIXI.Container {
     this.pointer.rotation = d;
   }
 
+  /** Where the prize flies: a booster to its chip, everything else (coins, the
+   *  lightning headline, any fallback) to the coin pill. */
   _grantTarget(prize) {
-    const g = PRIZE_GRANT[prize.type];
-    if (g && g.booster && this._chips[g.booster]) return this._chips[g.booster];
-    return this.coinPill;   // coins, the lightning headline, and any fallback
+    const b = rewardBooster(prize.type);
+    return (b && this._chips[b]) || this.coinPill;
   }
 
-  _grant(prize) {
-    const g = PRIZE_GRANT[prize.type];
-    if (!g) return;
-    if (g.cur) this.user.credit(g.cur, prize.amount);
-    else if (g.booster) this.user.grantBooster(g.booster, prize.amount);
-  }
-
+  /** Fly the prize to its counter, granting ON LANDING so the number ticks in
+   *  sync with the visual. The spin is already spent by the time we get here
+   *  (recordWheelSpin runs before the wheel animates — see User.js), so a
+   *  fly-target that can't be measured must still pay out: flyReward reports
+   *  that rather than throwing, and the grant below happens either way. */
   async _collect(idx, prize) {
     const slice = this._slices[idx];
     const headline = prize.type === this.headlinePrize;
     if (headline) await this._fadeGlow(1);
 
-    const start = this.fxLayer.toLocal(slice.icon.getGlobalPosition());
     const target = this._grantTarget(prize);
-    const end = this.fxLayer.toLocal(target.getGlobalPosition());
-
-    const flyer = this._makeIconFor(prize, 34);
-    flyer.position.set(start.x, start.y);
-    this.fxLayer.addChild(flyer);
-
-    // Arc up-then-in via a quadratic Bézier (see game.js autoComplete).
-    const C = { x: (start.x + end.x) / 2, y: Math.min(start.y, end.y) - 150 };
-    await tween(this.app.ticker, {
-      duration: 540, ease: easeInOutQuad,
-      onUpdate: (e) => {
-        const u = 1 - e;
-        flyer.x = u * u * start.x + 2 * u * e * C.x + e * e * end.x;
-        flyer.y = u * u * start.y + 2 * u * e * C.y + e * e * end.y;
-        flyer.scale.set(1 - 0.35 * e);
-      },
-    });
-    // Grant on landing so the counter ticks in sync with the visual.
-    this._grant(prize);
-    this._bump(target);
-    if (!flyer.destroyed) flyer.destroy();
+    const flew = await flyReward(this.app.ticker, this.fxLayer, slice.icon,
+                                 target, this._makeIconFor(prize, 34));
+    grantReward(this.user, prize);
+    if (flew) bumpReward(this.app.ticker, target);
 
     if (headline) { await delay(this.app.ticker, 400); await this._fadeGlow(0); }
-  }
-
-  _bump(node) {
-    return tween(this.app.ticker, {
-      duration: 240, ease: easeOutCubic,
-      onUpdate: (e) => node.scale.set(1 + 0.28 * Math.sin(Math.PI * e)),
-    });
   }
 
   _fadeGlow(to) {

@@ -25,7 +25,10 @@ import { CONFIG } from "./config.js";
 
 // Reward item-id → this port's grant `type`. Item ids follow the original's
 // scheme; the port has no Lightning helper, so 20 pays a coins bonus (the same
-// choice the Fortune Wheel makes for its "lightning" prize).
+// choice the Fortune Wheel makes for its "lightning" prize). What each of those
+// types then PAYS is not this module's business — REWARD_GRANT in
+// src/rewards.js owns that, for every feature. Keeping the import out is
+// deliberate: this file stays pure and UI-free.
 const ITEM_TYPE = {
   0: "coins",     // gold coins → wallet
   10: "undo",     // Undo helper
@@ -34,9 +37,6 @@ const ITEM_TYPE = {
   20: "lightning" // no Lightning helper here — granted as a coins bonus
 };
 
-// A reward `type` that is really a currency credit (vs a booster grant).
-const TYPE_IS_COINS = { coins: true, lightning: true };
-
 /** Parse a `"itemId|count"` reward string into `{ type, amount }`. */
 export function parseReward(str) {
   const [idStr, countStr] = String(str || "").split("|");
@@ -44,12 +44,6 @@ export function parseReward(str) {
   const amount = Math.max(0, Math.floor(Number(countStr)) || 0);
   const type = ITEM_TYPE[id] || "coins";
   return { type, amount };
-}
-
-/** True when a reward `type` is credited to the wallet (coins/lightning) rather
- *  than granted to the booster inventory. */
-export function rewardIsCoins(type) {
-  return !!TYPE_IS_COINS[type];
 }
 
 export class LevelChest {

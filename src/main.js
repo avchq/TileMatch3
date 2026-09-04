@@ -944,6 +944,10 @@ async function boot() {
       forceWheelPrize: (index) => { wheel._forceIndex = index; },
       // Force the ad-spin outcome: "succeed" | "cancel" | "fail".
       setWheelAdResult: (mode) => { wheel._adResult = mode; },
+      // Make the prize's fly target unmeasurable, so _collect takes its
+      // can't-measure path (rewards_test.py: the prize must still be paid —
+      // the spin has already been spent by the time the flight starts).
+      breakWheelFlyTarget: () => { wheel.coinPill = null; },
       // ---- daily bonus ----
       openDailyBonus: () => daily.open(),
       dailyBonusVisible: () => daily.visible,
@@ -982,6 +986,10 @@ async function boot() {
       setDailyToday: (key) => { daily._todayOverride = key; lobby.refreshFeatures(); },
       // Pin the prize behind every box (deterministic prize tests).
       forceDailyPrize: (index) => { daily._forceIndex = index; },
+      // Replace the prize POOL itself, so a test can put an unusual reward
+      // `type` in front of the grant path (rewards_test.py). forceDailyPrize
+      // only picks from the pool; this is what builds the pool.
+      setDailyPrizes: (list) => { daily.prizes = (list || []).map((p) => ({ ...p })); },
       // Trigger the lobby gift's periodic hop immediately (its idle timer is
       // frame-rate bound, so a wall-clock wait is unreliable under CPU load).
       forceDailyHop: () => { if (lobby.dailyBtn) lobby.dailyBtn._hopNow = true; },

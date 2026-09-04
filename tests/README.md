@@ -583,6 +583,27 @@ Only `howtoplay_test.py` leaves it open.
 
 ### Level Chest
 
+- **`rewards_test.py`** — the shared reward module (`src/rewards.js`), which owns
+  the one grant table, the one glyph table, the icon factory and the
+  fly-to-counter arc for all four features that pay a `{ type, amount }` out.
+  Three checks, guarding the two defects the old private copies had and the
+  duplication itself. **A type the old map didn't know still pays**: a
+  `lightning` daily prize (valid in `turntable.json`, absent from the daily
+  gift's private map) credits the wallet, where it used to be dropped in total
+  silence with the day already spent. **A type nothing grants is loud**: a `gems`
+  prize pays nothing — there is nothing to pay — but leaves a `console.warn`
+  instead of vanishing. **An unmeasurable fly target still pays**: with the
+  wheel's target broken (`breakWheelFlyTarget()`), a spin still credits its 30
+  coins and raises no page error — the wheel was the one copy that never got the
+  `try/catch`, and it threw with `recordWheelSpin` already committed. The third
+  check is pure **source analysis** (no browser, milliseconds, the
+  `debugseam_test.py` idiom): no file under `src/` but `rewards.js` may declare a
+  reward grant/glyph table, and the four paying features must import it.
+  `src/levelchest.js` deliberately does **not** — it only decodes `"itemId|count"`
+  into a type, and staying clear of the UI-side reward code is what keeps it pure.
+  Seams: `setDailyPrizes(list)` replaces the daily prize *pool*
+  (`forceDailyPrize` only picks from it) and `breakWheelFlyTarget()` makes the
+  wheel's fly target unmeasurable.
 - **`levelchest_test.py`** — the recurring level-complete reward (`src/levelchest.js`
   + the win-overlay bar in `src/game.js`). Covers the **schedule maths**
   (`chestInfo`): the 50-milestone table's labels, `needed` counts, `full` flags and

@@ -6,7 +6,7 @@ import { typesForLevel } from "./levelConfig.js";
 import { buildColumnBackground, makeHintPill, fitTextWidth } from "./layout.js";
 import { HowToPlayPopup } from "./tutorial.js";
 import { BoosterCoach } from "./boostercoach.js";
-import { rewardIsCoins } from "./levelchest.js";
+import { rewardIsCoins, grantReward, makeRewardIcon, flyReward } from "./rewards.js";
 import { CONFIG } from "./config.js";
 import { t, itemName } from "./i18n.js";
 
@@ -89,11 +89,6 @@ const HUD_BAR = {
 };
 HUD_BAR.cy = HUD_BAR.y + HUD_BAR.h / 2;      // every element's vertical centre
 HUD_BAR.right = HUD_BAR.x + HUD_BAR.w;
-
-// Level Chest reward glyphs. Coins/lightning draw a gold coin instead of an
-// emoji (see makeCoinIcon), matching how the wheel and daily gift show them.
-// The WORDS that go with them are localized — see itemName() in src/i18n.js.
-const CHEST_REWARD_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀", lightning: "⚡" };
 
 // The Wand button's two faces. The upgraded one is deliberately a different
 // GLYPH and a different disc colour, not just a tint: the swap has to be
@@ -3207,58 +3202,49 @@ export class GameScene extends PIXI.Container {
   }
 
   // Fly the reward icon to its HUD counter (coins → the coin pill; a booster → its
-  // helper button) and grant ON LANDING so the number ticks in sync. Falls back to
-  // an immediate grant if the fly-targets can't be located (mirrors dailybonus).
-  // `from` is the global point the icon left from, read by the caller before it
-  // cleared the panel away. The flight rides fxTopLayer — ABOVE the HUD and the
-  // overlay — so the coins arrive in the foreground rather than behind the chrome.
+  // helper button) and grant ON LANDING so the number ticks in sync. The shared
+  // flyReward() (src/rewards.js) owns the arc and reports a fly-target it could
+  // not measure, in which case the grant below still happens — the chest has
+  // already been spent by then. `from` is the global point the icon left from,
+  // read by the caller before it cleared the panel away. The flight rides
+  // fxTopLayer — ABOVE the HUD and the overlay — so the coins arrive in the
+  // foreground rather than behind the chrome.
   async _collectChestReward(reward, from) {
-    const grant = () => {
-      if (rewardIsCoins(reward.type)) this.user.credit("coins", reward.amount);
-      else this.user.grantBooster(reward.type, reward.amount);
-    };
     const target = rewardIsCoins(reward.type)
       ? this.coinPill
       : ({ undo: this.undoBtn, wand: this.wandBtn, shuffle: this.shuffleBtn })[reward.type];
     const layer = this.fxTopLayer;
-    let start, end;
-    try {
-      start = layer.toLocal(from || this._chestRewardIcon.getGlobalPosition());
-      end = layer.toLocal((target || this.coinPill).getGlobalPosition());
-    } catch (_) { grant(); return; }
-    // Which layer the flight actually used, for the debug/test hooks: the whole
-    // point is that it outranks the HUD and the overlay it came from.
+    // Which layer the flight uses, for the debug/test hooks: the whole point is
+    // that it outranks the HUD and the overlay it came from. Scene structure, so
+    // it reads the same whether or not the flight can actually be measured.
     this._chestState.fly = {
       layer: this.getChildIndex(layer),
       hud: this.getChildIndex(this.hudLayer),
       overlay: this.getChildIndex(this.overlayLayer),
     };
 
-    const flyer = this._makeRewardIcon(reward, 34);
-    flyer.position.set(start.x, start.y);
-    layer.addChild(flyer);
-    const C = { x: (start.x + end.x) / 2, y: Math.min(start.y, end.y) - 150 };
-    await tween(this.app.ticker, {
-      duration: 540, ease: easeInOutQuad,
-      onUpdate: (e) => {
-        const u = 1 - e;
-        flyer.x = u * u * start.x + 2 * u * e * C.x + e * e * end.x;
-        flyer.y = u * u * start.y + 2 * u * e * C.y + e * e * end.y;
-        flyer.scale.set(1 - 0.3 * e);
-      },
-    });
-    grant();
-    if (target && !target.destroyed) { target.scale.set(1.22); this._animateScale(target, 1, 220); }
-    if (!flyer.destroyed) flyer.destroy();
+    const flew = await flyReward(this.app.ticker, layer,
+                                 from || this._chestRewardIcon,
+                                 target || this.coinPill,
+                                 this._makeRewardIcon(reward, 34));
+    grantReward(this.user, reward);
+    // The chest's own landing beat — a snap to 1.22 that decays, not the sine
+    // pulse the overlay features use.
+    if (flew && target && !target.destroyed) {
+      target.scale.set(1.22);
+      this._animateScale(target, 1, 220);
+    }
   }
 
+  /** The Level Chest reward's icon. The glyphs and the factory are the shared
+   *  ones (src/rewards.js); the one thing this scene asks for specifically is
+   *  `coin`, because coins AND lightning draw the gold coin here — the popup
+   *  shows what the chest PAYS, and a lightning chest pays coins. The Fortune
+   *  Wheel passes the default instead, where ⚡ is its headline slice's own
+   *  glyph. The WORDS alongside are localized — see itemName() in src/i18n.js. */
   _makeRewardIcon(reward, size) {
-    if (rewardIsCoins(reward.type)) return makeCoinIcon(size);
-    const t = new PIXI.Text(CHEST_REWARD_EMOJI[reward.type] || "❔", {
-      fontFamily: "Arial", fontSize: size * 1.6,
-    });
-    t.anchor.set(0.5);
-    return t;
+    return makeRewardIcon(reward.type, size,
+                          { emojiSize: size * 1.6, coin: rewardIsCoins(reward.type) });
   }
 
   /**

@@ -32,8 +32,9 @@
 // (its `titles` map), looked up in the active language. Only the row ICONS live
 // in this file.
 
-import { tween, easeOutCubic, easeInOutQuad, easeOutBack } from "./tween.js";
+import { tween, easeOutCubic, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
+import { rewardBooster, grantReward, makeRewardIcon, flyReward, bumpReward } from "./rewards.js";
 import { fitTextWidth } from "./layout.js";
 import { CONFIG } from "./config.js";
 import { t, locText } from "./i18n.js";
@@ -60,15 +61,10 @@ const ACTIVITY = {
   shopPurchases:     { icon: "🛒" },
 };
 
-// How a reward `type` is granted — the same mapping (and the same vocabulary in
-// the JSON) the wheel and the daily gift use.
-const REWARD_GRANT = {
-  coins: { cur: "coins" },
-  undo: { booster: "undo" },
-  wand: { booster: "wand" },
-  shuffle: { booster: "shuffle" },
-};
-const REWARD_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀" };
+// How a reward `type` is granted, which glyph it wears and how it flies to its
+// counter are shared with the wheel, the daily gift and the level chest — one
+// table each, in src/rewards.js. (ACTIVITY above is a different vocabulary: the
+// STAT a goal counts, not the reward it pays.)
 
 // ---- panel geometry (design units, laid out around the panel's own origin) ---
 const PANEL_W = 690, PANEL_H = 1020;
@@ -472,9 +468,9 @@ export class TasksScene extends PIXI.Container {
 
   _rewardChip(reward) {
     const c = new PIXI.Container();
-    const icon = reward.type === "coins"
-      ? this._makeIcon("coin", 46)
-      : this._makeIcon(REWARD_EMOJI[reward.type] || "❔", 30);
+    // The row chip sizes its coin and its glyph independently — see
+    // makeRewardIcon's `emojiSize` note. These are the list's own proportions.
+    const icon = makeRewardIcon(reward.type, 46 * 0.42, { emojiSize: 30 });
     icon.position.set(-26, 0);
     c.addChild(icon);
     const t = new PIXI.Text(
@@ -694,56 +690,23 @@ export class TasksScene extends PIXI.Container {
     this.refresh({ keepScroll: true });
   }
 
+  /** Where the reward flies: a booster to its chip, coins (and any fallback) to
+   *  the coin pill. */
   _grantTarget(reward) {
-    const g = REWARD_GRANT[reward.type];
-    if (g && g.booster && this._chips[g.booster]) return this._chips[g.booster];
-    return this.coinPill;   // coins + any fallback
-  }
-
-  _grant(reward) {
-    const g = REWARD_GRANT[reward.type];
-    if (!g) return;
-    if (g.cur) this.user.credit(g.cur, reward.amount);
-    else if (g.booster) this.user.grantBooster(g.booster, reward.amount);
+    const b = rewardBooster(reward.type);
+    return (b && this._chips[b]) || this.coinPill;
   }
 
   /** Fly the reward from its row up to its counter, granting ON LANDING so the
-   *  number ticks in sync with the visual (same arc the wheel and the daily
-   *  gift use). Grants outright if the geometry can't be measured. */
+   *  number ticks in sync with the visual (the same arc the wheel, the daily
+   *  gift and the level chest use). Grants outright if the geometry can't be
+   *  measured — the row is already retired by then. */
   async _collect(reward, node) {
     const target = this._grantTarget(reward);
-    let start, end;
-    try {
-      start = this.fxLayer.toLocal(node.getGlobalPosition());
-      end = this.fxLayer.toLocal(target.getGlobalPosition());
-    } catch (_) { this._grant(reward); return; }
-
-    const flyer = reward.type === "coins"
-      ? this._makeIcon("coin", 80)
-      : this._makeIcon(REWARD_EMOJI[reward.type] || "❔", 44);
-    flyer.position.set(start.x, start.y);
-    this.fxLayer.addChild(flyer);
-
-    const C = { x: (start.x + end.x) / 2, y: Math.min(start.y, end.y) - 150 };
-    await tween(this.app.ticker, {
-      duration: 540, ease: easeInOutQuad,
-      onUpdate: (e) => {
-        const u = 1 - e;
-        flyer.x = u * u * start.x + 2 * u * e * C.x + e * e * end.x;
-        flyer.y = u * u * start.y + 2 * u * e * C.y + e * e * end.y;
-        flyer.scale.set(1 - 0.3 * e);
-      },
-    });
-    this._grant(reward);
-    this._bump(target);
-    if (!flyer.destroyed) flyer.destroy();
-  }
-
-  _bump(node) {
-    return tween(this.app.ticker, {
-      duration: 240, ease: easeOutCubic,
-      onUpdate: (e) => node.scale.set(1 + 0.28 * Math.sin(Math.PI * e)),
-    });
+    const flyer = makeRewardIcon(reward.type, 80 * 0.42, { emojiSize: 44 });
+    const flew = await flyReward(this.app.ticker, this.fxLayer, node, target, flyer);
+    grantReward(this.user, reward);
+    if (flew) bumpReward(this.app.ticker, target);
   }
 
   /** A claimed row slides out and fades, then refresh() drops it for good. */

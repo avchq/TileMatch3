@@ -1746,7 +1746,8 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   no re-roll), animates the box open, and reveals the prize. `_double()` watches a
   stubbed rewarded ad (`_adResult` seam: `succeed`/`cancel`/`fail`) to double the
   amount; `_take(multiplier)` flies the icon to its HUD counter and grants on
-  landing (`user.credit`/`user.grantBooster`), then closes. The prize pool comes
+  landing (the shared `flyReward` / `grantReward` — see `src/rewards.js`), then
+  closes. The prize pool comes
   from `assets/config/dailybonus.json`; a missing/failed config degrades to an
   empty pool (button stays hidden). Its `unlockLevel` gate is read straight from
   `src/config.js`. The lobby button, its animation
@@ -1758,6 +1759,27 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   and from the same low-frequency `main.js` ticker as the wheel (so a lobby left open
   across midnight re-shows the gift). It is entry **#2** on the lobby's feature rail,
   so it **rises into the wheel button's slot** whenever that one isn't offered.
+- `src/rewards.js` owns the **reward vocabulary** — the one answer to "what is a
+  `{ type, amount }` reward and what happens when you collect it", shared by the
+  four features that pay one out (Fortune Wheel, Daily Bonus, Tasks, and the Level
+  Chest popup in `GameScene`). It holds `REWARD_GRANT` (`coins`/`lightning` credit
+  the wallet, `undo`/`wand`/`shuffle` grant boosters), `REWARD_EMOJI`, and the
+  helpers `rewardIsCoins` / `rewardBooster` (which counter a reward flies to),
+  `grantReward(user, reward)`, `makeRewardIcon(type, size, opts)`,
+  `flyReward(ticker, layer, from, to, icon)` (the shared 540 ms quadratic-Bézier
+  arc up into the counter) and `bumpReward` (the landing swell). Adding a reward
+  type — `gems`, say, already reserved in `CONFIG.economy.currencies` — is one row
+  in `REWARD_GRANT` plus one glyph, and all four features pick it up; a type with
+  no row grants nothing but **says so** (`console.warn`), because every collect
+  commits the claim *before* it animates and a mistyped config row used to cost
+  the player the whole reward in silence. Two deliberate variations the callers
+  pass as options rather than fork over: the wheel draws **⚡** for its `lightning`
+  headline slice while the chest popup draws a **coin** (it shows what it pays),
+  and the tasks list sizes its row glyph independently of the coin beside it.
+  `flyReward` also owns the *measurement*: a fly target that can't be located
+  returns `false` instead of throwing, so the caller still grants — the arc is
+  what the player loses, never the prize. The reward's **name** is not here; that
+  is `itemName()` in `src/i18n.js`, which has always owned it.
 - `src/levelchest.js` is the `LevelChest` — the **feature logic** of the level-complete
   chest (the schedule and the maths), drawn nowhere itself: it just answers
   `infoFor(level)` → `{ index, filled, needed, label, reward, full }` for the win
@@ -1770,9 +1792,11 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   `infoFor(level)` is the win-screen view (the chest that clear filled, `full` when it
   reaches the top); `currentFor(level)` is the lobby's resting view (identical
   mid-chest, but a just-opened milestone rolls forward to the next chest at 0
-  notches). `parseReward`/`rewardIsCoins` translate the `"itemId|count"` reward
-  strings to the port's grant vocabulary
-  (`0`→coins, `10`→undo, `11`→wand, `12`→shuffle, `20`→lightning→coins).
+  notches). `parseReward` translates the `"itemId|count"` reward strings
+  into the port's grant vocabulary (`0`→coins, `10`→undo, `11`→wand,
+  `12`→shuffle, `20`→lightning). What each of those types then *pays* is
+  `REWARD_GRANT` in `src/rewards.js` (lightning→coins) — which this module
+  deliberately does not import, so it stays pure and UI-free.
 - `src/tutorial.js` is the `HowToPlayPopup` — the modal tutorial level 1 opens
   before play (see the Gameplay section and the `GameScene` notes above). Unlike
   the other overlays it is **owned by the level scene**, not by `main.js`: it lives

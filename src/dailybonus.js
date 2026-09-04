@@ -17,8 +17,9 @@
 // feature's GATE (unlock level) from CONFIG.features.dailyBonus in src/config.js,
 // alongside every other gate.
 
-import { tween, delay, easeInCubic, easeOutCubic, easeInOutQuad, easeOutBack } from "./tween.js";
+import { tween, delay, easeInCubic, easeOutCubic, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
+import { rewardBooster, grantReward, makeRewardIcon, flyReward, bumpReward } from "./rewards.js";
 import { fitPanel } from "./layout.js";
 import { CONFIG } from "./config.js";
 import { t, locText, itemName } from "./i18n.js";
@@ -26,19 +27,11 @@ import { t, locText, itemName } from "./i18n.js";
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
-// How each config prize `type` is granted in this port. Coins credit the wallet;
-// undo/wand/shuffle grant boosters. (The source's "Hint" helper is this game's
-// wand, so it's baked into the config as `wand` — same mapping the wheel uses.)
-const PRIZE_GRANT = {
-  coins: { cur: "coins" },
-  undo: { booster: "undo" },
-  wand: { booster: "wand" },
-  shuffle: { booster: "shuffle" },
-};
-
-// Glyphs for the non-coin prize types (coins use the drawn gold coin). The NAME
-// that goes under the glyph is localized — see itemName() in src/i18n.js.
-const PRIZE_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀" };
+// How a prize `type` is granted, which glyph it wears and how it flies to its
+// counter all live in src/rewards.js, shared with the wheel, tasks and the level
+// chest. (The source's "Hint" helper is this game's wand, so it's baked into the
+// config as `wand`.) The NAME under the glyph is localized separately — see
+// itemName() in src/i18n.js.
 
 // The three mystery boxes: green / red / blue (lid + darker body).
 const BOXES = [
@@ -344,10 +337,7 @@ export class DailyBonusScene extends PIXI.Container {
 
   // ---- reveal --------------------------------------------------------------
   _makeIconFor(prize, size) {
-    if (prize.type === "coins") return makeCoinIcon(size);
-    const t = new PIXI.Text(PRIZE_EMOJI[prize.type] || "❔", { fontFamily: "Arial", fontSize: size * 1.7 });
-    t.anchor.set(0.5);
-    return t;
+    return makeRewardIcon(prize.type, size);
   }
 
   _makeShine() {
@@ -525,53 +515,23 @@ export class DailyBonusScene extends PIXI.Container {
     this._close();
   }
 
+  /** Where the prize flies: a booster to its chip, coins (and any fallback) to
+   *  the coin pill. */
   _grantTarget(prize) {
-    const g = PRIZE_GRANT[prize.type];
-    if (g && g.booster && this._chips[g.booster]) return this._chips[g.booster];
-    return this.coinPill;   // coins + any fallback
+    const b = rewardBooster(prize.type);
+    return (b && this._chips[b]) || this.coinPill;
   }
 
-  _grant(prize) {
-    const g = PRIZE_GRANT[prize.type];
-    if (!g) return;
-    if (g.cur) this.user.credit(g.cur, prize.amount);
-    else if (g.booster) this.user.grantBooster(g.booster, prize.amount);
-  }
-
+  /** Fly the prize from the reveal up to its counter, granting ON LANDING so
+   *  the number ticks in sync with the visual. The day is already spent by now
+   *  (recordDailyClaim runs at box-open), so an unmeasurable target grants
+   *  outright rather than costing the player the gift. */
   async _collect(prize) {
     const target = this._grantTarget(prize);
-    let start, end;
-    try {
-      start = this.fxLayer.toLocal(this._revealIcon.getGlobalPosition());
-      end = this.fxLayer.toLocal(target.getGlobalPosition());
-    } catch (_) { this._grant(prize); return; }
-
-    const flyer = this._makeIconFor(prize, 34);
-    flyer.position.set(start.x, start.y);
-    this.fxLayer.addChild(flyer);
-
-    // Arc up-then-in via a quadratic Bézier (matches the wheel's collect).
-    const C = { x: (start.x + end.x) / 2, y: Math.min(start.y, end.y) - 150 };
-    await tween(this.app.ticker, {
-      duration: 540, ease: easeInOutQuad,
-      onUpdate: (e) => {
-        const u = 1 - e;
-        flyer.x = u * u * start.x + 2 * u * e * C.x + e * e * end.x;
-        flyer.y = u * u * start.y + 2 * u * e * C.y + e * e * end.y;
-        flyer.scale.set(1 - 0.3 * e);
-      },
-    });
-    // Grant on landing so the counter ticks in sync with the visual.
-    this._grant(prize);
-    this._bump(target);
-    if (!flyer.destroyed) flyer.destroy();
-  }
-
-  _bump(node) {
-    return tween(this.app.ticker, {
-      duration: 240, ease: easeOutCubic,
-      onUpdate: (e) => node.scale.set(1 + 0.28 * Math.sin(Math.PI * e)),
-    });
+    const flew = await flyReward(this.app.ticker, this.fxLayer, this._revealIcon,
+                                 target, this._makeIconFor(prize, 34));
+    grantReward(this.user, prize);
+    if (flew) bumpReward(this.app.ticker, target);
   }
 
   /**
