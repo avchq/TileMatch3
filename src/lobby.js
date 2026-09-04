@@ -864,12 +864,14 @@ export class LobbyScene extends PIXI.Container {
     this.botHud.addChild(c);
     this._flash = c;
     // Guard every frame on `destroyed`: a second call destroys this pill while
-    // its tween is still running, and a tween body that throws inside the ticker
-    // takes the whole frame loop with it (see the note on _animateTo in game.js).
+    // its tween is still running. tween() now contains a throwing callback
+    // itself (one logged error, listener unhooked) rather than letting it stop
+    // the frame loop, so this is defence in depth — but it is still the guard
+    // that keeps the pill from writing through a torn-down container at all.
     const fade = (e) => { if (!c.destroyed) c.alpha = e; };
-    tween(this.app.ticker, 180, { onUpdate: fade })
+    tween(this.app.ticker, { duration: 180, onUpdate: fade })
       .then(() => delay(this.app.ticker, 1600))
-      .then(() => tween(this.app.ticker, 260, { onUpdate: (e) => fade(1 - e) }))
+      .then(() => tween(this.app.ticker, { duration: 260, onUpdate: (e) => fade(1 - e) }))
       .then(() => {
         if (this._flash !== c) return;   // replaced mid-fade; the newer one owns the slot
         c.destroy({ children: true });

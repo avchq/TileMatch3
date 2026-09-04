@@ -223,7 +223,7 @@ export class HowToPlayPopup extends PIXI.Container {
   // looping demonstration. Kept to ~1.6s so the player isn't left waiting.
   async open() {
     const run = ++this._run;
-    const stale = () => this._run !== run || this.destroyed || this.closing;
+    const stale = () => this._stale(run);
 
     this._spinRays();
 
@@ -333,8 +333,11 @@ export class HowToPlayPopup extends PIXI.Container {
     const sx = obj.x, sy = obj.y;
     return tween(this.app.ticker, {
       duration, ease: easeOutCubic,
+      // Abandon rather than idle out the rest of the duration writing nothing.
+      // Object-scoped and token-only on purpose — NOT _stale(run), which would
+      // add `closing` and stop a live sprite animating while the popup fades.
+      while: () => !obj.destroyed && this._run === run,
       onUpdate: (e) => {
-        if (obj.destroyed || this._run !== run) return;
         obj.x = sx + (x - sx) * e;
         obj.y = sy + (y - sy) * e;
       },
@@ -393,8 +396,8 @@ export class HowToPlayPopup extends PIXI.Container {
     return tween(this.app.ticker, {
       duration: 340,
       ease: (t) => t,
+      while: () => !this.destroyed && this._run === run,
       onUpdate: (p) => {
-        if (this.destroyed || this._run !== run) return;
         const dip = p < 0.4 ? Math.sin((p / 0.4) * Math.PI) : 0;
         icon.position.set(0, 14 - dip * 12);
         icon.scale.set(1 - dip * 0.08);

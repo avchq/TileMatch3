@@ -700,6 +700,42 @@ Only `howtoplay_test.py` leaves it open.
   import**, which must paint the splash's error state with a message rather than
   freeze at "Starting up… 0%". Finishes with a plain boot under the `iPhone 13`
   and `Galaxy S9+` device profiles.
+- **`tween_test.py`** — the shared animation primitive (`src/tween.js`, ARCH-01),
+  a session-killer and its guard. The codebase had converged on one correct
+  answer to async staleness (a generation token plus a `stale()` predicate) and
+  implemented it four times, once per owner, with no shared primitive — and the
+  sequence that needed it most did not get it: PRAC-01, where a tween wrote
+  through a destroyed tile and the exception escaped into a Pixi ticker
+  listener. Its browser half deliberately **poisons the shared ticker**, so it
+  runs in its own session and does nothing else on that page: it imports
+  `tween.js` by URL (the very module record the game itself runs) and fires a
+  bare, unawaited `tween(...)` whose `onUpdate` throws — exactly how the ~24
+  fire-and-forget call sites in the game fire it — then asserts the render loop
+  is still alive. `started` is a useless detector here (Pixi's `Ticker._tick`
+  re-arms `requestAnimationFrame` only *after* `update()` returns, and
+  `update()` sets `lastTime` as its last statement, so a listener that throws
+  freezes `lastTime` forever while `started` stays true) and so is
+  `harness.frames()` (it drives its own `requestAnimationFrame` loop, which
+  keeps ticking after Pixi's has died) — only `ticker.lastTime` advancing proves
+  the game is still rendering. Liveness is sampled **three times**, not once,
+  because `_addListener` re-arms rAF whenever `_requestId === null`, so any
+  later `ticker.add()` anywhere — from anything else running on the page — buys
+  the still-poisoned listener exactly one more frame before it throws that one
+  away too; a single sample could pass by accident. It then asserts the throwing
+  tween's promise resolved `"error"` (never rejected, never hung), the throw was
+  logged to `console.error` exactly once (not once per frame), a `while:` that
+  goes false resolves `"abandoned"` early without ever running `onComplete`, and
+  a tap still collects a tile afterward — the game is genuinely still playable,
+  not merely still rendering. The second half is pure source analysis, no
+  browser: it pins `src/tween.js` as the **one** place the re-targetable
+  animator (`animator`/`retarget`/`snap`/`moving`/`step`) is declared and
+  asserts `src/featurerail.js` imports it rather than owning a copy, pins
+  `src/game.js`'s `_stale(run)` as the **one** place `_guideRun` is compared
+  (it used to be inlined at nine sites in four different shapes), pins
+  `src/tutorial.js`'s `_stale()` body as stated once rather than duplicated, and
+  guards every `tween(` call site in `src/` against ever passing a positional
+  duration again — the exact shape of the `src/lobby.js` regression that
+  `bootguard_test.py` below catches live.
 - **`bootguard_test.py`** — two boot-time defects that were both session-killers
   with no way out but a reload, and both invisible to the rest of the suite
   because every other test runs the dev tree. **BOOT-001**: the boot-error
@@ -715,8 +751,16 @@ Only `howtoplay_test.py` leaves it open.
   to permanently poison a level's group (see Asset management in the root
   README), so it routes a level's JSON fetch to a 503 and asserts
   `ensureLevel()` **rejects** (the old code resolved), the group stays out of
-  `loadedGroups()`, and `startLevel()` reports failure instead of half-starting —
-  then lets the route through and asserts the very next attempt is a real retry
+  `loadedGroups()`, and `startLevel()` reports failure instead of half-starting.
+  It also drives the Play button's actual refusal path — `lobby.flashHint()` —
+  and checks not just that the pill shows a localized message rather than a raw
+  key, but that it **actually faded in** (`alpha > 0`): `flashHint()` used to
+  call `tween(ticker, 180, { onUpdate: fade })`, the pre-options positional
+  signature, and since `tween()` is arity-2 and destructuring a bare number just
+  boxes it, `duration` silently fell back to its default and `onUpdate` was
+  `undefined` — so the pill sat at its built alpha of 0 for its whole life and
+  the "level failed to load, tap again" refusal was invisible in production.
+  It then lets the route through and asserts the very next attempt is a real retry
   that succeeds. A follow-up case fails only a level's *background* and confirms
   the level data that did arrive is kept (and the level is still playable without
   its art) while the retry re-fetches just the missing piece. A final case routes

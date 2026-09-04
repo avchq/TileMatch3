@@ -15,7 +15,8 @@
 // It knows nothing about what makes a button available — each entry brings its
 // own predicate, which the rail re-asks on every refresh().
 
-import { easeInOutQuad, easeOutCubic } from "./tween.js";
+import { easeInOutQuad, easeOutCubic,
+         animator, retarget, snap, moving, step } from "./tween.js";
 
 // The slot ladder, in 750×1334 design units. y0 clears the top-corner chrome row
 // (settings cog / coin pill sit at y84); the gap is the spacing the two original
@@ -24,35 +25,6 @@ export const RAIL_Y0 = 214;
 export const RAIL_GAP = 182;
 export const RAIL_LEFT_X = 86;
 export const RAIL_RIGHT_X = 750 - 86; // 664 — the mirror column on the right edge
-
-// ---- value animators -------------------------------------------------------
-// A duration-based animator per value. Re-targeting mid-flight just restarts
-// from wherever the value is right now, which is why the rail drives its own
-// ticker callback instead of using tween(): availability can flip while a slide
-// is still running, and tween() hands back a bare promise with no way to cancel.
-const animator = (v) => ({ value: v, from: v, to: v, t: 0, dur: 0, delay: 0 });
-
-// Aim at a new value, optionally after a hold. A no-op when we're already heading
-// there — the day-rollover poller in main.js refreshes the rail every 4s, and
-// restarting the tween on each of those would leave a moving button twitching in
-// place forever.
-function retarget(a, to, dur, delay = 0) {
-  if (a.to === to) return;
-  a.from = a.value; a.to = to; a.t = 0; a.dur = dur; a.delay = delay;
-}
-
-const snap = (a, to) => { a.value = a.from = a.to = to; a.t = 0; a.dur = 0; a.delay = 0; };
-
-const moving = (a) => a.value !== a.to;
-
-function step(a, dtMs, ease) {
-  if (a.value === a.to) return;
-  a.t += dtMs;
-  if (a.t < a.delay) return;
-  if (a.dur <= 0) { a.value = a.to; return; }
-  const p = Math.min(1, (a.t - a.delay) / a.dur);
-  a.value = p >= 1 ? a.to : a.from + (a.to - a.from) * ease(p);
-}
 
 export class FeatureRail {
   /**

@@ -1340,6 +1340,38 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   `await`s it during boot (under the splash). `tiles_render_test.py` guards it.
 
 ## Design notes
+- `src/tween.js` is the one shared animation primitive, in two halves that are
+  easy to reach for the wrong one: `tween(ticker, opts)` runs a value from A to
+  B **once**, and the re-targetable **animators** (`animator`/`retarget`/`snap`/
+  `moving`/`step`) run a value **toward** a target that is allowed to change
+  mid-flight — cancelling and re-aiming are different operations, and `while:`
+  (below) only does the first. `tween()` **always resolves, never rejects** —
+  `"done"`, `"abandoned"`, or `"error"` — because roughly two dozen call sites
+  are fire-and-forget bare `tween(...)` statements and `autoComplete` awaits a
+  `Promise.all` of a batch of them; a rejecting member there would abort the
+  sweep with the board still `locked` and its tiles stranded on `fxLayer`,
+  trading a dead render loop for an unwinnable level. A throw out of `onUpdate`/
+  `onComplete` is **contained**, not merely caught: the listener is unhooked
+  *first*, then the error goes to `console.error`, then the promise resolves
+  `"error"` — the order matters because Pixi v7's `Ticker._tick` re-arms
+  `requestAnimationFrame` only *after* `update()` returns, and `update()`
+  assigns `lastTime` as its very last statement, so an exception escaping a
+  still-registered ticker listener freezes the render loop for good while
+  `started` stays true (tests detect this with `lastTime`, never with
+  `started` — see the Auto Complete paragraph below, which was the sequence
+  that found this the hard way as PRAC-01). `while: () => boolean` is the owner
+  check, asked once per frame before `onUpdate`; a false answer detaches the
+  listener and resolves `"abandoned"` **without running `onComplete`**, so
+  `onComplete` must never carry teardown that has to happen either way
+  (`tutorial.js`'s `close()` puts its only `destroy()` there and must never
+  gain a `while`). `while` must also stay **monotonic** — never a condition
+  like `!visible` that can flip back — because it is a one-way door, unlike an
+  `if (…) return` inside `onUpdate`. The value animators were promoted verbatim
+  out of `src/featurerail.js`, where they used to be private (see the
+  `featurerail.js` bullet below); `retarget`'s hold-before-moving parameter is
+  named `hold`, not `delay`, because it would otherwise shadow the module's own
+  exported `delay()` — the exact trap a positional `tween()` call in
+  `src/lobby.js` fell into (see that bullet below).
 - `src/level.js` assigns tile types with a **guaranteed-solvable** generator: it
   derives a valid removal order (a linear extension of the covering DAG) and
   gives each consecutive triple one type, so every board can always be cleared
@@ -1363,7 +1395,11 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   let that tween keep pulling the tile toward its old tray slot and strand it at a
   wrong position. (The micro-animators also bail if their container is destroyed
   mid-tween — e.g. a level reload — so a leftover tween can't crash on a null
-  transform.) The **Undo**, **Wand**, and **Reshuffle**
+  transform.) `container.__mv` is deliberately a **third** animation idiom
+  alongside `tween.js`'s two — cancel-by-handle from *outside* the tween — and
+  `while:` cannot replace it: `undo()` is cancelling a tween that some other
+  piece of code started and owns, not asking that tween's own owner whether it
+  should still be running. The **Undo**, **Wand**, and **Reshuffle**
   helpers draw from the player's booster inventory through an **acquisition ladder**
   (`_acquireBooster(kind)`): use owned stock (`user.useBooster`), else buy one with
   coins (`_buyBooster` → `user.debit("coins", price)` + `grantBooster`), else watch
@@ -1436,8 +1472,13 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   would destroy those containers mid-tween — and that exception is raised inside
   a Pixi ticker listener, where `Ticker._tick` re-arms `requestAnimationFrame`
   only *after* `update()` returns, so the whole render loop stops for good
-  rather than merely dropping a frame. `_applyFirstRunChrome` re-arms the button
-  on every board build, and the sweep re-arms it itself before the win overlay.
+  rather than merely dropping a frame. (This was PRAC-01: the mechanism is
+  stated canonically in the `src/tween.js` bullet above, which now contains a
+  throwing callback rather than letting it escape — so the per-tile `destroyed`
+  guards scattered through the sweep are defence in depth today, not the only
+  thing standing between a tap and a frozen game.) `_applyFirstRunChrome`
+  re-arms the button on every board build, and the sweep re-arms it itself
+  before the win overlay.
   On a win it calls back to the host
   (`onLevelComplete`) rather than self-looping; the top-left **Back** button
   leaves the level for the lobby mid-level (progress untouched) through `_exit()`
@@ -1484,7 +1525,7 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   `src/config.js`, for the same reason those are there — it is presentation, not
   a progression or economy tunable. `_dealIn` resolves once the last tile has
   landed, which is the promise `loadLevel` returns; a level swapped out mid-deal
-  (a reload, a Back press) is checked against `_guideRun` on every step, so it
+  (a reload, a Back press) is checked with `_stale(run)` on every step, so it
   simply abandons the animation on tiles that no longer belong to the current
   board. `dealState()` is the read the debug API (`window.__game.dealState()`)
   exposes for `deal_test.py`: whether the deal is still running, which corner
@@ -1506,7 +1547,8 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   swallowing every tap) plus a centred group — panel, spinning `rays` `Graphics`,
   title, line, the mini board/tray/arrow demo and the **OK** button — laid out
   exactly like `_showOverlay`'s group, and re-centred from `GameScene.layout()`.
-  `open()` fades the pieces in one after another (~1.6 s) and then sets
+  `open()` fades the pieces in one after another (~1.6 s), guarding each resume
+  point with the same `_stale(run)` it uses everywhere else, and then sets
   `introDone`, which arms tap-anywhere-to-close and starts `_runDemo`: a loop that
   walks the hand over each matching triple, flies the tiles into the mini tray and
   pops them, then resets the mini board. Every step is guarded by the popup's own
@@ -1515,7 +1557,14 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   **destroyed** between any two of them (leaving the level takes it with it) without
   the token changing. Every resume point therefore goes through `_stale(run)`, which
   checks `destroyed`/`closing` as well as the token; without it, a `_demoPick`
-  resuming after a destroy called `addChild` on a dead container and threw. `close()` writes the `tm3.tutorialDone` marker (nothing
+  resuming after a destroy called `addChild` on a dead container and threw. The two
+  ticker-driven pieces of the demo — the hand's flight between tiles (`_moveTo`) and
+  its tap (`_handTap`) — express that same "am I still owned?" question through
+  `tween()`'s own `while:` instead of a per-frame `if (stale()) return`, but
+  deliberately compare only `destroyed` and `_run === run`, not `_stale(run)`:
+  folding in `closing` would cancel a hand still mid-flight the instant `close()`
+  starts, instead of letting it finish its current move while the popup fades
+  out under it. `close()` writes the `tm3.tutorialDone` marker (nothing
   reads it back), calls its `onClose` **immediately** — which unlocks the scene and
   fires `_runFirstRunGuide()` when `_firstRun`, so the demo moves follow the
   explanation — and fades itself out. `_closeTutorial()` tears it down *without*
@@ -1540,9 +1589,19 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   driven by a ticker loop (`_handAnim`) and repositioned from `layout()` since
   `_layoutBoard` moves its target. `_hideHand()` runs from `_collect` (so **any**
   collection dismisses it), `loadLevel` and `_exit`. Every `await` in the guide is
-  guarded by a **generation token** (`_guideRun`, bumped in `loadLevel`): without
-  it, re-entering level 1 mid-sequence would leave the previous run collecting
-  tiles off the old board.
+  guarded by `_stale(run)` — one helper on `GameScene` (in `tutorial.js:_stale`'s
+  spelling) comparing the **generation token** (`_guideRun`, bumped only in
+  `loadLevel`) plus `destroyed`; without it, re-entering level 1 mid-sequence
+  would leave the previous run collecting tiles off the old board. Four call
+  sites across `GameScene` also write `|| !this.visible` explicitly on top of
+  their own guard — the deal above and this guide add it to `_stale(run)`,
+  the Super Wand upgrade announcement (below) does the same, and the Undo
+  booster-coach's post-collect timeout adds it to its own `_coach`/`destroyed`
+  check — because `_exit()` (leaving for the lobby mid-level) deliberately does
+  **not** bump `_guideRun`, only `loadLevel` does, so for those four `visible`
+  is the thing that actually reports the player has left; folding it into
+  `_stale` itself would be wrong for every other caller, which wants to keep
+  running on a scene that is merely covered by an overlay.
   The **Level Chest** rides the win overlay. `_win()` computes a `chestLevel` — the
   cleared level, but **only when it beats `user.completedLevel()`** (a genuinely new
   clear; a replay passes `0`). `completeLevel()` hasn't run yet at that point (the
@@ -1670,12 +1729,17 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   `wheelState()/dailyBonusState().buttonVisible` mean, and what `superWandRail()`
   reports as `available` for the third left-rail entry — as opposed to where the
   animation has got to, which is `featureRail()`. Animation is a single
-  ticker callback advancing per-entry duration animators (`easeInOutQuad` for the
-  slide, `easeOutCubic` for the fade, both from `tween.js`) rather than `tween()`:
-  re-targeting mid-flight is the normal case here and `tween()` returns a bare
-  promise with no cancel. `retarget` is a **no-op when the target is unchanged**, so
-  the 4 s day-rollover poll in `main.js` can refresh the rail freely without ever
-  restarting an in-flight move. `slots()` is the debug/test snapshot behind
+  ticker callback advancing per-entry `animator`s (`easeInOutQuad` for the slide,
+  `easeOutCubic` for the fade) imported from `src/tween.js` rather than `tween()`
+  itself: re-targeting mid-flight is the normal case here — a button's target
+  slot or visibility can flip while it's still sliding — and `tween()`'s `while:`
+  can only **cancel** that motion, not **re-aim** it, which is what `retarget`
+  is for. (The rail was where these animators were born; they moved to
+  `tween.js` so a second consumer wouldn't have to reinvent them — see the
+  `tween.js` bullet above.) `retarget` is a **no-op when the target is
+  unchanged**, so the 4 s day-rollover poll in `main.js` can refresh the rail
+  freely without ever restarting an in-flight move. `slots()` is the debug/test
+  snapshot behind
   `window.__game.featureRail()`. `RAIL_LEFT_X`/`RAIL_RIGHT_X` + `RAIL_Y0`/`RAIL_GAP`
   define the ladder, so a right-edge rail is just another instance.
 - `src/superwandpromo.js` is the `SuperWandPromo` — the modal a tap on the left

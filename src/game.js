@@ -1050,6 +1050,19 @@ export class GameScene extends PIXI.Container {
 
   // ---- level setup ---------------------------------------------------------
 
+  // Has the board this async step belongs to been superseded? The one spelling of
+  // the generation-token check, in tutorial.js:_stale's shape — it used to be
+  // inlined at nine sites in four different shapes, two of them with the operands
+  // reversed, and the sequence that forgot it altogether was the Auto Complete
+  // freeze (PRAC-01).
+  //
+  // Token + destroyed only. GameScene has no `closing`, and callers that must ALSO
+  // stand down for a hidden scene keep writing `|| !this.visible` themselves — on
+  // purpose: `_exit()` deliberately does not bump `_guideRun` (only `loadLevel`
+  // does), so for those sites `visible` is the thing that reports a scene the
+  // player has left. Folding it in here would be wrong for the rest.
+  _stale(run) { return this._guideRun !== run || this.destroyed; }
+
   loadLevel(rawArr, levelNum) {
     this.levelNum = levelNum;
     this.rawArr = rawArr;
@@ -1124,7 +1137,7 @@ export class GameScene extends PIXI.Container {
     return this._dealIn(run).then(() => {
       // A reload, or leaving for the lobby, mid-deal: that board's opening is not
       // ours to run, and it already owns `locked`.
-      if (this._guideRun !== run || this.destroyed || !this.visible) return;
+      if (this._stale(run) || !this.visible) return;
       this.locked = false;
       // On level 1 the "How To Play" popup comes first and hands over to the
       // guided opening when it closes; every other level starts play straight away.
@@ -1160,7 +1173,7 @@ export class GameScene extends PIXI.Container {
         if (this._tutorial === popup) this._tutorial = null;
         // A level reload while the popup was up already owns `locked` and has its
         // own opening to run — this one must not touch either.
-        if (this._guideRun !== run || this.destroyed) return;
+        if (this._stale(run)) return;
         this.locked = false;
         if (this._firstRun) this._runFirstRunGuide();
       });
@@ -1237,7 +1250,7 @@ export class GameScene extends PIXI.Container {
     // under the sequence. The generation token catches even a reload of the SAME
     // level — without it a second guide would run over the first's tiles.
     const stale = () =>
-      this._guideRun !== run || !this._firstRun || this.destroyed || !this.visible;
+      this._stale(run) || !this._firstRun || !this.visible;
     this.locked = true; // the demo moves play with no input from the player
     // A stale run bails WITHOUT touching `locked` — the run that superseded it owns
     // that flag now (and loadLevel clears it on every entry anyway).
@@ -1492,14 +1505,14 @@ export class GameScene extends PIXI.Container {
       duration: total,
       ease: (x) => x,
       onUpdate: (e) => {
-        if (this._guideRun !== run || this.destroyed) return;
+        if (this._stale(run)) return;
         const at = e * total;
         for (const t of tiles) {
           show(t, Math.max(0, Math.min(1, (at - delays.get(t)) / DEAL.tileMs)));
         }
       },
     }).then(() => {
-      if (this._guideRun !== run || this.destroyed) return;
+      if (this._stale(run)) return;
       this._dealing = false;
       // Land every tile exactly where _layoutBoard put it, whatever the easing's
       // overshoot was doing on the final frame.
@@ -2137,13 +2150,13 @@ export class GameScene extends PIXI.Container {
     // (every pulled tile leaves again with the set it completed), so the loss
     // check can never fire on a Super Wand's account.
     await delay(this.app.ticker, SUPER_FLY_MS);
-    if (this.destroyed || run !== this._guideRun) return;  // level reloaded mid-sweep
+    if (this._stale(run)) return;  // level reloaded mid-sweep
 
     this._superWandClear(pick.sets.map((s) => s.type));
     this._layoutTray();                       // re-seat the survivors into real slots
 
     await delay(this.app.ticker, SUPER_BURST_MS);
-    if (this.destroyed || run !== this._guideRun) return;
+    if (this._stale(run)) return;
     this._superWandRunning = false;
     this.locked = false;                      // control returns once it settles
     this._updateTrayWarning();                // …now judge the SETTLED tray
@@ -2248,12 +2261,12 @@ export class GameScene extends PIXI.Container {
     await delay(this.app.ticker, SUPER_ANNOUNCE_MS);
     // Guarded like the guided opening: the player can leave or reload inside the
     // beat, and a celebration must never play on a board that is no longer up.
-    if (this.destroyed || run !== this._guideRun || !this.visible) return;
+    if (this._stale(run) || !this.visible) return;
     if (!this._superWandActive()) return;   // lost inside the beat
     this.audio.play("super_hint");
     this._superWandSpark(this.wandBtn);
     await delay(this.app.ticker, 120);
-    if (this.destroyed || run !== this._guideRun) return;
+    if (this._stale(run)) return;
     // Marking it announced emits, which repaints the row through the scene's own
     // user subscription — so the face swaps here, out of the flash, and the punch
     // lands on the new icon.

@@ -153,6 +153,14 @@ with sync_playwright() as p:
         print("lobby refusal pill:", hint)
         check(hint is not None and hint["text"] and hint["text"] != "level_load_failed",
               "the refusal is a localized message, not a raw key")
+        # ...and it is actually VISIBLE. makeHintPill builds the pill at alpha 0
+        # and the fade-in is the only thing that raises it, so this asserts the
+        # fade ran at all. It used to be called as `tween(ticker, 180, {onUpdate})`
+        # — the pre-options positional signature — and since destructuring a
+        # Number just boxes it, `onUpdate` was silently undefined and the pill
+        # sat at 0 for its whole life: the refusal was invisible in production.
+        check(hint is not None and hint["alpha"] > 0,
+              f"the refusal pill actually faded in (alpha={hint and hint['alpha']})")
 
         # NOW LET IT THROUGH. The point of not poisoning the group is that the
         # very next attempt is a real retry.
