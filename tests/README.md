@@ -604,6 +604,20 @@ Only `howtoplay_test.py` leaves it open.
   Seams: `setDailyPrizes(list)` replaces the daily prize *pool*
   (`forceDailyPrize` only picks from it) and `breakWheelFlyTarget()` makes the
   wheel's fly target unmeasurable.
+- **`winoverlay_test.py`** — the **win overlay's headline**. Clearing a level puts up
+  the level-complete panel, whose title has two forms: `"🏆 You Win!"` for the **last
+  level of the campaign** and `"Level Complete!"` for every other clear. The campaign
+  length is not a tunable — it is `levels.length`, derived in `src/main.js` and handed
+  to `GameScene` the same way it is handed to `LobbyScene`, so the two screens that
+  hand off to each other agree. The test reads `assets/config/levels.json` itself
+  rather than hardcoding a count (so it keeps holding as levels are added), asserts
+  `winState().maxLevel` matches it, then plays three levels down with the solver:
+  level 3 and the second-to-last both read `"Level Complete!"` with no trophy, and the
+  last level reads `"🏆 You Win!"`. This pins **SEP-02**, where a hardcoded
+  `levelNum >= 3` announced the end of a 28-level campaign from level 3 — and then the
+  lobby offered level 4. Uses the `window.__game.winState()` seam
+  (`{ title, maxLevel }`).
+
 - **`levelchest_test.py`** — the recurring level-complete reward (`src/levelchest.js`
   + the win-overlay bar in `src/game.js`). Covers the **schedule maths**
   (`chestInfo`): the 50-milestone table's labels, `needed` counts, `full` flags and
@@ -911,6 +925,18 @@ Only `howtoplay_test.py` leaves it open.
   (not created synchronously) and begins once the context resumes.
 - **`visibility_test.py`** — hiding the tab suspends audio and returning resumes
   it, without altering the user's music/sound settings.
+- **`buttonsound_test.py`** — **one click cue per press** on the shared pill
+  button (`makeButton` in `src/layout.js`, DUP-02). The factory replaced a
+  `_makeButton` copied into nine modules, six of which were silent and had every
+  caller playing `btn_01` from its own handler to compensate — which had already
+  drifted into a *missing* cue (Daily Bonus's "Double It" on a cancelled ad) and a
+  *doubled* one (the language picker's Back). It presses settings Back, shop Back
+  and Buy, the wheel's Back, tasks Back, daily bonus Back / Claim / Double, the
+  language picker's Back and Confirm, the Super Wand promo's OK and the level's
+  win-overlay Continue — each on the real hit path via `pressPillButton(name)` —
+  and asserts `soundLog()` holds exactly one `btn_01` for each. `pillButtonNames()`
+  is asserted against the expected roster, so a button that leaves the factory (or
+  a new one that joins it) shows up here rather than silently escaping the check.
 
 ### Production build
 

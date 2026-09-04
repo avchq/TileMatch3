@@ -13,6 +13,8 @@
 // These helpers keep the per-scene layout() methods consistent instead of
 // re-deriving the same maths in each file.
 
+import { locText } from "./i18n.js";
+
 export const DESIGN_W = 750;
 export const DESIGN_H = 1334;
 
@@ -98,4 +100,53 @@ export function fitPanel(panel, DW, DH, margin = 24) {
   const s = Math.min(1, (DW - 2 * margin) / b.width, (DH - 2 * margin) / b.height);
   panel.scale.set(s);
   return s;
+}
+
+// The game's standard "pill" button: a filled rounded rect with a white hairline,
+// a centred bold label, a press-scale on pointerdown, and the shared `btn_01`
+// click cue on tap.
+//
+// It lives here rather than on a scene because it WAS a scene method, nine times
+// over — game, settings, shop, tutorial, fortune wheel, tasks, daily bonus, the
+// Super Wand promo and the language picker each carried a private `_makeButton`.
+// The copies were identical in shape and disagreed on the cue: six were silent
+// and every one of their callers played `btn_01` from its own handler to make up
+// for it. That compensation is invisible from the button, so it drifted both ways
+// — a forgotten one (Daily Bonus's "Double It" on a cancelled ad) and a doubled
+// one (the language picker's Back). The cue belongs to the PRESS, so it is played
+// here and exactly once; a handler that plays its own now double-fires.
+//
+// It needs `audio`, which is the one reason it was not already in this file:
+// everything else here is a pure function of its arguments. Passing the manager
+// in keeps it a plain function.
+//
+// `key` labels the button from the i18n table and re-letters itself on a language
+// change (see locText); `label` is a literal that does not — a price, or text a
+// caller has already translated and decorated ("📺  Double it"). Pass one.
+// `tests/buttonsound_test.py` pins the one-cue-per-press invariant.
+export function makeButton({ audio, label, key, w, h, cx, cy, color,
+                             fontSize = 32, onClick }) {
+  const c = new PIXI.Container();
+  c.position.set(cx, cy);
+  // The drawn size, kept on the container so a caller's geometry() can measure the
+  // button without re-deriving it from the constants it is meant to be checking.
+  c.__w = w; c.__h = h;
+  const g = new PIXI.Graphics();
+  g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
+  g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
+  const style = { fontFamily: "Arial", fontSize, fontWeight: "800", fill: 0xffffff };
+  const t = key ? locText(key, style) : new PIXI.Text(label, style);
+  t.anchor.set(0.5);
+  c.addChild(g, t);
+  c.label = t;                 // callers re-letter a literal label through this
+  c.eventMode = "static";
+  c.cursor = "pointer";
+  c.on("pointertap", () => {
+    if (audio) audio.play("btn_01");
+    onClick();
+  });
+  c.on("pointerdown", () => c.scale.set(0.95));
+  c.on("pointerup", () => c.scale.set(1));
+  c.on("pointerupoutside", () => c.scale.set(1));
+  return c;
 }

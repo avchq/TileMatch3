@@ -35,7 +35,7 @@
 import { tween, easeOutCubic, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
 import { rewardBooster, grantReward, makeRewardIcon, flyReward, bumpReward } from "./rewards.js";
-import { fitTextWidth } from "./layout.js";
+import { fitTextWidth, makeButton } from "./layout.js";
 import { CONFIG } from "./config.js";
 import { t, locText } from "./i18n.js";
 
@@ -352,32 +352,16 @@ export class TasksScene extends PIXI.Container {
     this._empty.visible = false;
     this.panel.addChild(this._empty);
 
-    this._backBtn = this._makeButton(t("btn_back"), 220, 74, 0, 440, 0x3a4a72, () => this._close());
+    this._backBtn = makeButton({
+      audio: this.audio, label: t("btn_back"),
+      w: 220, h: 74, cx: 0, cy: 440, color: 0x3a4a72,
+      onClick: () => this._close(),
+    });
     this.panel.addChild(this._backBtn);
 
     // Reward flight layer (above everything, and outside the list's mask).
     this.fxLayer = new PIXI.Container();
     this.addChild(this.fxLayer);
-  }
-
-  // ---- widgets -------------------------------------------------------------
-  _makeButton(label, w, h, cx, cy, color, onClick) {
-    const c = new PIXI.Container();
-    c.position.set(cx, cy);
-    const g = new PIXI.Graphics();
-    g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
-    g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const t = new PIXI.Text(label, { fontFamily: "Arial", fontSize: 32, fontWeight: "800", fill: 0xffffff });
-    t.anchor.set(0.5);
-    c.addChild(g, t);
-    c.label = t;
-    c.eventMode = "static";
-    c.cursor = "pointer";
-    c.on("pointertap", onClick);
-    c.on("pointerdown", () => c.scale.set(0.95));
-    c.on("pointerup", () => c.scale.set(1));
-    c.on("pointerupoutside", () => c.scale.set(1));
-    return c;
   }
 
   // A tab button. Like SettingsScene's toggle it keeps a local draw() and exposes
@@ -521,7 +505,11 @@ export class TasksScene extends PIXI.Container {
       chip.position.set(132, 0);
       c.addChild(chip);
 
-      const btn = this._makeButton(t("claim"), 120, 58, 248, 0, 0x39c06a, () => this._claim(c));
+      const btn = makeButton({
+        audio: this.audio, label: t("claim"),
+        w: 120, h: 58, cx: 248, cy: 0, color: 0x39c06a,
+        onClick: () => this._claim(c),
+      });
       c.addChild(btn);
       c.claimBtn = btn;
     } else {
@@ -747,7 +735,6 @@ export class TasksScene extends PIXI.Container {
 
   _close() {
     if (!this.visible) return;
-    this.audio.play("btn_01");
     this.visible = false;
     this.app.ticker.remove(this._tick);
     this.app.view.removeEventListener("wheel", this._onWheel);

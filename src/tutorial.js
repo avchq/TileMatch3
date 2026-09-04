@@ -11,6 +11,7 @@
 
 import { tween, delay, easeOutCubic, easeOutBack } from "./tween.js";
 import { t, locText } from "./i18n.js";
+import { makeButton } from "./layout.js";
 
 const PANEL_W = 620;
 const PANEL_H = 860;
@@ -114,37 +115,14 @@ export class HowToPlayPopup extends PIXI.Container {
 
     this.group.addChild(this.titleText, this.lineText);
 
-    this.okBtn = this._makeButton(t("ui_ok"), 260, 88, 0, 356, 0x39c06a, () => this.close());
+    this.okBtn = makeButton({
+      audio: this.audio, label: t("ui_ok"), fontSize: 30,
+      w: 260, h: 88, cx: 0, cy: 356, color: 0x39c06a,
+      onClick: () => this.close(),
+    });
     this.okBtn.alpha = 0;
     this.okBtn.eventMode = "none"; // armed when it fades in
     this.group.addChild(this.okBtn);
-  }
-
-  // A button in the game's own style. GameScene._makeButton is a scene method, so
-  // the popup carries its own copy of the same shape rather than depending on it.
-  _makeButton(label, w, h, cx, cy, color, onClick) {
-    const c = new PIXI.Container();
-    c.position.set(cx, cy);
-    const g = new PIXI.Graphics();
-    g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
-    g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const t = new PIXI.Text(label, {
-      fontFamily: "Arial", fontSize: 30, fontWeight: "800", fill: 0xffffff,
-    });
-    t.anchor.set(0.5);
-    c.addChild(g, t);
-    c.label = t;
-    c.__label = label; // test seam: the popup's button labels (there is no skip)
-    c.eventMode = "static";
-    c.cursor = "pointer";
-    c.on("pointertap", () => {
-      if (this.audio) this.audio.play("btn_01");
-      onClick();
-    });
-    c.on("pointerdown", () => c.scale.set(0.94));
-    c.on("pointerup", () => c.scale.set(1));
-    c.on("pointerupoutside", () => c.scale.set(1));
-    return c;
   }
 
   // The demonstration: a 3x3 board over a 3-slot tray, plus the arrow between
@@ -467,6 +445,6 @@ export class HowToPlayPopup extends PIXI.Container {
   // Labels of every button the popup owns. There is no skip button anywhere in
   // this sequence, and this is what proves it.
   buttonLabels() {
-    return [this.okBtn].filter((b) => b && !b.destroyed).map((b) => b.__label);
+    return [this.okBtn].filter((b) => b && !b.destroyed).map((b) => b.label.text);
   }
 }

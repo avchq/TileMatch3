@@ -3,7 +3,7 @@ import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill, makeCoinIcon } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
-import { buildColumnBackground, makeHintPill, fitTextWidth } from "./layout.js";
+import { buildColumnBackground, makeHintPill, fitTextWidth, makeButton } from "./layout.js";
 import { HowToPlayPopup } from "./tutorial.js";
 import { BoosterCoach } from "./boostercoach.js";
 import { rewardIsCoins, grantReward, makeRewardIcon, flyReward } from "./rewards.js";
@@ -102,13 +102,19 @@ const SUPER_ANNOUNCE_MS = 450;   // the brief beat before the upgrade celebratio
 const SUPER_BAR_H = 100;         // room the streak bar adds to the win overlay
 
 export class GameScene extends PIXI.Container {
-  constructor(app, tileTextures, slotTexture, backgrounds, audio, user, prices, levelChest) {
+  constructor(app, tileTextures, slotTexture, backgrounds, audio, maxLevel, user, prices, levelChest) {
     super();
     this.app = app;
     this.tileTextures = tileTextures;
     this.slotTexture = slotTexture;
     this.backgrounds = backgrounds; // { 1: tex, 2: tex, 3: tex }
     this.audio = audio;
+    // How long the campaign is — levels.length, derived by the host from the level
+    // table exactly as it is for LobbyScene (which uses it for its own "all done"
+    // celebration). The two screens hand off to each other, so the win overlay must
+    // read the campaign's end from the same number the lobby does rather than
+    // guessing one; it is derived config, not a CONFIG knob.
+    this.maxLevel = maxLevel;
     this.user = user; // player profile — the helper (booster) inventory lives here
     // The Level Chest schedule (src/levelchest.js) — pure feature LOGIC. The bar,
     // open animation and reward popup on the win overlay are drawn here (game.js);
@@ -810,8 +816,10 @@ export class GameScene extends PIXI.Container {
     // Auto Complete — a wide pill sharing the helper baseline, centred over the
     // three round buttons. Hidden until the endgame is trivially solvable, when
     // it REPLACES the helpers (see _updateBoosters / _autoAvailable).
-    this.autoBtn = this._makeButton(`✓ ${t("auto_complete")}`, 460, 92, DESIGN_W / 2, by, 0x39c06a,
-      () => this.autoComplete());
+    this.autoBtn = makeButton({
+      audio: this.audio, label: `✓ ${t("auto_complete")}`, fontSize: 30,
+      w: 460, h: 92, cx: DESIGN_W / 2, cy: by, color: 0x39c06a,
+      onClick: () => this.autoComplete() });
     this.autoBtn.visible = false;
     this.hudBottom.addChild(this.autoBtn);
 
@@ -855,30 +863,6 @@ export class GameScene extends PIXI.Container {
     t2.scale.set(1);
     const w = t2.width;
     if (w > this._levelTextMaxW) t2.scale.set(this._levelTextMaxW / w);
-  }
-
-  _makeButton(label, w, h, cx, cy, color, onClick) {
-    const c = new PIXI.Container();
-    c.position.set(cx, cy);
-    const g = new PIXI.Graphics();
-    g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
-    g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const t = new PIXI.Text(label, {
-      fontFamily: "Arial", fontSize: 30, fontWeight: "800", fill: 0xffffff,
-    });
-    t.anchor.set(0.5);
-    c.addChild(g, t);
-    c.label = t;
-    c.eventMode = "static";
-    c.cursor = "pointer";
-    c.on("pointertap", () => {
-      this.audio.play("btn_01");
-      onClick();
-    });
-    c.on("pointerdown", () => (c.scale.set(0.94)));
-    c.on("pointerup", () => c.scale.set(1));
-    c.on("pointerupoutside", () => c.scale.set(1));
-    return c;
   }
 
   // A round, icon-only action button (r = radius). Same press feel as _makeButton.
@@ -2521,7 +2505,7 @@ export class GameScene extends PIXI.Container {
       this._reportSuperWand(streakInfo.justCharged ? "charge" : "earn",
         { level: this.levelNum, streak: streakInfo.to, needed: streakInfo.needed });
     }
-    const last = this.levelNum >= 3;
+    const last = this.levelNum >= this.maxLevel;
     this._showOverlay(
       last ? `🏆 ${t("you_win")}` : t("Language2"),
       t("win_great_matching"),
@@ -2553,6 +2537,7 @@ export class GameScene extends PIXI.Container {
   //                _continueAfterLoss / _makeContinueButton.
   _showLoseOverlay() {
     this._winBtn = null; // this path is the lose overlay — no win button lives
+    this._winTitle = null;
     this._resetChestOverlay(); // drops any streak-bar refs left by an earlier overlay
     this.overlayLayer.removeChildren();
     const dim = new PIXI.Graphics();
@@ -2596,18 +2581,22 @@ export class GameScene extends PIXI.Container {
     // Both ACCEPT the loss, which is the moment the Super Wand streak breaks —
     // Continue does not, so paying to rescue this very board keeps the streak
     // alive. _breakStreakThen shows the reset before it leaves.
-    const home = this._makeButton(t("btn_home"), 250, 88, -136, -6, 0x556080,
-      () => this._breakStreakThen(() => {
+    const home = makeButton({
+      audio: this.audio, label: t("btn_home"), fontSize: 30,
+      w: 250, h: 88, cx: -136, cy: -6, color: 0x556080,
+      onClick: () => this._breakStreakThen(() => {
         this._loseBtns = null;
         this.overlayLayer.removeChildren();
         this._exit();
-      }));
-    const replay = this._makeButton(t("btn_replay"), 250, 88, 136, -6, 0x4d8dff,
-      () => this._breakStreakThen(() => {
+      }) });
+    const replay = makeButton({
+      audio: this.audio, label: t("btn_replay"), fontSize: 30,
+      w: 250, h: 88, cx: 136, cy: -6, color: 0x4d8dff,
+      onClick: () => this._breakStreakThen(() => {
         this._loseBtns = null;
         this.overlayLayer.removeChildren();
         this.restart();
-      }));
+      }) });
     group.addChild(home, replay);
 
     // Continue — the primary action, anchored at the BOTTOM of the overlay. Its
@@ -2755,24 +2744,30 @@ export class GameScene extends PIXI.Container {
     });
     st.anchor.set(0.5); st.position.set(0, subY);
     group.addChild(tt, st);
+    this._winTitle = tt; // test seam (window.__game.winState)
 
-    const btn = this._makeButton(btnLabel, 320, 92, 0, btnY, 0x39c06a, () => {
-      this.overlayLayer.removeChildren();
-      this._winBtn = null;
-      // A chest that FILLED pays out only once this panel is GONE — the reward is
-      // an overlay of its own, never a popup stacked over the level-complete
-      // screen. Carry the owed reward (and the bar's snapshot, which the
-      // debug/test hooks read) across the teardown, and hand `onBtn` on to the
-      // reward overlay: CLAIMING it is what advances the level from here.
-      const pending = this._chestPendingReward;
-      const carried = this._chestState;
-      this._resetChestOverlay();
-      if (pending) {
-        this._chestState = { ...carried, popup: false, claimed: false };
-        this._showChestReward(pending, onBtn);
-        return;
-      }
-      onBtn();
+    const btn = makeButton({
+      audio: this.audio, label: btnLabel, fontSize: 30,
+      w: 320, h: 92, cx: 0, cy: btnY, color: 0x39c06a,
+      onClick: () => {
+        this.overlayLayer.removeChildren();
+        this._winBtn = null;
+        this._winTitle = null;
+        // A chest that FILLED pays out only once this panel is GONE — the reward
+        // is an overlay of its own, never a popup stacked over the level-complete
+        // screen. Carry the owed reward (and the bar's snapshot, which the
+        // debug/test hooks read) across the teardown, and hand `onBtn` on to the
+        // reward overlay: CLAIMING it is what advances the level from here.
+        const pending = this._chestPendingReward;
+        const carried = this._chestState;
+        this._resetChestOverlay();
+        if (pending) {
+          this._chestState = { ...carried, popup: false, claimed: false };
+          this._showChestReward(pending, onBtn);
+          return;
+        }
+        onBtn();
+      },
     });
     group.addChild(btn);
     this._winBtn = btn; // test seam (window.__game.pressWinContinue)
@@ -3120,13 +3115,17 @@ export class GameScene extends PIXI.Container {
     popup.addChild(amt);
     this._chestRewardAmt = amt;
 
-    const dbl = this._makeButton(`📺  ${t("double_it")}`, 380, 88, 0, 110, 0x2f9e6a,
-      () => this._doubleChest(reward));
+    const dbl = makeButton({
+      audio: this.audio, label: `📺  ${t("double_it")}`, fontSize: 30,
+      w: 380, h: 88, cx: 0, cy: 110, color: 0x2f9e6a,
+      onClick: () => this._doubleChest(reward) });
     popup.addChild(dbl);
     this._chestDoubleBtn = dbl;
 
-    const claim = this._makeButton(t("claim"), 300, 82, 0, 205, 0x4d8dff,
-      () => this._claimChest(reward, 1));
+    const claim = makeButton({
+      audio: this.audio, label: t("claim"), fontSize: 30,
+      w: 300, h: 82, cx: 0, cy: 205, color: 0x4d8dff,
+      onClick: () => this._claimChest(reward, 1) });
     claim.alpha = 0; claim.eventMode = "none";
     popup.addChild(claim);
     this._chestClaimBtn = claim;

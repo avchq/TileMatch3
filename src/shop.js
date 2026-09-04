@@ -14,7 +14,7 @@
 
 import { tween, easeOutBack } from "./tween.js";
 import { PACKAGES } from "./user/payments.js";
-import { fitPanel } from "./layout.js";
+import { fitPanel, makeButton } from "./layout.js";
 import { t, locText } from "./i18n.js";
 
 const DESIGN_W = 750;
@@ -238,6 +238,7 @@ export class ShopScene extends PIXI.Container {
 
     // One row per package.
     this._pkgNames = [];
+    this._pkgBtns = [];
     let y = -ph / 2 + 250;
     for (const pkg of packages) {
       this._packageRow(pkg, y);
@@ -245,7 +246,11 @@ export class ShopScene extends PIXI.Container {
     }
 
     // Back button
-    const back = this._makeButton(t("btn_back"), 300, 84, 0, ph / 2 - 62, 0x4d8dff, () => this._back());
+    const back = makeButton({
+      audio: this.audio, label: t("btn_back"),
+      w: 300, h: 84, cx: 0, cy: ph / 2 - 62, color: 0x4d8dff,
+      onClick: () => this._back(),
+    });
     this._backBtn = back;
     this.panel.addChild(back);
 
@@ -270,13 +275,15 @@ export class ShopScene extends PIXI.Container {
     contents.position.set(leftX, y + 22);
     this.panel.addChild(contents);
 
-    const btn = this._makeButton(pkg.price, 178, 74, PANEL_W / 2 - 44 - 89, y, 0xff8a3d, () => {
-      this.audio.play("btn_01");
+    const btn = makeButton({
+      audio: this.audio, label: pkg.price,
+      w: 178, h: 74, cx: PANEL_W / 2 - 44 - 89, cy: y, color: 0xff8a3d,
       // Real-money purchase is delegated to the host, which runs the platform
       // payment provider and grants the package contents on success.
-      if (this.onBuyPackage) this.onBuyPackage(pkg.id);
+      onClick: () => { if (this.onBuyPackage) this.onBuyPackage(pkg.id); },
     });
     this.panel.addChild(btn);
+    this._pkgBtns.push(btn);
   }
 
   /**
@@ -302,27 +309,6 @@ export class ShopScene extends PIXI.Container {
     this.balanceNum.position.set(-total / 2 + r * 2 + gap, 0);
   }
 
-  _makeButton(label, w, h, cx, cy, color, onClick) {
-    const c = new PIXI.Container();
-    c.position.set(cx, cy);
-    const g = new PIXI.Graphics();
-    g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
-    g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const t = new PIXI.Text(label, {
-      fontFamily: "Arial", fontSize: 32, fontWeight: "800", fill: 0xffffff,
-    });
-    t.anchor.set(0.5);
-    c.addChild(g, t);
-    c.label = t;
-    c.eventMode = "static";
-    c.cursor = "pointer";
-    c.on("pointertap", onClick);
-    c.on("pointerdown", () => c.scale.set(0.95));
-    c.on("pointerup", () => c.scale.set(1));
-    c.on("pointerupoutside", () => c.scale.set(1));
-    return c;
-  }
-
   // Show the screen, syncing the balance header to the current wallet.
   open() {
     this.visible = true;
@@ -335,7 +321,6 @@ export class ShopScene extends PIXI.Container {
   }
 
   _back() {
-    this.audio.play("btn_01");
     this.visible = false;
     if (this.onBack) this.onBack();
   }

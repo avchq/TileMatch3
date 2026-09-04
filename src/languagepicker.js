@@ -12,7 +12,7 @@
 // Confirm. Closing the popup any other way discards it.
 
 import { tween, easeOutBack } from "./tween.js";
-import { fitPanel, fitTextWidth } from "./layout.js";
+import { fitPanel, fitTextWidth, makeButton } from "./layout.js";
 import { i18n, locText, LANGUAGES } from "./i18n.js";
 
 const DESIGN_W = 750;
@@ -68,7 +68,7 @@ export class LanguagePickerScene extends PIXI.Container {
     dim.beginFill(0x040814, 0.72).drawRect(0, 0, DESIGN_W, DESIGN_H).endFill();
     dim.eventMode = "static";
     // Tapping the dim closes without applying — the same as Back.
-    dim.on("pointertap", () => this._close());
+    dim.on("pointertap", () => { this.audio.play("btn_01"); this._close(); });
     dim.cursor = "default";
     this.addChild(dim);
     this.dim = dim;
@@ -141,12 +141,18 @@ export class LanguagePickerScene extends PIXI.Container {
     this._contentH = y - ROW_PITCH + ROW_H / 2 + 8;
 
     // Confirm is the only thing that applies the choice.
-    this.confirmBtn = this._makeButton("btn_confirm", CONFIRM_W, CONFIRM_H, 0, CONFIRM_CY,
-      0x39c06a, () => this._confirm());
+    this.confirmBtn = makeButton({
+      audio: this.audio, key: "btn_confirm", fontSize: 34,
+      w: CONFIRM_W, h: CONFIRM_H, cx: 0, cy: CONFIRM_CY, color: 0x39c06a,
+      onClick: () => this._confirm(),
+    });
     this.panel.addChild(this.confirmBtn);
 
-    this.backBtn = this._makeButton("btn_back", BACK_W, BACK_H, 0, BACK_CY, 0x3a4a72,
-      () => this._close());
+    this.backBtn = makeButton({
+      audio: this.audio, key: "btn_back", fontSize: 34,
+      w: BACK_W, h: BACK_H, cx: 0, cy: BACK_CY, color: 0x3a4a72,
+      onClick: () => this._close(),
+    });
     this.panel.addChild(this.backBtn);
   }
 
@@ -197,30 +203,6 @@ export class LanguagePickerScene extends PIXI.Container {
       tick.visible = on;
     };
     c.__set(false);
-    return c;
-  }
-
-  _makeButton(key, w, h, cx, cy, color, onClick) {
-    const c = new PIXI.Container();
-    c.position.set(cx, cy);
-    // The drawn size, kept on the container so geometry() can measure the button
-    // without re-deriving it from the constants it is meant to be checking.
-    c.__w = w; c.__h = h;
-    const g = new PIXI.Graphics();
-    g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
-    g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const t = locText(key, {
-      fontFamily: "Arial", fontSize: 34, fontWeight: "800", fill: 0xffffff,
-    });
-    t.anchor.set(0.5);
-    c.addChild(g, t);
-    c.label = t;
-    c.eventMode = "static";
-    c.cursor = "pointer";
-    c.on("pointertap", () => { this.audio.play("btn_01"); onClick(); });
-    c.on("pointerdown", () => c.scale.set(0.95));
-    c.on("pointerup", () => c.scale.set(1));
-    c.on("pointerupoutside", () => c.scale.set(1));
     return c;
   }
 
@@ -314,12 +296,14 @@ export class LanguagePickerScene extends PIXI.Container {
   async _confirm() {
     const code = this._picked;
     if (code !== i18n.code) await i18n.setLanguage(code);
-    this._close({ silent: true });
+    this._close();
   }
 
-  _close({ silent = false } = {}) {
+  // Hide the popup. Both footer buttons come from the shared factory, which plays
+  // the click cue itself (Back used to play a second one here); the dim tap is the
+  // only way in with no button behind it, so it plays its own.
+  _close() {
     if (!this.visible) return;
-    if (!silent) this.audio.play("btn_01");
     this.visible = false;
     if (this.onBack) this.onBack();
   }

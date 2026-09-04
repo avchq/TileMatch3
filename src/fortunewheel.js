@@ -17,7 +17,7 @@
 import { tween, delay, easeInCubic, easeOutCubic, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
 import { rewardBooster, grantReward, makeRewardIcon, flyReward, bumpReward } from "./rewards.js";
-import { fitPanel } from "./layout.js";
+import { fitPanel, makeButton } from "./layout.js";
 import { CONFIG } from "./config.js";
 import { t, locText } from "./i18n.js";
 
@@ -221,7 +221,11 @@ export class FortuneWheelScene extends PIXI.Container {
     this.panel.addChild(this.toast);
 
     // Back button.
-    const back = this._makeButton(t("btn_back"), 260, 78, 0, 470, 0x4d8dff, () => this._back());
+    const back = makeButton({
+      audio: this.audio, label: t("btn_back"),
+      w: 260, h: 78, cx: 0, cy: 470, color: 0x4d8dff,
+      onClick: () => this._back(),
+    });
     this._backBtn = back;
     this.panel.addChild(back);
 
@@ -248,25 +252,6 @@ export class FortuneWheelScene extends PIXI.Container {
     c.eventMode = "static";
     c.cursor = "pointer";
     c.on("pointertap", () => { this.audio.play("btn_01"); this.spin(); });
-    c.on("pointerdown", () => c.scale.set(0.95));
-    c.on("pointerup", () => c.scale.set(1));
-    c.on("pointerupoutside", () => c.scale.set(1));
-    return c;
-  }
-
-  _makeButton(label, w, h, cx, cy, color, onClick) {
-    const c = new PIXI.Container();
-    c.position.set(cx, cy);
-    const g = new PIXI.Graphics();
-    g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
-    g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const btnLabel = new PIXI.Text(label, { fontFamily: "Arial", fontSize: 32, fontWeight: "800", fill: 0xffffff });
-    btnLabel.anchor.set(0.5);
-    c.addChild(g, btnLabel);
-    c.label = btnLabel;
-    c.eventMode = "static";
-    c.cursor = "pointer";
-    c.on("pointertap", onClick);
     c.on("pointerdown", () => c.scale.set(0.95));
     c.on("pointerup", () => c.scale.set(1));
     c.on("pointerupoutside", () => c.scale.set(1));
@@ -501,7 +486,11 @@ export class FortuneWheelScene extends PIXI.Container {
 
     // Last spin of the cycle: collect fully, then close back to the lobby rather
     // than leaving a dead button.
-    if (!this.canSpin()) { await delay(this.app.ticker, 280); this._back(); }
+    if (!this.canSpin()) {
+      await delay(this.app.ticker, 280);
+      this.audio.play("btn_01");   // no press behind this one — see _back()
+      this._back();
+    }
   }
 
   /** Report a spin to analytics. Stub — TODO(SDK): report 'CK_Spin_Get'
@@ -670,9 +659,10 @@ export class FortuneWheelScene extends PIXI.Container {
     });
   }
 
+  // Closing. The cue belongs to whatever asked for it: the Back button plays it
+  // from the shared factory, and the last-spin auto-close plays its own above.
   _back() {
     if (!this.visible) return;
-    this.audio.play("btn_01");
     this.visible = false;
     this._stopSpinSfx();           // the bed must not outlive the closed overlay
     this.app.ticker.remove(this._lampTick);

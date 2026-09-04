@@ -25,7 +25,7 @@ CODES = ["zh", "zh-tw", "en", "id", "de", "es", "fr", "in", "it", "jp", "ko", "r
 
 # label path -> the inner width it has to live inside. Each is the widget's own
 # width less a little breathing room, matching how the pill is drawn.
-#   (see _makeButton in game.js / settings.js / languagepicker.js for the widths)
+#   (see makeButton in src/layout.js, and each caller, for the widths)
 CHECKS = """() => {
   const g = window.__game;
   const s = g.app.stage.scale.x || 1;

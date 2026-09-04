@@ -1480,7 +1480,17 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   re-arms the button on every board build, and the sweep re-arms it itself
   before the win overlay.
   On a win it calls back to the host
-  (`onLevelComplete`) rather than self-looping; the top-left **Back** button
+  (`onLevelComplete`) rather than self-looping. The win overlay's **headline** has
+  two forms, and which one it shows is a question about the campaign, not the
+  level: `"🏆 You Win!"` is reserved for the **last level of the level table** and
+  every other clear reads `"Level Complete!"`. `GameScene` is handed `maxLevel`
+  (`levels.length`, derived in `src/main.js`) exactly as `LobbyScene` is, and
+  compares `levelNum >= this.maxLevel` — the two screens hand off to each other, so
+  they read the campaign's end off the same number. It is derived config, not a
+  `CONFIG` knob: adding a level to `assets/config/levels.json` moves the trophy on
+  its own. (This was **SEP-02**: a hardcoded `>= 3` congratulated the player on
+  finishing a 28-level game from level 3, and the lobby then cheerfully offered
+  level 4.) The top-left **Back** button
   leaves the level for the lobby mid-level (progress untouched) through `_exit()`
   — the single exit path, so the guidance hand and any floating hint can't be left
   behind on a hidden scene.
@@ -1866,8 +1876,8 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   the other overlays it is **owned by the level scene**, not by `main.js`: it lives
   on the scene's `tutorialLayer`, is created/destroyed by `loadLevel` / `_exit`, and
   re-centres from `GameScene.layout()`. It draws its own mini board and tray from
-  the game's real tile/slot textures, and carries its own copy of the standard
-  button (`_makeButton`) so it stays independent of the scene.
+  the game's real tile/slot textures, and builds its OK button with the shared
+  `makeButton` (see *The standard pill button* below) like every other screen.
 - `src/settings.js` is the `SettingsScene` — an overlay opened by the **cog
   button** in the top-left of both the lobby and the level. It has **Music** and
   **Sound** toggles (driving `audio.setMusic` / `setSound`, which persist to the
@@ -1974,11 +1984,34 @@ the obfuscated artifact, and asserts the cheat console is really gone.
     (`DESIGN_W/H`, `coverBackground` / `buildColumnBackground` for the
     column-plus-blur background, `fitTextWidth` to keep centred text inside the safe
     centre band, `fitPanel` — a defensive clamp that scales a centred overlay
-    panel down if its content would ever outgrow the view — and `makeHintPill`, the
-    dark-glass one-line label every short in-level message is made of). Every scene exposes a
+    panel down if its content would ever outgrow the view — `makeHintPill`, the
+    dark-glass one-line label every short in-level message is made of, and
+    `makeButton`, the **standard pill button** described below). Every scene exposes a
     `controls()` list of its independent controls, aggregated by
     `window.__game.controls()` (design-space rects) and asserted overlap-free by
     `tests/resize_overlap_test.py`.
+  - **The standard pill button** — the filled rounded rect with a white hairline
+    and a bold centred label that closes/confirms every screen in the game — is
+    `makeButton({ audio, label | key, w, h, cx, cy, color, fontSize, onClick })`
+    in **`src/layout.js`**. It was a private `_makeButton` **copied into nine
+    modules** (game, settings, shop, tutorial, fortune wheel, tasks, daily bonus,
+    the Super Wand promo, the language picker), identical in shape and split on
+    the one thing that matters: six of the copies were **silent**, so each of
+    their callers played the `btn_01` click cue from its own handler to make up
+    for it. That compensation is invisible from the button, and it had drifted
+    both ways — Daily Bonus's *Double It* made **no** sound when the rewarded ad
+    was cancelled, and the language picker's *Back* played the cue **twice**.
+    **The cue belongs to the press, so the factory plays it**, exactly once, and
+    no handler plays its own. The two ways to close a screen that have no button
+    behind them — tapping the dim behind the language picker or the Super Wand
+    promo, and the Fortune Wheel auto-closing after its last spin — play the cue
+    at their own call site instead. `label` is a literal (a price, "📺 Double
+    it"), `key` labels from the i18n table and **re-letters itself** on a language
+    change; the button keeps `__w`/`__h` (so `languagePickerGeometry()` can
+    measure it) and `label` (the text object). It needs `audio` passed in, which
+    is why it was not already in `layout.js` — everything else there is a pure
+    function of its arguments. `tests/buttonsound_test.py` presses every one of
+    them on the real hit path and asserts **exactly one cue per press**.
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
 ### Key parameters (`src/config.js`)

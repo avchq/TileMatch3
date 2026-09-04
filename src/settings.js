@@ -6,7 +6,7 @@
 // onSoundChange callbacks wired up in main.js.
 
 import { tween, easeOutBack } from "./tween.js";
-import { fitPanel, fitTextWidth } from "./layout.js";
+import { fitPanel, fitTextWidth, makeButton } from "./layout.js";
 import { i18n, locText, languageLabel } from "./i18n.js";
 
 const DESIGN_W = 750;
@@ -118,7 +118,12 @@ export class SettingsScene extends PIXI.Container {
     this.languageRow = this._buildLanguageRow(labelX, pw / 2 - 40, 180);
 
     // Back button
-    const back = this._makeButton("btn_back", 300, 88, 0, ph / 2 - 84, 0x4d8dff, () => this._back());
+    const back = makeButton({
+      audio: this.audio, key: "btn_back", fontSize: 36,
+      w: 300, h: 88, cx: 0, cy: ph / 2 - 84, color: 0x4d8dff,
+      onClick: () => this._back(),
+    });
+    this._backBtn = back;
     this.panel.addChild(back);
   }
 
@@ -201,27 +206,6 @@ export class SettingsScene extends PIXI.Container {
     return c;
   }
 
-  _makeButton(labelKey, w, h, cx, cy, color, onClick) {
-    const c = new PIXI.Container();
-    c.position.set(cx, cy);
-    const g = new PIXI.Graphics();
-    g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
-    g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const t = locText(labelKey, {
-      fontFamily: "Arial", fontSize: 36, fontWeight: "800", fill: 0xffffff,
-    });
-    t.anchor.set(0.5);
-    c.addChild(g, t);
-    c.label = t;
-    c.eventMode = "static";
-    c.cursor = "pointer";
-    c.on("pointertap", onClick);
-    c.on("pointerdown", () => c.scale.set(0.95));
-    c.on("pointerup", () => c.scale.set(1));
-    c.on("pointerupoutside", () => c.scale.set(1));
-    return c;
-  }
-
   // Show the screen, syncing the toggles to the current audio state.
   open() {
     this.visible = true;
@@ -236,7 +220,6 @@ export class SettingsScene extends PIXI.Container {
   }
 
   _back() {
-    this.audio.play("btn_01");
     this.visible = false;
     if (this.onBack) this.onBack();
   }

@@ -20,7 +20,7 @@
 import { tween, delay, easeInCubic, easeOutCubic, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
 import { rewardBooster, grantReward, makeRewardIcon, flyReward, bumpReward } from "./rewards.js";
-import { fitPanel } from "./layout.js";
+import { fitPanel, makeButton } from "./layout.js";
 import { CONFIG } from "./config.js";
 import { t, locText, itemName } from "./i18n.js";
 
@@ -204,11 +204,19 @@ export class DailyBonusScene extends PIXI.Container {
     this.panel.addChild(this._reveal);
 
     // "Watch a video to double it" — appears first; the plain Claim fades in ~2s later.
-    this._doubleBtn = this._makeButton(`📺  ${t("double_it")}`, 380, 96, 0, 170, 0x2f9e6a, () => this._double());
+    this._doubleBtn = makeButton({
+      audio: this.audio, label: `📺  ${t("double_it")}`, fontSize: 34,
+      w: 380, h: 96, cx: 0, cy: 170, color: 0x2f9e6a,
+      onClick: () => this._double(),
+    });
     this._doubleBtn.visible = false;
     this.panel.addChild(this._doubleBtn);
 
-    this._claimBtn = this._makeButton(t("claim"), 300, 88, 0, 290, 0x4d8dff, () => this._take(1));
+    this._claimBtn = makeButton({
+      audio: this.audio, label: t("claim"), fontSize: 34,
+      w: 300, h: 88, cx: 0, cy: 290, color: 0x4d8dff,
+      onClick: () => this._take(1),
+    });
     this._claimBtn.visible = false;
     this.panel.addChild(this._claimBtn);
 
@@ -223,7 +231,11 @@ export class DailyBonusScene extends PIXI.Container {
     this.panel.addChild(this.toast);
 
     // Back button — only during the pick phase (before a box is opened).
-    this._backBtn = this._makeButton(t("btn_back"), 220, 74, 0, 480, 0x3a4a72, () => this._close());
+    this._backBtn = makeButton({
+      audio: this.audio, label: t("btn_back"), fontSize: 34,
+      w: 220, h: 74, cx: 0, cy: 480, color: 0x3a4a72,
+      onClick: () => this._close(),
+    });
     this.panel.addChild(this._backBtn);
 
     // Prize flight layer (on top of everything).
@@ -264,25 +276,6 @@ export class DailyBonusScene extends PIXI.Container {
     c.on("pointerdown", () => { if (!this._opened) c.scale.set(0.94); });
     c.on("pointerup", () => { if (!this._opened) c.scale.set(1); });
     c.on("pointerupoutside", () => { if (!this._opened) c.scale.set(1); });
-    return c;
-  }
-
-  _makeButton(label, w, h, cx, cy, color, onClick) {
-    const c = new PIXI.Container();
-    c.position.set(cx, cy);
-    const g = new PIXI.Graphics();
-    g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
-    g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const t = new PIXI.Text(label, { fontFamily: "Arial", fontSize: 34, fontWeight: "800", fill: 0xffffff });
-    t.anchor.set(0.5);
-    c.addChild(g, t);
-    c.label = t;
-    c.eventMode = "static";
-    c.cursor = "pointer";
-    c.on("pointertap", onClick);
-    c.on("pointerdown", () => c.scale.set(0.95));
-    c.on("pointerup", () => c.scale.set(1));
-    c.on("pointerupoutside", () => c.scale.set(1));
     return c;
   }
 
@@ -608,9 +601,11 @@ export class DailyBonusScene extends PIXI.Container {
     });
   }
 
+  // Hide the overlay. The click cue is the shared button factory's now, so it
+  // fires on the PRESS — for Claim that is when the player taps, rather than when
+  // the collect animation finally lands here.
   _close() {
     if (!this.visible) return;
-    this.audio.play("btn_01");
     this.visible = false;
     this.app.ticker.remove(this._tick);
     if (this.onBack) this.onBack();

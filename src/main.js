@@ -181,7 +181,7 @@ async function boot() {
   const levelChest = new LevelChest(levelChestCfg);
   splash.set(P.configs, t("loading_board"));
 
-  const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, user, prices, levelChest);
+  const scene = new GameScene(app, tileTextures, slotTexture, backgrounds, audio, maxLevel, user, prices, levelChest);
   const lobby = new LobbyScene(app, backgrounds, audio, maxLevel, user, levelChest);
   const settings = new SettingsScene(app, audio);
   const shop = new ShopScene(app, audio, user, payments);
@@ -495,9 +495,37 @@ async function boot() {
     const sfxLog = [];
     audio.onPlay = (name) => { if (sfxLog.length < 500) sfxLog.push(name); };
 
+    // Every screen's standard pill button (src/layout.js `makeButton`), by name.
+    // The factory owns the `btn_01` press cue, so the only way to assert a press
+    // sounds exactly once is to press the REAL hit path — and these buttons live
+    // on eight different overlays. This addresses them all from one place rather
+    // than growing a pressX seam per screen. A screen not built yet yields
+    // undefined, which pressPillButton() reports as false.
+    const pillButtons = () => ({
+      "settings.back": settings._backBtn,
+      "shop.back": shop._backBtn,
+      "shop.buy": shop._pkgBtns && shop._pkgBtns[0],
+      "wheel.back": wheel._backBtn,
+      "tasks.back": tasks._backBtn,
+      "daily.back": daily._backBtn,
+      "daily.claim": daily._claimBtn,
+      "daily.double": daily._doubleBtn,
+      "language.back": langPicker.backBtn,
+      "language.confirm": langPicker.confirmBtn,
+      "promo.ok": lobby.superWandPromo && lobby.superWandPromo.okBtn,
+    });
+
     window.__game = {
       app, scene, lobby, settings, assets, audio, store,
       openSettings: () => settings.open(),
+      // ---- the shared pill button ---------------------------------------------
+      pillButtonNames: () => Object.keys(pillButtons()),
+      pressPillButton: (name) => {
+        const b = pillButtons()[name];
+        if (!b || b.destroyed) return false;
+        b.emit("pointertap");
+        return true;
+      },
       // ---- localization -------------------------------------------------------
       // The active language, the 13 the game offers, and the raw lookup — enough
       // for i18n_test.py to check that a swap really re-letters the live scenes
@@ -1166,6 +1194,14 @@ async function boot() {
       // to the board on the last Continue (newest-first — reverse placement order).
       historyOrder: () => scene.history.map((t) => t.id),
       returnOrder: () => scene._lastReturnOrder || null,
+      // The win overlay's headline, and the campaign length the scene judges it
+      // against. "🏆 You Win!" belongs to the LAST level of the level table and
+      // nowhere else; every other clear reads "Level Complete!". `maxLevel` is
+      // levels.length (see above) — derived, never a second source of truth.
+      winState: () => ({
+        title: (scene._winTitle && !scene._winTitle.destroyed) ? scene._winTitle.text : "",
+        maxLevel: scene.maxLevel,
+      }),
       // Press the win overlay's "Continue" button (returns to the lobby, advanced).
       pressWinContinue: () => scene._winBtn && scene._winBtn.emit("pointertap"),
       pressLoseContinue: () => scene._loseBtns && scene._loseBtns.cont.emit("pointertap"),

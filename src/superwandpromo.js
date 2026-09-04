@@ -18,7 +18,7 @@
 
 import { tween, easeOutBack } from "./tween.js";
 import { t, locText } from "./i18n.js";
-import { fitTextWidth } from "./layout.js";
+import { fitTextWidth, makeButton } from "./layout.js";
 import { CONFIG } from "./config.js";
 
 const PANEL_W = 620;
@@ -66,7 +66,10 @@ export class SuperWandPromo extends PIXI.Container {
     // tap outside the panel (the panel itself stops taps reaching it).
     this.dim = new PIXI.Graphics();
     this.dim.eventMode = "static";
-    this.dim.on("pointertap", () => this.close());
+    this.dim.on("pointertap", () => {
+      if (this.audio) this.audio.play("btn_01");
+      this.close();
+    });
     this.addChild(this.dim);
 
     // One centred group, so a resize re-centres the whole popup by moving a
@@ -104,8 +107,11 @@ export class SuperWandPromo extends PIXI.Container {
     this._buildArt();
     this._buildStrip();
 
-    this.okBtn = this._makeButton(t("ui_ok"), 300, 88, 0, BTN_Y, 0x39c06a,
-      () => this.close());
+    this.okBtn = makeButton({
+      audio: this.audio, label: t("ui_ok"),
+      w: 300, h: 88, cx: 0, cy: BTN_Y, color: 0x39c06a,
+      onClick: () => this.close(),
+    });
     this.group.addChild(this.okBtn);
   }
 
@@ -212,29 +218,6 @@ export class SuperWandPromo extends PIXI.Container {
     this.group.addChild(this.barLabel);
   }
 
-  // A button in the game's own style (GameScene._makeButton is a scene method,
-  // so this popup carries the same shape rather than depending on it).
-  _makeButton(label, w, h, cx, cy, color, onClick) {
-    const c = new PIXI.Container();
-    c.position.set(cx, cy);
-    const g = new PIXI.Graphics();
-    g.beginFill(color).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4).endFill();
-    g.lineStyle(4, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2.4);
-    const tx = new PIXI.Text(label, {
-      fontFamily: "Arial", fontSize: 32, fontWeight: "800", fill: 0xffffff,
-    });
-    tx.anchor.set(0.5);
-    c.addChild(g, tx);
-    c.label = tx;
-    c.eventMode = "static";
-    c.cursor = "pointer";
-    c.on("pointertap", () => onClick());
-    c.on("pointerdown", () => c.scale.set(0.95));
-    c.on("pointerup", () => c.scale.set(1));
-    c.on("pointerupoutside", () => c.scale.set(1));
-    return c;
-  }
-
   // ---- state ---------------------------------------------------------------
 
   /** Repaint the meter from the profile. Charged pins it full and swaps the
@@ -298,6 +281,5 @@ export class SuperWandPromo extends PIXI.Container {
   close() {
     if (!this.visible) return;
     this.visible = false;
-    if (this.audio) this.audio.play("btn_01");
   }
 }
