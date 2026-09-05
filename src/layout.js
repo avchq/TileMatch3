@@ -150,3 +150,67 @@ export function makeButton({ audio, label, key, w, h, cx, cy, color,
   c.on("pointerupoutside", () => c.scale.set(1));
   return c;
 }
+
+// The game's progress meter — a dark-glass rounded track with a coloured rounded
+// fill and, by default, a centred "n / m" count, drawn around its own centre so
+// the caller only has to position the returned `node`.
+//
+// It lives here rather than on a scene because it WAS a scene-local copy, six
+// times over: the Super Wand streak bar and its "at risk" twin and the Level
+// Chest bar on the level's overlays (game.js), the lobby's persistent chest bar
+// (lobby.js), the Super Wand promo's meter (superwandpromo.js) and the Tasks row
+// meter (tasks.js) — whose look the chest bar's own comment used to cite ("the
+// Tasks-row style"), which is how far the copying had travelled. The family
+// differs in BEHAVIOUR — at-risk drains, the streak fills one notch and punches
+// its caption, the chest fills and pops open, the lobby bar just redraws — and
+// each caller keeps all of that. Only the widget is shared.
+//
+// Two rules the copies all kept by hand and nothing enforced, now stated once:
+//
+//   * the fill is never narrower than `h`. At one notch of sixteen a proportional
+//     rect would be a 20-px sliver whose two rounded ends meet; the floor keeps it
+//     a legible stub. This is why `draw` is not just a scale on a static fill.
+//   * `of <= 0` draws nothing instead of dividing by it. Two of the six copies
+//     guarded this and four did not, which made a mistuned `needed: 0` a
+//     rendering question rather than a config one.
+//
+// `outline` adds the white hairline the two bars that sit on busy art carry (the
+// lobby's, over the background column, and the promo's, over its panel art); the
+// four on solid overlay panels do without it. `label: false` omits the count for
+// the one caller — a Tasks row — whose counter is not centred on its track but
+// sits further right in the row, and which formats it without spaces; that row
+// keeps its own PIXI.Text and takes only the track and the fill from here.
+//
+// `tests/progressbar_test.py` pins the contract and that this stays the only copy.
+export function makeProgressBar({ w, h, color, outline = false, label = true }) {
+  const node = new PIXI.Container();
+  // The drawn size, on the container, for the same reason makeButton carries it.
+  node.__w = w; node.__h = h;
+  const track = new PIXI.Graphics();
+  track.beginFill(0x0a1226, 0.75).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2).endFill();
+  if (outline) {
+    track.lineStyle(3, 0xffffff, 0.14).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2);
+  }
+  const fill = new PIXI.Graphics();
+  node.addChild(track, fill);
+  let text = null;
+  if (label) {
+    text = new PIXI.Text("", {
+      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xdce7ff,
+      stroke: 0x122043, strokeThickness: 3,
+    });
+    text.anchor.set(0.5);
+    node.addChild(text);
+  }
+  // `n` may be fractional — the callers that animate a notch tween through it.
+  const draw = (n, of) => {
+    fill.clear();
+    const pct = of > 0 ? Math.max(0, Math.min(1, n / of)) : 0;
+    if (pct > 0) {
+      fill.beginFill(color)
+        .drawRoundedRect(-w / 2, -h / 2, Math.max(h, w * pct), h, h / 2).endFill();
+    }
+    if (text) text.text = `${Math.round(n)} / ${of}`;
+  };
+  return { node, track, fill, label: text, draw };
+}

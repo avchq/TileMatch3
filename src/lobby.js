@@ -6,7 +6,7 @@
 import { tween, delay, easeOutBack } from "./tween.js";
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill } from "./shop.js";
-import { buildColumnBackground, fitTextWidth, makeHintPill } from "./layout.js";
+import { buildColumnBackground, fitTextWidth, makeHintPill, makeProgressBar } from "./layout.js";
 import { FeatureRail, RAIL_LEFT_X, RAIL_RIGHT_X } from "./featurerail.js";
 import { t, locText } from "./i18n.js";
 import { CONFIG } from "./config.js";
@@ -261,24 +261,16 @@ export class LobbyScene extends PIXI.Container {
     glyph.position.set(-150, 0);
     c.addChild(glyph);
 
+    // The meter is drawn around its own centre, so the track's left edge lands
+    // at trackX by placing the node at the track's midpoint. Outlined: unlike the
+    // overlay bars this one sits straight on the background art.
     const trackW = 290, trackH = 24, trackX = -118;
-    const track = new PIXI.Graphics();
-    track.beginFill(0x0a1226, 0.72).drawRoundedRect(trackX, -trackH / 2, trackW, trackH, trackH / 2).endFill();
-    track.lineStyle(3, 0xffffff, 0.14).drawRoundedRect(trackX, -trackH / 2, trackW, trackH, trackH / 2);
-    c.addChild(track);
+    const bar = makeProgressBar({ w: trackW, h: trackH, color: 0x39c06a, outline: true });
+    bar.node.x = trackX + trackW / 2;
+    c.addChild(bar.node);
 
-    const fill = new PIXI.Graphics();
-    c.addChild(fill);
-
-    const label = new PIXI.Text("", {
-      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xdce7ff,
-      stroke: 0x122043, strokeThickness: 3,
-    });
-    label.anchor.set(0.5); label.position.set(trackX + trackW / 2, 0);
-    c.addChild(label);
-
-    c._fill = fill; c._label = label;
-    c._trackW = trackW; c._trackH = trackH; c._trackX = trackX;
+    c._bar = bar;
+    c._label = bar.label;    // a live reference — main.js's lobbyChestState() reads it
     return c;
   }
 
@@ -310,14 +302,9 @@ export class LobbyScene extends PIXI.Container {
       ? this.levelChest.currentFor(this.user ? this.user.completedLevel() : 0) : null;
     if (!info) { bar.visible = false; return; }
     bar.visible = true;
-    const pct = info.needed > 0 ? Math.max(0, Math.min(1, info.filled / info.needed)) : 0;
-    bar._fill.clear();
-    if (pct > 0) {
-      bar._fill.beginFill(0x39c06a)
-        .drawRoundedRect(bar._trackX, -bar._trackH / 2,
-          Math.max(bar._trackH, bar._trackW * pct), bar._trackH, bar._trackH / 2).endFill();
-    }
-    bar._label.text = info.label;
+    // LevelChest formats `info.label` as exactly `${filled} / ${needed}`, which is
+    // what the meter writes itself — so the count comes from one place now.
+    bar._bar.draw(info.filled, info.needed);
   }
 
   _makeWheelButton() {

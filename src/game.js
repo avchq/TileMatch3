@@ -3,7 +3,8 @@ import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill, makeCoinIcon } from "./shop.js";
 import { typesForLevel } from "./levelConfig.js";
-import { buildColumnBackground, makeHintPill, fitTextWidth, makeButton } from "./layout.js";
+import { buildColumnBackground, makeHintPill, fitTextWidth, makeButton,
+         makeProgressBar } from "./layout.js";
 import { HowToPlayPopup } from "./tutorial.js";
 import { BoosterCoach } from "./boostercoach.js";
 import { rewardIsCoins, grantReward, makeRewardIcon, flyReward } from "./rewards.js";
@@ -2804,36 +2805,18 @@ export class GameScene extends PIXI.Container {
     fitTextWidth(caption, 520);
     group.addChild(caption);
 
-    const track = new PIXI.Graphics();
-    track.beginFill(0x0a1226, 0.75)
-      .drawRoundedRect(-trackW / 2, barY - trackH / 2, trackW, trackH, trackH / 2).endFill();
-    group.addChild(track);
-    const fill = new PIXI.Graphics();
-    group.addChild(fill);
-    const label = new PIXI.Text("", {
-      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xdce7ff,
-      stroke: 0x122043, strokeThickness: 3,
-    });
-    label.anchor.set(0.5); label.position.set(0, barY);
-    group.addChild(label);
+    const bar = makeProgressBar({ w: trackW, h: trackH, color: 0xffcf4d });
+    bar.node.y = barY;
+    group.addChild(bar.node);
 
-    const draw = (n) => {
-      fill.clear();
-      const pct = Math.max(0, Math.min(1, n / needed));
-      if (pct > 0) {
-        fill.beginFill(0xffcf4d)
-          .drawRoundedRect(-trackW / 2, barY - trackH / 2,
-            Math.max(trackH, trackW * pct), trackH, trackH / 2).endFill();
-      }
-      label.text = `${Math.round(n)} / ${needed}`;
-    };
+    const draw = (n) => bar.draw(n, needed);
     const from = this.user.superWandStreak();
     draw(from);
     this._superWandBar = {
-      shown: true, from, to: from, needed, caption: caption.text, label: label.text,
+      shown: true, from, to: from, needed, caption: caption.text, label: bar.label.text,
       full: false, barY, capY, trackH,
     };
-    this._streakRisk = { caption, fill, label, draw, from };
+    this._streakRisk = { caption, fill: bar.fill, label: bar.label, draw, from };
   }
 
   // Accept a loss: break the streak, DRAIN the bar so the player watches it go
@@ -2884,29 +2867,12 @@ export class GameScene extends PIXI.Container {
     const capScale = caption.scale.x;
     group.addChild(caption);
 
-    const track = new PIXI.Graphics();
-    track.beginFill(0x0a1226, 0.75)
-      .drawRoundedRect(-trackW / 2, barY - trackH / 2, trackW, trackH, trackH / 2).endFill();
-    group.addChild(track);
-    const fill = new PIXI.Graphics();
-    group.addChild(fill);
-    const label = new PIXI.Text("", {
-      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xdce7ff,
-      stroke: 0x122043, strokeThickness: 3,
-    });
-    label.anchor.set(0.5); label.position.set(0, barY);
-    group.addChild(label);
+    const bar = makeProgressBar({ w: trackW, h: trackH, color: 0xffcf4d });
+    bar.node.y = barY;
+    group.addChild(bar.node);
+    const fill = bar.fill, label = bar.label;
 
-    const draw = (n) => {
-      fill.clear();
-      const pct = Math.max(0, Math.min(1, n / info.needed));
-      if (pct > 0) {
-        fill.beginFill(0xffcf4d)
-          .drawRoundedRect(-trackW / 2, barY - trackH / 2,
-            Math.max(trackH, trackW * pct), trackH, trackH / 2).endFill();
-      }
-      label.text = `${Math.round(n)} / ${info.needed}`;
-    };
+    const draw = (n) => bar.draw(n, info.needed);
     draw(info.from);
     this._superWandBar = {
       shown: true, from: info.from, to: info.to, needed: info.needed,
@@ -2968,33 +2934,16 @@ export class GameScene extends PIXI.Container {
     group.addChild(icon);
     this._chestIcon = icon;
 
-    // Progress bar — the Tasks-row style (dark track + green fill + count label).
+    // Progress bar — the shared meter (layout.js), in the chest's green.
     const trackW = 320, trackH = 22, barY = 58;
-    const track = new PIXI.Graphics();
-    track.beginFill(0x0a1226, 0.75)
-      .drawRoundedRect(-trackW / 2, barY - trackH / 2, trackW, trackH, trackH / 2).endFill();
-    group.addChild(track);
-    const fill = new PIXI.Graphics();
-    group.addChild(fill);
-    const label = new PIXI.Text(info.label, {
-      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xdce7ff,
-      stroke: 0x122043, strokeThickness: 3,
-    });
-    label.anchor.set(0.5); label.position.set(0, barY);
-    group.addChild(label);
-    this._chestBar = { fill, label, trackW, trackH, barY, needed: info.needed };
+    const bar = makeProgressBar({ w: trackW, h: trackH, color: 0x39c06a });
+    bar.node.y = barY;
+    group.addChild(bar.node);
+    const fill = bar.fill;
+    this._chestBar = { fill, label: bar.label, trackW, trackH, barY, needed: info.needed };
 
     // Draw the fill to a given (possibly fractional) notch count.
-    const draw = (notches) => {
-      fill.clear();
-      const pct = info.needed > 0 ? Math.max(0, Math.min(1, notches / info.needed)) : 0;
-      if (pct > 0) {
-        fill.beginFill(0x39c06a)
-          .drawRoundedRect(-trackW / 2, barY - trackH / 2,
-            Math.max(trackH, trackW * pct), trackH, trackH / 2).endFill();
-      }
-      label.text = `${Math.round(notches)} / ${info.needed}`;
-    };
+    const draw = (notches) => bar.draw(notches, info.needed);
     draw(Math.max(0, info.filled - 1));
 
     // Animate the last notch filling, then open the chest if this win filled it.

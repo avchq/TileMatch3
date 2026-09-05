@@ -35,7 +35,7 @@
 import { tween, easeOutCubic, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
 import { rewardBooster, grantReward, makeRewardIcon, flyReward, bumpReward } from "./rewards.js";
-import { fitTextWidth, makeButton } from "./layout.js";
+import { fitTextWidth, makeButton, makeProgressBar } from "./layout.js";
 import { CONFIG } from "./config.js";
 import { t, locText } from "./i18n.js";
 
@@ -513,16 +513,15 @@ export class TasksScene extends PIXI.Container {
       c.addChild(btn);
       c.claimBtn = btn;
     } else {
+      // The shared meter (layout.js), placed by its centre so the track's left
+      // edge still lands at trackX. `label: false` because this row's counter is
+      // not centred on the bar — it sits further right, beside the reward chip,
+      // and is written without spaces — so the row keeps its own text below.
       const trackW = 280, trackH = 20, trackX = -212;
-      const bar = new PIXI.Graphics();
-      const pct = row.target > 0 ? Math.min(1, row.count / row.target) : 0;
-      bar.beginFill(0x0a1226, 0.7).drawRoundedRect(trackX, 30 - trackH / 2, trackW, trackH, trackH / 2).endFill();
-      if (pct > 0) {
-        bar.beginFill(0x39c06a)
-          .drawRoundedRect(trackX, 30 - trackH / 2, Math.max(trackH, trackW * pct), trackH, trackH / 2)
-          .endFill();
-      }
-      c.addChild(bar);
+      const bar = makeProgressBar({ w: trackW, h: trackH, color: 0x39c06a, label: false });
+      bar.node.position.set(trackX + trackW / 2, 30);
+      bar.draw(row.count, row.target);
+      c.addChild(bar.node);
 
       const cnt = new PIXI.Text(`${Math.min(row.count, row.target)}/${row.target}`, {
         fontFamily: "Arial", fontSize: 21, fontWeight: "900", fill: 0xdce7ff,

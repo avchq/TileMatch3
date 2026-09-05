@@ -490,7 +490,8 @@ weights, no code change.
 
 ### Tasks — achievements and weekly goals
 The game's **checklist of goals**: "Complete 50 levels", "Use 10 boosters", "Match
-1000 tiles" — each a row with a **progress bar** and a **reward** you tap to
+1000 tiles" — each a row with a **progress bar** (the shared `makeProgressBar`,
+minus its count, which the row places itself) and a **reward** you tap to
 collect. It is the one long-horizon hook; everything else in the game pays out
 once and forgets. Its **📋 Tasks button** is the only entry on the lobby's
 **right-edge feature rail**, under the coin pill.
@@ -1641,8 +1642,8 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   host fires it on the Continue press), so the old highest is still readable, which is
   exactly the "new clear?" test. `_showOverlay` grows its panel and drops the Continue
   button when a chest is present, then `_mountLevelChest(group, info)` draws the
-  treasure icon (`_makeChestIcon`, a lidded chest) and a Tasks-style progress bar,
-  animating the last notch up. A full chest records what it owes in
+  treasure icon (`_makeChestIcon`, a lidded chest) and a green `makeProgressBar`
+  (the shared meter — see *Design notes*), animating the last notch up. A full chest records what it owes in
   `_chestPendingReward` **at mount time** (not at the end of the fill), so a Continue
   pressed mid-animation still pays; if `info.full`, `_openChest` plays `openbox` and
   lifts the lid (`easeOutBack`) — and stops there. **The reward is a separate
@@ -1743,8 +1744,9 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   every device shape. It also owns the **feature buttons**
   (Free Spin / Daily Bonus) and hands their arrangement to a `FeatureRail`.
   On the centred `uiLayer`, below the fruit row, it draws the **Level Chest bar**
-  (`_makeChestBar` / `_refreshChestBar`): a treasure glyph + progress track +
-  "filled / needed" label, read from `LevelChest.currentFor(user.completedLevel())`
+  (`_makeChestBar` / `_refreshChestBar`): a treasure glyph + an outlined
+  `makeProgressBar` (the shared meter — see *Design notes*) whose "filled / needed"
+  count it writes itself, read from `LevelChest.currentFor(user.completedLevel())`
   and refreshed live on every `progress` change (the same subscription that drives
   the rails and the shop gate). It is hidden when there is no chest yet (a brand-new
   player) and listed in `controls()` only while shown, so it stays inside
@@ -1782,8 +1784,10 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   rather than a destination the host wires up — so `LobbyScene` adds it as its
   topmost child, drives its `layout`/`refresh`/`relocalize` from its own, and
   hides it in `hide()` so a trip through a level never leaves it open. Its
-  illustration is drawn with the same Graphics + emoji vocabulary as the rest
-  of the game, since this project has no promo artwork and no particle system.
+  streak meter is an outlined `makeProgressBar` (the shared meter — see *Design
+  notes*), repainted by `refresh()`. Its illustration is drawn with the same
+  Graphics + emoji vocabulary as the rest of the game, since this project has no
+  promo artwork and no particle system.
 - `src/shop.js` is the `ShopScene` — an overlay (modeled on `SettingsScene`)
   opened by tapping the **coin pill** in either scene. It lists the **packages** for
   sale (from `payments.js`), each row showing the package name, a one-line contents
@@ -2034,8 +2038,9 @@ the obfuscated artifact, and asserts the cheat console is really gone.
     column-plus-blur background, `fitTextWidth` to keep centred text inside the safe
     centre band, `fitPanel` — a defensive clamp that scales a centred overlay
     panel down if its content would ever outgrow the view — `makeHintPill`, the
-    dark-glass one-line label every short in-level message is made of, and
-    `makeButton`, the **standard pill button** described below). Every scene exposes a
+    dark-glass one-line label every short in-level message is made of,
+    `makeButton`, the **standard pill button**, and `makeProgressBar`, the
+    **progress meter** — both described below). Every scene exposes a
     `controls()` list of its independent controls, aggregated by
     `window.__game.controls()` (design-space rects, walked over the scene registry
     so a scene cannot quietly escape the measurement) and asserted overlap-free by
@@ -2062,6 +2067,30 @@ the obfuscated artifact, and asserts the cheat console is really gone.
     is why it was not already in `layout.js` — everything else there is a pure
     function of its arguments. `tests/buttonsound_test.py` presses every one of
     them on the real hit path and asserts **exactly one cue per press**.
+  - **The progress meter** — the dark-glass rounded track with a coloured rounded
+    fill and a centred `n / m` count — is
+    `makeProgressBar({ w, h, color, outline, label })` in **`src/layout.js`**,
+    returning `{ node, track, fill, label, draw(n, of) }`. It was hand-copied
+    **six times**: the Super Wand streak bar and its *at risk* twin and the Level
+    Chest bar on the level's overlays (`game.js`), the lobby's persistent chest bar
+    (`lobby.js`), the Super Wand promo's meter (`superwandpromo.js`) and the Tasks
+    row meter (`tasks.js`) — whose look the chest bar's own comment used to cite
+    ("the Tasks-row style"), which is how far the copying had travelled. The family
+    differs in **behaviour** — at-risk drains, the streak fills one notch and
+    punches its caption, the chest fills and pops open, the lobby bar just redraws
+    — and each caller keeps all of that; only the widget is shared. Two rules every
+    copy kept by hand and nothing enforced are now stated once: the fill is **never
+    narrower than `h`**, so a single notch of sixteen reads as a rounded stub rather
+    than a sliver, and `of <= 0` **draws nothing instead of dividing by it** (two of
+    the six guarded that, four did not). The meter is drawn around its own centre,
+    so a caller positions `node` and nothing else. `outline` adds the white hairline
+    carried by the two bars that sit on art rather than on a flat overlay panel (the
+    lobby's and the promo's); `label: false` omits the count for the one caller
+    whose counter is **not** centred on its track — a Tasks row, which puts it
+    further right beside the reward chip and writes it without spaces, and so keeps
+    its own text. The three track alphas the copies had drifted to (0.75 / 0.72 /
+    0.70) are now one. `tests/progressbar_test.py` pins the contract and that this
+    stays the only copy.
 - Pixi is vendored at `vendor/pixi.min.js` (v7.4.2).
 
 ### Key parameters (`src/config.js`)

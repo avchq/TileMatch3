@@ -18,7 +18,7 @@
 
 import { tween, easeOutBack } from "./tween.js";
 import { t, locText } from "./i18n.js";
-import { fitTextWidth, makeButton } from "./layout.js";
+import { fitTextWidth, makeButton, makeProgressBar } from "./layout.js";
 import { CONFIG } from "./config.js";
 
 const PANEL_W = 620;
@@ -198,24 +198,12 @@ export class SuperWandPromo extends PIXI.Container {
       this.group.addChild(c);
     }
 
-    const track = new PIXI.Graphics();
-    track.beginFill(0x0a1226, 0.75)
-      .drawRoundedRect(-TRACK_W / 2, BAR_Y - TRACK_H / 2, TRACK_W, TRACK_H, TRACK_H / 2)
-      .endFill();
-    track.lineStyle(3, 0xffffff, 0.14)
-      .drawRoundedRect(-TRACK_W / 2, BAR_Y - TRACK_H / 2, TRACK_W, TRACK_H, TRACK_H / 2);
-    this.group.addChild(track);
-
-    this.fill = new PIXI.Graphics();
-    this.group.addChild(this.fill);
-
-    this.barLabel = new PIXI.Text("", {
-      fontFamily: "Arial", fontSize: 22, fontWeight: "900", fill: 0xdce7ff,
-      stroke: 0x122043, strokeThickness: 3,
-    });
-    this.barLabel.anchor.set(0.5);
-    this.barLabel.position.set(0, BAR_Y);
-    this.group.addChild(this.barLabel);
+    // Outlined, like the lobby's chest bar: this one sits on the promo's art
+    // rather than on a flat overlay panel.
+    this.bar = makeProgressBar({ w: TRACK_W, h: TRACK_H, color: 0xffcf4d, outline: true });
+    this.bar.node.y = BAR_Y;
+    this.group.addChild(this.bar.node);
+    this.barLabel = this.bar.label;
   }
 
   // ---- state ---------------------------------------------------------------
@@ -230,14 +218,7 @@ export class SuperWandPromo extends PIXI.Container {
       : Math.min(needed, this.user ? this.user.superWandStreak() : 0);
     this.capStreak.visible = !charged;
     this.capReady.visible = charged;
-    this.barLabel.text = `${streak} / ${needed}`;
-    const pct = needed > 0 ? Math.max(0, Math.min(1, streak / needed)) : 0;
-    this.fill.clear();
-    if (pct > 0) {
-      this.fill.beginFill(0xffcf4d)
-        .drawRoundedRect(-TRACK_W / 2, BAR_Y - TRACK_H / 2,
-          Math.max(TRACK_H, TRACK_W * pct), TRACK_H, TRACK_H / 2).endFill();
-    }
+    this.bar.draw(streak, needed);
   }
 
   /** The live state of the popup, for the debug API / tests. */

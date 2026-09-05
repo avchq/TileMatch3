@@ -364,6 +364,27 @@ Only `howtoplay_test.py` leaves it open.
   edge-to-edge; the game stays a vertical strip with the blurred background on the
   sides). Also checks the board never overflows the column width or the vertical
   band.
+- **`progressbar_test.py`** — the **shared progress meter**
+  (`makeProgressBar` in `src/layout.js`), which was hand-copied six times before
+  DUP-03: both Super Wand streak bars and the Level Chest bar on the level's
+  overlays, the lobby's chest bar, the Super Wand promo's meter and the Tasks row
+  meter. Three parts. **(A)** Source analysis, no browser: the fill idiom
+  `Math.max(h, w * pct)` — which each copy spelled with its own identifiers — must
+  appear in `layout.js` and **nowhere else** under `src/`, `game.js` / `lobby.js` /
+  `superwandpromo.js` / `tasks.js` must all import the helper, and the track alpha
+  must be stated once rather than in the three spellings the copies had drifted to.
+  This is the half that fails when a **seventh copy** grows back. **(B)** The
+  widget's contract, driven directly — `/src/layout.js` is imported **by URL**, the
+  same module record the game is running (the `tween_test.py` trick), so it needs no
+  `window.__game` seam: the track is drawn around its own centre, an empty meter
+  draws nothing, a full one fills the track, an over-full count clamps, a fraction
+  **rounds** in the label, the fill is **never narrower than its own height** (the
+  one-notch stub), `of == 0` draws nothing rather than `NaN`, `outline: true` adds
+  the hairline and `label: false` omits the count. **(C)** Two converted call sites
+  measured on screen against geometry recorded from the pre-extraction tree — the
+  lobby bar's `controls()` rect and its track/fill rects to the pixel (it is the one
+  whose track is **offset** from its container's origin), and the promo bar by shape
+  rather than absolute units, since `fitPanel` scales that whole panel.
 
 ### Gameplay
 
