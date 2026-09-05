@@ -1919,6 +1919,31 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   (`makePayments`), wires the coin-pill taps to open the shop, and owns
   `purchasePackage` (run the provider, then grant the package's coins + boosters on
   success).
+  - **The scene registry** — the eight scenes `root` owns (`level`, `lobby`,
+    `settings`, `shop`, `wheel`, `daily`, `tasks`, `language`) are declared **once**,
+    as `const scenes = [{ key, obj }, …]` in z-order, and everything that has to
+    reach all of them iterates that list: `root.addChild(...scenes.map(…))`,
+    `resize()`'s `layout(DW, DH)`, the re-lettering broadcast's `relocalize()`, and
+    the debug `controls()` seam. They used to be **four hand-maintained parallel
+    lists**, and three of the four failed *silently* when a ninth feature was missed
+    from one — a scene never laid out is correct at exactly 750×1334 and wrong on
+    every other screen shape, one never re-lettered keeps stale text after a language
+    change, and one missing from `controls()` is simply not measured by
+    `tests/resize_overlap_test.py`, so it could overlap another control on every
+    screen with the suite still green. `key` is the public name `controls()` reports
+    (and the Python suite matches on), which is why it is not just the variable name.
+    `relocalize()` is called **unconditionally**, without `?.`, so a registered scene
+    that has none fails loudly on the first language change instead of quietly
+    keeping its build-time text. Deliberately **not** driven off the registry: the
+    4 s rollover tick (only the wheel and tasks have a `checkRollover()`; the daily
+    gift refreshes through `lobby.refreshFeatures()`) and the lobby wiring block
+    (settings/shop open from *both* base scenes and have no back-reference, while
+    wheel/daily/tasks share a triple under three different property names) — neither
+    is a set of identical calls. `SuperWandPromo` is not a member either: it is a
+    child of `LobbyScene`, which forwards its `layout`/`relocalize` itself.
+    `window.__game.sceneRegistry()` exposes the live array, which is how
+    `tests/sceneregistry_test.py` registers a probe scene and proves a new member
+    really receives all three broadcasts.
 - `src/splash.js` is the **loading splash** controller — a thin wrapper over the
   `#splash` markup in `index.html` (title, bar, percentage, status line), with no
   Pixi dependency at all. `main.js` drives it across **every** boot stage rather
@@ -1951,8 +1976,9 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   that is centred on any screen and never stretched sideways (matching the
   original). `main.js`'s `resize()` sizes the renderer to the whole viewport and
   uniformly scales the stage by `min(vw/750, vh/1334)` — so the game column always
-  maps its 750-wide design onto the screen without distortion — then hands each
-  scene the resulting design area (`DW×DH`) via `scene.layout(DW, DH)`.
+  maps its 750-wide design onto the screen without distortion — then hands every
+  scene in the registry (above) the resulting design area (`DW×DH`) via
+  `layout(DW, DH)`.
   - **Portrait / narrow screens** (up to 9:16) are *width-constrained*: the 750
     column fills the full width and the extra height becomes vertical margin — the
     top HUD anchors to the **top** edge, the tray + helper row anchor to the
@@ -2006,7 +2032,8 @@ the obfuscated artifact, and asserts the cheat console is really gone.
     dark-glass one-line label every short in-level message is made of, and
     `makeButton`, the **standard pill button** described below). Every scene exposes a
     `controls()` list of its independent controls, aggregated by
-    `window.__game.controls()` (design-space rects) and asserted overlap-free by
+    `window.__game.controls()` (design-space rects, walked over the scene registry
+    so a scene cannot quietly escape the measurement) and asserted overlap-free by
     `tests/resize_overlap_test.py`.
   - **The standard pill button** — the filled rounded rect with a white hairline
     and a bold centred label that closes/confirms every screen in the game — is

@@ -282,6 +282,24 @@ Only `howtoplay_test.py` leaves it open.
   Regression guard: the lobby title
   used to clip the top-left Daily-Bonus / wheel button column on tall screens — now
   centred text is width-capped to the safe centre band (`layout.js` `fitTextWidth`).
+- **`sceneregistry_test.py`** — the **scene registry** in `src/main.js` (SEP-04):
+  the eight scenes `root` owns are declared once, and `root.addChild`, `resize()`'s
+  `layout(DW, DH)`, the re-lettering broadcast's `relocalize()` and the debug
+  `controls()` seam all iterate that one list. They used to be four hand-maintained
+  parallel lists, and three of the four failed **silently** when a new feature was
+  missed from one — most quietly of all `controls()`, since a scene absent from it
+  is simply not measured by `resize_overlap_test.py`. Two halves. The first is pure
+  **source analysis** (no browser, milliseconds, the `debugseam_test.py` idiom,
+  including its "prove the detector detects" step): `main.js` may contain no
+  per-scene `X.layout(…)`, no per-scene `X.relocalize()` and no hard-coded
+  `add("<key>", …)`, the `const scenes = [` literal must map all eight keys to their
+  scenes, and the stage must be populated from it. The second registers a **ninth
+  scene from the test** through the `window.__game.sceneRegistry()` seam (the live
+  array) and asserts the probe receives all three broadcasts: the real `(DW, DH)` on
+  a viewport resize — checked against `view()` — a `relocalize()` on
+  `setLanguage('ru')`, and a row of its own in `controls()`. It also pins the roster
+  of eight keys, that every member answers all three calls, and that the stage has
+  no children the registry does not know about.
 - **`featurerail_test.py`** — the lobby's **feature-button rail**
   (`src/featurerail.js`): the feature buttons fill **consecutive slots** down the
   left edge in the fixed priority order (1. Free Spin, 2. Daily Bonus), with **no

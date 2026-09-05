@@ -189,7 +189,31 @@ async function boot() {
   const daily = new DailyBonusScene(app, audio, user, dailybonus);
   const tasks = new TasksScene(app, audio, user, tasksCfg);
   const langPicker = new LanguagePickerScene(app, audio);
-  root.addChild(scene, lobby, settings, shop, wheel, daily, tasks, langPicker); // overlays draw on top of whichever scene is active
+  // THE SCENE REGISTRY — the one list of the scenes `root` owns. A scene named
+  // here is put on the stage, laid out on every resize, re-lettered on every
+  // language change and measured by the debug controls() seam. Those used to be
+  // four hand-maintained parallel lists, and three of the four failed SILENTLY
+  // when a new feature was missed from one: a scene never laid out is correct
+  // at exactly 750x1334 and wrong on every other screen shape, one never
+  // re-lettered keeps stale text after a language change, and one missing from
+  // controls() is simply not measured by the overlap test. One list, so a ninth
+  // feature is one line here and gets all four.
+  //
+  // Order is z-order: the base scenes first, then the overlays that draw on top
+  // of whichever of them is active. `key` is the public name controls() reports
+  // (and the Python suite matches on), which is why it is not just the variable
+  // name — the level scene is "level" and the language picker is "language".
+  const scenes = [
+    { key: "level", obj: scene },
+    { key: "lobby", obj: lobby },
+    { key: "settings", obj: settings },
+    { key: "shop", obj: shop },
+    { key: "wheel", obj: wheel },
+    { key: "daily", obj: daily },
+    { key: "tasks", obj: tasks },
+    { key: "language", obj: langPicker },
+  ];
+  root.addChild(...scenes.map((s) => s.obj));
 
   // Fit the viewport: size the renderer to the window, scale the stage so the
   // constraining dimension fills exactly, then hand each scene the resulting
@@ -200,19 +224,12 @@ async function boot() {
     const DW = vw / scale, DH = vh / scale;
     app.renderer.resize(vw, vh);
     root.scale.set(scale);
-    scene.layout(DW, DH);
-    lobby.layout(DW, DH);
-    settings.layout(DW, DH);
-    shop.layout(DW, DH);
-    wheel.layout(DW, DH);
-    daily.layout(DW, DH);
-    tasks.layout(DW, DH);
-    langPicker.layout(DW, DH);
+    for (const s of scenes) s.obj.layout(DW, DH);
   };
   resize();
 
   // RE-LETTERING BROADCAST — the language-change twin of resize() above. Same
-  // shape, same fixed list: when the picker's Confirm swaps the string table in,
+  // shape, same registry: when the picker's Confirm swaps the string table in,
   // every scene is told to rebuild the text it assembles in code ("Level 12",
   // a countdown, a task title). Labels that carry their own key re-letter
   // themselves inside i18n.refresh(), before this runs.
@@ -223,14 +240,10 @@ async function boot() {
   const relocalize = () => {
     // The mapped tag, not the internal code — same reason as the boot path above.
     document.documentElement.lang = bcp47(i18n.code);
-    scene.relocalize();
-    lobby.relocalize();
-    settings.relocalize();
-    shop.relocalize();
-    wheel.relocalize();
-    daily.relocalize();
-    tasks.relocalize();
-    langPicker.relocalize();
+    // Called unconditionally, not with `?.`: a scene in the registry that has
+    // no relocalize() must fail loudly on the first language change rather than
+    // quietly keeping the text it was built with.
+    for (const s of scenes) s.obj.relocalize();
   };
   i18n.onChange(relocalize);
 
@@ -619,18 +632,18 @@ async function boot() {
             });
           }
         };
-        // Base scene first (only one of lobby/level is visible at a time), then any
-        // open overlay on top.
-        add("lobby", lobby);
-        add("level", scene);
-        add("settings", settings);
-        add("shop", shop);
-        add("wheel", wheel);
-        add("daily", daily);
-        add("tasks", tasks);
-        add("language", langPicker);
+        // In registry (z-)order. Only one of lobby/level is ever visible at a
+        // time and add() skips the hidden ones, so which of the two comes first
+        // is not observable; every consumer matches on scene + name anyway.
+        for (const { key, obj } of scenes) add(key, obj);
         return out;
       },
+      // The scene registry itself: the single list main.js broadcasts layout(),
+      // relocalize() and controls() over. Returns the LIVE array, so a test can
+      // register a probe scene into it and prove all three broadcasts really
+      // reach a newly added member — the property the registry exists for, and
+      // one that could not be expressed while there were four lists.
+      sceneRegistry: () => scenes,
       // Tray sizing: the per-level slot size, the on-screen board tile size it
       // tracks (TILE_DRAW * boardScale), and the clamp bounds (used by tray_size
       // test). `slots` is how many cells are DRAWN and `capacity` how many the tray
