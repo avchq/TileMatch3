@@ -49,7 +49,10 @@ const PALETTE_SIZE = 20;
 // any level number outside the configured range.
 export function typesForLevel(levelNum) {
   const spec = LEVELS[levelNum - 1]?.types ?? 5;
-  if (!Array.isArray(spec)) return spec; // bare integer = fixed count
+  // Bare integer = fixed count. Clamped to the same bounds the range branch
+  // below uses: an unclamped one indexes past `tileTextures`, and Pixi quietly
+  // substitutes Texture.EMPTY for the miss — invisible tiles that still take taps.
+  if (!Array.isArray(spec)) return Math.max(1, Math.min(PALETTE_SIZE, Math.floor(spec) || 5));
   const min = Math.max(1, Math.min(spec[0], spec[1]));
   const max = Math.min(PALETTE_SIZE, Math.max(spec[0], spec[1]));
   const rng = mulberry32((levelNum * 0x85ebca6b) >>> 0);

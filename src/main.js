@@ -10,7 +10,7 @@ import { makePayments } from "./user/payments.js";
 import { makeTileTextures, makeSlotTexture, tilesFontReady, emojiPaints, TILE_EMOJIS } from "./icons.js";
 import { AudioManager } from "./audio.js";
 import { AssetManager, PRELOAD_GROUPS, MANIFEST, buildLevelGroups, levelGroup } from "./assets.js";
-import { loadLevels } from "./levelConfig.js";
+import { loadLevels, typesForLevel } from "./levelConfig.js";
 import { UserStore } from "./user/UserStore.js";
 import { CONFIG } from "./config.js";
 import { createSplash } from "./splash.js";
@@ -1110,6 +1110,12 @@ async function boot() {
       // Force "now" / the week-key (weekly reset + countdown tests).
       setTasksNow: (iso) => { tasks._nowOverride = iso; tasks.checkRollover(); lobby.refreshFeatures(); },
       setTasksWeek: (key) => { tasks._weekOverride = key; tasks.checkRollover(); lobby.refreshFeatures(); },
+      // ---- the level table (assets/config/levels.json) ----
+      // The distinct tile-face count a level resolves to — the pure config read
+      // (src/levelConfig.js), exposed the same way chestInfo exposes the chest
+      // schedule, so a test can assert the palette clamp on a hostile `types`
+      // row without loading that level's art.
+      levelTypes: (n) => typesForLevel(n),
       // ---- level chest ----
       // The chest state implied by having cleared up to `level` — index / filled /
       // needed / label / reward / full — straight from the schedule (no UI needed),

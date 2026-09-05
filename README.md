@@ -177,7 +177,10 @@ An *unlocked* helper is only **disabled/greyed** when there's **no move to make*
 always yields a use. A **locked** one is greyed regardless: no amount of coins
 buys past a progression gate. The **coin prices** live
 in a JSON config (`assets/config/prices.json`) so they're tunable without touching
-code.
+code. A price is read through a small clamp (`coinPrice` in `src/game.js`): a
+negative or fractional entry floors to a non-negative whole number, and anything
+that isn't a number at all reads as **no price**, which degrades the bubble to the
+watch-an-ad tier instead of printing garbage next to the coin icon.
 
 #### The coached first use
 
@@ -279,7 +282,9 @@ its three buttons):
   **Undo**s pops them off the top of the stack); input is locked until the last tile
   lands, then play resumes. The continue **price** lives in the
   same `assets/config/prices.json` (the `continue` key), so it's tunable without
-  touching code.
+  touching code, and reads through the same `coinPrice` clamp as the boosters — a
+  negative entry floors to `0` and a non-numeric one degrades to no price (the ad
+  tier), so the button never shows a figure the wallet wouldn't charge.
 
 **Coins** are a spendable currency shown in a **coin pill** at the top-right of
 both the lobby and the level HUD. Clearing a level itself **pays nothing** — the
@@ -590,7 +595,10 @@ The **goal table** lives in `assets/config/tasks.json` — `achievements[]` (cha
 with a `tiers[]` of `{target, reward}`) and `weekly[]` (flat `{activity, target,
 reward}` rows), rewards written as `{type, amount}` with the same
 `coins`/`undo`/`wand`/`shuffle` vocabulary as the wheel and the gift. Adding
-**tiers** to an existing chain is a change to that file alone; adding a genuinely
+**tiers** to an existing chain is a change to that file alone; a row naming a
+reward `type` nothing in `REWARD_GRANT` (`src/rewards.js`) can pay is refused at
+claim time — a `console.warn` and the row stays on the list uncollected — rather
+than marking the tier claimed for a reward it never grants. Adding a genuinely
 **new kind** of task needs four things — the rows, a `titles` entry naming its
 **text key** (plus that key in all 13 language files, see
 [Localization](#localization)), an icon in the `ACTIVITY` map at the top of
@@ -663,7 +671,10 @@ The chest **schedule** is a JSON data table, `assets/config/levelChest.json` (on
 `[id, levelId, "itemId|count"]` row per milestone; item ids `0`=coins, `10`=Undo,
 `11`=Hint→wand, `12`=Shuffle, `20`=Lightning→coins). Its one pacing knob — the
 **repeat-start** index — lives in `src/config.js` (`features.levelChest.repeatStart`,
-shipped `6`, i.e. the 7th milestone/level 64 begins the looping tail).
+shipped `6`, i.e. the 7th milestone/level 64 begins the looping tail). A shipped
+table shorter than that repeat-start has no tail left to loop; `infoFor` degrades
+to **no chest at all** past the last authored milestone (the same `null` every
+caller already handles) rather than indexing off the end of the table.
 
 ### Super Wand — an earned upgrade to the Wand
 The **Super Wand** is the Wand's upgraded form, and the only helper in the game
@@ -2160,6 +2171,10 @@ editing:
   mismatch is a 404, and since a group is only marked loaded once every one of its
   assets arrives (see Asset management below), that 404 now leaves the *whole
   level* unloaded rather than just a missing background.
+- A bare-integer `types` is clamped to `[1, PALETTE_SIZE]` by `typesForLevel()`,
+  the same bounds the `[min, max]` range form already enforced. An unclamped value
+  above the palette used to index past `tileTextures` — Pixi silently substitutes
+  `Texture.EMPTY`, so the board renders invisible tiles that are still tappable.
 
 ### Asset management (`src/assets.js` + `src/audio.js`)
 Assets are organised into groups: a shared `core` group plus one `levelN` group

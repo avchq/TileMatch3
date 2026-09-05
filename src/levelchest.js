@@ -93,12 +93,19 @@ export class LevelChest {
       // Past the last authored milestone: the tail [repeatStart .. end] loops.
       // Every looped chest is 16 wins wide (the tail is uniformly 16-spaced), so
       // the completion levels are simply last + 16, last + 32, …
-      const tailLen = this.count - this.repeatStart;
+      // A schedule shorter than repeatStart has no tail to loop, and `% 0` is
+      // NaN — which used to index the list with NaN and throw on `.reward`,
+      // from inside the win overlay's own build (src/game.js _showOverlay).
+      // Clamp the divisor, then refuse outright if the index still lands
+      // outside the table: "no chest" is a state every caller already handles,
+      // an exception mid-render is not.
+      const tailLen = Math.max(1, this.count - this.repeatStart);
       const t = Math.ceil((lv - last) / 16); // 1-based chest past the schedule end
       thisLevel = last + 16 * t;
       prev = thisLevel - 16;
       // Which authored milestone's reward this looped chest carries.
       index = this.repeatStart + ((t - 1) % tailLen);
+      if (!m[index]) return null;
       reward = m[index].reward;
     }
 

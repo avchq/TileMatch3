@@ -846,6 +846,25 @@ Only `howtoplay_test.py` leaves it open.
   (`CONFIG.network.fetchTimeoutMs`) confirming the bound is `src/config.js`, not
   an inlined constant. Slower than most (60-90s): the stalled-fetch case
   deliberately waits out a timeout plus its retry.
+- **`config_tables_test.py`** — the six JSON config tables survive a bad row
+  (DATA-03), routed hostile with `page.route`/`route.fulfill` so the real
+  fetch-then-load path runs on them, not a unit stub. A 3-milestone
+  `levelChest.json` (shorter than `repeatStart`): `chestInfo` past the end
+  returns `null` and the win overlay still builds instead of throwing mid-render.
+  A `tasks.json` chain paying an unknown reward type `"gems"`: the claim is
+  refused and the row survives, while a grantable row beside it still pays. A
+  `prices.json` with a negative and a non-numeric price: `boosterPrice`/
+  `continuePrice` read `0` and `null`, and the on-screen badge shows `"0"`
+  rather than a negative number. A `levels.json` with a bare-integer `types`
+  above the palette: `levelTypes()` clamps it. A final browser-free section
+  walks the **shipped** tables for invariants nothing checked before —
+  achievement tiers ascend strictly, every reward/prize type across
+  `tasks.json` / `levelChest.json` / `turntable.json` / `dailybonus.json` is
+  grantable, `levelChest.json` milestones ascend and the table is longer than
+  `repeatStart`, every `levels.json` `types` sits inside the palette, and every
+  price is a non-negative number. Uses the `window.__game.levelTypes(n)` seam
+  (reports the distinct tile-face count level `n` resolves to) alongside the
+  existing `chestInfo` chest hook.
 
 ### Key parameters
 

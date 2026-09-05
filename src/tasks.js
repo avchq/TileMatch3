@@ -34,7 +34,7 @@
 
 import { tween, easeOutCubic, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
-import { rewardBooster, grantReward, makeRewardIcon, flyReward, bumpReward } from "./rewards.js";
+import { rewardBooster, rewardIsKnown, grantReward, makeRewardIcon, flyReward, bumpReward } from "./rewards.js";
 import { fitTextWidth, makeButton, makeProgressBar } from "./layout.js";
 import { CONFIG } from "./config.js";
 import { t, locText } from "./i18n.js";
@@ -666,6 +666,18 @@ export class TasksScene extends PIXI.Container {
     if (!row || !row.claimable || this._claiming) return;
     // A drag that ends over a Claim button must not also claim it.
     if (this._dragged) { this._dragged = false; return; }
+    // The claim is committed BEFORE the reward is granted (see below), and a
+    // claimed achievement tier is never un-claimed — the ledger is not wiped by
+    // anything. So a goal table naming a reward type nothing can pay would burn
+    // the tier and grant nothing, for good. Refuse the claim instead: the row
+    // stays on the list, collectable the moment the config is corrected.
+    if (!rewardIsKnown(row.reward && row.reward.type)) {
+      console.warn(`[tasks] "${row.id}" pays an unknown reward type ` +
+                   `"${row.reward && row.reward.type}" — claim refused rather than ` +
+                   "consumed (add it to REWARD_GRANT in src/rewards.js, or fix " +
+                   "assets/config/tasks.json)");
+      return;
+    }
     if (!this.user.markTaskClaimed(row.id, row.weekly)) return;  // commit first: no double pay
 
     this._claiming = true;

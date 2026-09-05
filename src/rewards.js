@@ -40,6 +40,15 @@ export const REWARD_GRANT = {
 // (makeCoinIcon) rather than 🪙, which the emoji fonts render silver.
 export const REWARD_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀", lightning: "⚡" };
 
+/** Is this a type anything knows how to pay? The tables are edited without
+ *  touching source, so a feature that COMMITS a claim before granting it (Tasks
+ *  marks the tier claimed first, so a double tap can't pay twice) has to ask
+ *  before committing — otherwise a mistyped row consumes the claim and grants
+ *  nothing, permanently. */
+export function rewardIsKnown(type) {
+  return !!REWARD_GRANT[type];
+}
+
 /** True when `type` is credited to the wallet rather than to the booster
  *  inventory. Coins and the lightning bonus both are. */
 export function rewardIsCoins(type) {

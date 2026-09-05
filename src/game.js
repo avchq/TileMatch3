@@ -46,6 +46,14 @@ const SLOT_MIN = 56;      // floor so a very dense level's tray tiles stay tappa
 const slotMaxFor = (n) =>
   (DESIGN_W - 2 * SLOT_MARGIN - 2 * SLOT_PAD - (n - 1) * SLOT_GAP) / n;
 
+// A coin price out of assets/config/prices.json, read the way the WALLET reads
+// it: User.debit floors and clamps to non-negative, so a badge printing the raw
+// number could advertise a price nothing would ever charge (a "-10" helper was
+// free). Anything that is not a finite number is not a price at all — null,
+// which degrades the button from "buy" to "watch an ad".
+const coinPrice = (v) =>
+  (typeof v === "number" && Number.isFinite(v)) ? Math.max(0, Math.floor(v)) : null;
+
 const BOARD_AREA = { x: 375, top: 250, bottom: 1030 };
 const TRAY_Y = 1140;
 
@@ -128,7 +136,7 @@ export class GameScene extends PIXI.Container {
     // to the board and keep playing. Tunable via the same JSON config (prices.json,
     // "continue" key). null when unconfigured — Continue then always falls back to
     // the free rewarded-ad tier.
-    this.continuePrice = (prices && typeof prices.continue === "number") ? prices.continue : null;
+    this.continuePrice = coinPrice(prices && prices.continue);
 
     this.bgLayer = new PIXI.Container();
     this.boardLayer = new PIXI.Container();
@@ -309,8 +317,7 @@ export class GameScene extends PIXI.Container {
   // Coin price to buy one use of a helper when its stock is empty (null if the
   // config has no price for it — then it simply can't be bought in-level).
   _boosterPrice(kind) {
-    const p = this.boosterPrices[kind];
-    return typeof p === "number" ? p : null;
+    return coinPrice(this.boosterPrices[kind]);
   }
 
   // Buy one use of a helper with coins (used only when the inventory is empty).
