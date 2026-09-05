@@ -6,8 +6,8 @@
 # whichever buttons are currently available. The regression it guards: the two
 # buttons used to hard-code their y (214 / 396) and hide independently, so an
 # unavailable Free Spin left a HOLE with the gift button floating below it —
-# which is what every new player saw (the wheel unlocks at level 5, the gift at
-# level 1). Now #2 takes #1's slot when #1 goes away, and gives it back when #1
+# which is what every new player saw (the wheel opens after clearing level 4,
+# the gift from the very start). Now #2 takes #1's slot when #1 goes away, and gives it back when #1
 # returns, and both movements are animated.
 
 import subprocess, time, sys, os
@@ -47,7 +47,10 @@ with sync_playwright() as p:
     def y(name):     return page.evaluate(f"window.__game.lobby.{name}.y")
     def shown(name): return page.evaluate(f"window.__game.lobby.{name}.visible")
     def setday(k):   page.evaluate(f"window.__game.setDailyToday('{k}')")
-    def setlevel(n): page.evaluate(f"window.__game.setLevel({n})")
+    # The wheel's gate is the profile's (completedLevel() >= unlockLevel - 1),
+    # so CLEARS are what open and close it — setLevel moves a derived field and
+    # no longer touches any gate (see unlockgate_test.py).
+    def setcompleted(n): page.evaluate(f"window.__game.setCompleted({n})")
 
     def wait_still(timeout=15):
         """Wait for the rail's tweens to land instead of sleeping a guess at
@@ -85,7 +88,7 @@ with sync_playwright() as p:
     seen = page.evaluate("""() => new Promise(resolve => {
             const btn = window.__game.lobby.dailyBtn;
             const seen = [];
-            window.__game.setLevel(5);          // >= the wheel's unlockLevel
+            window.__game.setCompleted(4);      // cleared the wheel's unlockLevel - 1
             (function tick() {
                 seen.push(btn.y);
                 if (btn.y >= 395 || seen.length > 300) resolve(seen);
@@ -112,7 +115,7 @@ with sync_playwright() as p:
     # entering button therefore waits out the reflow before it fades in.
     # Sample both buttons every frame through the whole transition and assert
     # their bounds never intersect while both are on screen.
-    setlevel(1)
+    setcompleted(1)
     time.sleep(0.7)
     worst = page.evaluate("""() => new Promise(resolve => {
             const L = window.__game.lobby, s = window.__game.app.stage.scale.x || 1;
@@ -120,7 +123,7 @@ with sync_playwright() as p:
                 ? (() => { const r = b.getBounds(); return {x: r.x, y: r.y, w: r.width, h: r.height}; })()
                 : null;
             let worst = 0, until = performance.now() + 3000;
-            window.__game.setLevel(5);           // Free Spin returns -> full reflow
+            window.__game.setCompleted(4);       // Free Spin returns -> full reflow
             (function tick() {
                 const a = box(L.wheelBtn), b = box(L.dailyBtn);
                 if (a && b) {
@@ -141,7 +144,7 @@ with sync_playwright() as p:
     seen = page.evaluate("""() => new Promise(resolve => {
             const btn = window.__game.lobby.dailyBtn;
             const seen = [];
-            window.__game.setLevel(1);          // re-locks the wheel
+            window.__game.setCompleted(1);      // re-locks the wheel
             (function tick() {
                 seen.push(btn.y);
                 if (btn.y <= 215 || seen.length > 300) resolve(seen);
@@ -162,7 +165,7 @@ with sync_playwright() as p:
     # ---- 4. Only Free Spin available => it keeps slot #1, gift is gone ---
     # Claim today's gift for real (tapping a box commits the claim), then
     # unlock the wheel: the rail is left with a single occupant in slot 0.
-    setlevel(5)
+    setcompleted(4)
     time.sleep(0.6)
     page.evaluate("window.__game.forceDailyPrize(9)")   # coins 50 — deterministic
     page.evaluate("window.__game.openDailyBonus()")
@@ -187,7 +190,7 @@ with sync_playwright() as p:
     assert abs(y("wheelBtn") - SLOT0) < TOL, ("Free Spin still parked in slot 0", y("wheelBtn"))
 
     # ---- 6. Empty rail, then a return ----------------------------------
-    setlevel(1)                                   # both features now unavailable
+    setcompleted(1)                               # both features now unavailable
     r = wait_still()
     assert shown("wheelBtn") is False and shown("dailyBtn") is False, ("empty rail", r)
     setday("2050-06-16")                          # a new day re-arms the gift

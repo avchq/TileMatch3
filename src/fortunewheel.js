@@ -10,9 +10,10 @@
 // day / spinsUsed / won / seen); grants go through user.credit / user.grantBooster
 // so they autosave and refresh the HUD counters live. Nothing here is hardcoded:
 // the PRIZE TABLE comes from assets/config/turntable.json (passed in as cfg) and
-// the slice count is built from the active group, while the feature's GATE and
-// PACING (unlock level, spins per cycle, headline prize) come from
-// CONFIG.features.fortuneWheel in src/config.js, alongside every other gate.
+// the slice count is built from the active group, while the feature's PACING
+// (spins per cycle, headline prize) comes from CONFIG.features.fortuneWheel in
+// src/config.js. Its GATE is configured there too (`unlockLevel`) but is read
+// through the profile — user.isFortuneWheelUnlocked() — like every other gate.
 
 import { tween, delay, easeInCubic, easeOutCubic, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
@@ -50,10 +51,10 @@ export class FortuneWheelScene extends PIXI.Container {
     this.user = user;
     this.onBack = null;            // () => void — optional hook when the overlay closes
 
-    // Prize DATA from the JSON config; GATE + PACING from src/config.js.
+    // Prize DATA from the JSON config; PACING from src/config.js. The GATE is
+    // the profile's (user.isFortuneWheelUnlocked()) — the wheel keeps no copy.
     cfg = cfg || {};
     this.groups = Array.isArray(cfg.groups) ? cfg.groups : [];
-    this.unlockLevel = CONFIG.features.fortuneWheel.unlockLevel;
     this.spinsPerCycle = CONFIG.features.fortuneWheel.spinsPerCycle;
     this.headlinePrize = CONFIG.features.fortuneWheel.headlinePrize;
 
@@ -99,7 +100,7 @@ export class FortuneWheelScene extends PIXI.Container {
    *  state isn't cycled early (mirrors the isOpen()/initLuckWheelData gate).
    *  Also handles the very first cycle (stored day "" -> group 0 becomes 1). */
   checkRollover() {
-    if (this.user.progress.level < this.unlockLevel) return;
+    if (!this.user.isFortuneWheelUnlocked()) return;
     const today = this._today();
     if (this.user.wheelDay() !== today) {
       this.user.advanceWheelCycle(today, this.groups.length || 1);

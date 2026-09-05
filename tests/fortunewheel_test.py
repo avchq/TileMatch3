@@ -35,7 +35,9 @@ with sync_playwright() as p:
     def badges():    return page.evaluate("window.__game.wheelBadges()")
     def coins():     return page.evaluate("window.__game.balance('coins')")
     def undo():      return page.evaluate("window.__game.boosterCount('undo')")
-    def unlock5():   page.evaluate("window.__game.store.user.setLevel(5)")
+    # The gate is the profile's: cleared unlockLevel - 1, like every other
+    # feature (unlockgate_test.py owns the convention).
+    def unlock5():   page.evaluate("window.__game.setCompleted(4)")
     def open_w():    page.evaluate("window.__game.openWheel()")
     def force(i):    page.evaluate(f"window.__game.forceWheelPrize({i})")
     def admode(m):   page.evaluate(f"window.__game.setWheelAdResult('{m}')")
@@ -89,7 +91,7 @@ with sync_playwright() as p:
     unlock5()
     setday(T0)                    # pin the wheel's clock for the rest of the run
     s = st()
-    assert s["unlocked"] is True, ("unlocked at level 5", s)
+    assert s["unlocked"] is True, ("unlocked once level 4 is cleared", s)
     assert s["buttonVisible"] is True, ("lobby button appears once unlocked", s)
     bd = badges()
     assert bd["new"] is True, ("carries the NEW badge until first open", bd)
@@ -173,7 +175,7 @@ with sync_playwright() as p:
     s = st()
     assert s["group"] == 1 and s["spinsUsed"] == 2 and s["won"] == [0, 1], ("cycle state survives a reload", s)
     assert s["seen"] is True and coins() == 30, ("seen flag + wallet survive a reload", s, coins())
-    assert s["unlocked"] is True, ("level (progress) survived", s)
+    assert s["unlocked"] is True, ("progress (the gate) survived", s)
 
     # ---- 4. Ad path: cancel/fail spend nothing; succeed spins ----------
     open_w()

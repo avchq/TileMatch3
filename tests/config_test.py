@@ -155,13 +155,18 @@ with sync_playwright() as p:
     # The Fortune Wheel's gate + spin budget come from the config too.
     page.evaluate("window.__game.exitLevel()")
     time.sleep(0.5)
+    # Like every other gate it follows the documented "cleared level N-1" rule,
+    # so it is driven with setCompleted, not setLevel (unlockgate_test.py owns
+    # the convention itself). setCompleted moves in both directions, which
+    # completeLevel deliberately cannot.
     wheel_lvl = C["features"]["fortuneWheel"]["unlockLevel"]
-    page.evaluate(f"window.__game.setLevel({wheel_lvl - 1})")
+    page.evaluate(f"window.__game.setCompleted({wheel_lvl - 2})")
     time.sleep(0.3)
     w = page.evaluate("window.__game.wheelState()")
     print("WHEEL BELOW GATE ->", w["unlocked"], w["buttonVisible"])
+    assert w["unlockLevel"] == wheel_lvl, w
     assert w["unlocked"] is False and w["buttonVisible"] is False, w
-    page.evaluate(f"window.__game.setLevel({wheel_lvl})")
+    page.evaluate(f"window.__game.setCompleted({wheel_lvl - 1})")
     time.sleep(0.3)
     w = page.evaluate("window.__game.wheelState()")
     print("WHEEL AT GATE ->", w["unlocked"], w["spinsLeft"])
@@ -178,12 +183,15 @@ with sync_playwright() as p:
     assert json.loads(text(f"{lang['textDir']}/{lang['defaultLanguage']}.json"))
 
     # The Daily Bonus is gated the same way (shipped as 1 = from the start).
+    daily_lvl = C["features"]["dailyBonus"]["unlockLevel"]
     d = page.evaluate("window.__game.dailyBonusState()")
-    assert d["unlocked"] is (wheel_lvl >= C["features"]["dailyBonus"]["unlockLevel"]), d
+    assert d["unlockLevel"] == daily_lvl, d
+    assert d["unlocked"] is (page.evaluate("window.__game.completedLevel()")
+                             >= daily_lvl - 1), d
 
-    # Tasks reads its gate + weekly reset weekday from the config too. Its gate
-    # follows the documented "cleared level N-1" convention (like the shop),
-    # not the wheel's "reached level N" — so drive it with completeLevel.
+    # Tasks reads its gate + weekly reset weekday from the config too, and
+    # follows the same "cleared level N-1" convention as every other gate — so
+    # drive it with completeLevel.
     tasks_lvl = C["features"]["tasks"]["unlockLevel"]
     t = page.evaluate("window.__game.tasksState()")
     assert t["unlockLevel"] == tasks_lvl, t
@@ -254,7 +262,8 @@ with sync_playwright() as p:
         "src/game.js": ["AUTO_MIN_LEVEL", "AUTO_MAX_TILES",
                         "TUTORIAL_LEVEL", "TRAY_SLOTS"],
         "src/user/User.js": ["BOOSTER_UNLOCKS", "SHOP_UNLOCK_LEVEL", "TASKS_UNLOCK_LEVEL",
-                             "EXTRA_SLOT_UNLOCK_LEVEL"],
+                             "EXTRA_SLOT_UNLOCK_LEVEL", "FORTUNE_WHEEL_UNLOCK_LEVEL",
+                             "DAILY_BONUS_UNLOCK_LEVEL"],
         "src/user/UserStore.js": ["SAVE_DEBOUNCE_MS"],
         # The language table's fetch bound. It reads CONFIG.network.fetchTimeoutMs
         # like src/net.js does, so every bounded fetch in the game agrees on what

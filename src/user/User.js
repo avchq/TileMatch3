@@ -9,13 +9,17 @@ import { CONFIG } from "../config.js";
 export const SCHEMA_VERSION = 8;
 
 // Every tunable this model reads — the starting wallet and booster inventory,
-// the helper unlock schedule and the shop's gate — lives in src/config.js,
-// documented there. The two tables are pulled out as local aliases so the logic
-// below stays readable; config.js remains the only place to EDIT them.
+// the helper unlock schedule and EVERY feature gate — lives in src/config.js,
+// documented there. The tables and levels are pulled out as local aliases so the
+// logic below stays readable; config.js remains the only place to EDIT them.
+// This model owns all of the gates (the is*Unlocked family), in the one spelling
+// config.js's level-convention note documents; no scene re-derives one.
 const BOOSTER_UNLOCKS = CONFIG.boosters.unlocks;
 const SUPER_WAND = CONFIG.boosters.superWand;
 const SHOP_UNLOCK_LEVEL = CONFIG.features.shop.unlockLevel;
 const TASKS_UNLOCK_LEVEL = CONFIG.features.tasks.unlockLevel;
+const FORTUNE_WHEEL_UNLOCK_LEVEL = CONFIG.features.fortuneWheel.unlockLevel;
+const DAILY_BONUS_UNLOCK_LEVEL = CONFIG.features.dailyBonus.unlockLevel;
 const TASK_ACTIVITIES = CONFIG.features.tasks.activities;
 const EXTRA_SLOT_UNLOCK_LEVEL = CONFIG.board.extraSlot.unlockLevel;
 
@@ -300,6 +304,16 @@ export class User {
    *  counters behind it tick from level 1 regardless — only the entry point
    *  waits, so a player arriving at the gate finds their history already there. */
   isTasksUnlocked() { return this.completedLevel() >= TASKS_UNLOCK_LEVEL - 1; }
+  /** Is the Fortune Wheel offered yet? The same derived-from-progress gate, so
+   *  the lobby rail and the wheel itself both stop spelling the convention: the
+   *  stored `progress.level` is DERIVED (min(completed + 1, maxLevel)), which is
+   *  why it must never be what a gate reads — a QA jump, or any future screen
+   *  that sets the level backwards, would move it without clearing anything. */
+  isFortuneWheelUnlocked() { return this.completedLevel() >= FORTUNE_WHEEL_UNLOCK_LEVEL - 1; }
+  /** Is the Daily Bonus offered yet? Same rule again. The shipped gate is 1 —
+   *  "available from the very start" — so this reads `>= 0` and the gift is the
+   *  first thing a brand-new player is offered. */
+  isDailyBonusUnlocked() { return this.completedLevel() >= DAILY_BONUS_UNLOCK_LEVEL - 1; }
   /** Is the tray's 8th cell drawn (and its "+1" video offered) yet? The same
    *  derived-from-progress gate again, which is what makes it read the CAMPAIGN
    *  level rather than the level of the board being played — so a replay of an

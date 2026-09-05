@@ -143,10 +143,10 @@ with sync_playwright() as p:
 
         # Lobby with the wheel unlocked too (progression), so the wheel button's
         # column is also checked against the title.
-        page.evaluate("window.__game.setLevel(99)")
+        page.evaluate("window.__game.setCompleted(4)")
         time.sleep(0.2)
         check(page, f"{tag} lobby-hi", {"lobby"})
-        page.evaluate("window.__game.setLevel(1)")
+        page.evaluate("window.__game.setCompleted(0)")
         time.sleep(0.15)
 
         # Lobby with Tasks unlocked as well. That button rides the RIGHT-edge

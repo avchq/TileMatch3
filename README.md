@@ -377,7 +377,12 @@ available button sits, never *whether* it is offered (Free Spin: unlocked by
 progression and spins left this cycle; Daily Bonus: unlocked by progression and
 today's gift unclaimed; Super Wand: unlocked by progression and then permanently,
 whether the streak it reports is empty, filling or full; Tasks: unlocked by
-progression, and then permanently).
+progression, and then permanently). "Unlocked by progression" is the **one**
+derived rule for all four — `user.isFortuneWheelUnlocked()` /
+`isDailyBonusUnlocked()` / `isSuperWandUnlocked()` / `isTasksUnlocked()`, each
+`completedLevel() >= unlockLevel - 1` (see *Key parameters* below). The lobby
+never compares levels itself: `progress.level` is derived and can move without
+anything being cleared.
 Because the wheel unlocks at level **5** and the gift at level **1**, a new player
 sees the gift alone, in the **first** slot of the left rail, with the Super Wand
 read-out and the right rail both empty until level **10**.
@@ -2080,6 +2085,14 @@ sections are:
 Every `unlockLevel` reads **"available from level N onward"**, i.e. it opens once
 the player has *cleared* level N-1; gates are derived from `progress.completed`,
 never stored, so a QA jump to a later level is honoured with nothing to repair.
+There is exactly **one** implementation of that rule, and it lives on the profile:
+the `is*Unlocked()` family in `src/user/User.js` (shop, tasks, helpers, Super
+Wand, the 8th slot, the Fortune Wheel and the Daily Bonus), each a one-liner
+`completedLevel() >= unlockLevel - 1`. No scene re-derives a gate, and nothing
+outside `User.js` reads the *other* progress field, `progress.level` — that one
+is derived (`min(completed + 1, maxLevel)`) and can move without anything being
+cleared, so a gate reading it would open on a QA jump and re-close if a level
+were ever replayed. `tests/unlockgate_test.py` holds the line.
 
 Two kinds of value deliberately stay **out** of it:
 - **Layout/visual constants** (panel sizes, slot pitch, colours, tween
@@ -2244,7 +2257,11 @@ publishing on **Facebook Instant, Reddit, and Telegram**:
   until the player is actually in a level),
   the **shop** gate (`CONFIG.features.shop.unlockLevel` + `isShopUnlocked()`, derived from
   `completed` the same way and with nothing to grant — it only decides whether the
-  coin pill offers the store),
+  coin pill offers the store), the **Fortune Wheel** and **Daily Bonus** gates
+  (`isFortuneWheelUnlocked()` / `isDailyBonusUnlocked()`, the same one-liner over
+  `completed` — the scenes and the lobby rail keep **no** copy of the level, and
+  nothing outside this model reads `progress.level`, which is derived
+  (`min(completed + 1, maxLevel)`) and so is never what a gate may consult),
   `settings` (`music`, `sound`), and the **Fortune Wheel**
   per-cycle state (`fortuneWheel` — `group`/`day`/`spinsUsed`/`won`/`seen`, mutated
   via `advanceWheelCycle`/`recordWheelSpin`/`markWheelSeen`, emitting a

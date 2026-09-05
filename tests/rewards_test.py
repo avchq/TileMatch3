@@ -160,7 +160,7 @@ with sync_playwright() as p:
     # The three sibling collects have always granted outright when the geometry
     # can't be measured; the wheel — the ORIGINAL the other three say they copy
     # — never got the fix back-ported, and threw with the spin already spent.
-    page.evaluate("window.__game.store.user.setLevel(5)")
+    page.evaluate("window.__game.setCompleted(4)")   # opens the wheel's gate
     page.evaluate("window.__game.setWheelToday('2050-06-15')")
     page.evaluate("window.__game.openWheel()")
     harness.settle(page, "window.__game.wheelState().overlayOpen === true")

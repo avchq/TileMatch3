@@ -224,6 +224,12 @@ the first-run flow before they can drive the ordinary game:
   lifts one helper button out of the HUD and blocks all other input until it is
   used. That is `boostercoach_test.py`'s subject; for every other test it is an
   unexpected modal parked over the board, so take the lesson as read.
+- needing a feature **gate moved in either direction** (`featurerail`,
+  `fortunewheel`, `config`, `resize_overlap`, `unlockgate`) →
+  `window.__game.setCompleted(n)`. Every gate is the profile's
+  `completedLevel() >= unlockLevel - 1`, and `completeLevel()` is monotonic on
+  purpose, so it can open a gate but never close one again. `setLevel(n)` moves
+  the *derived* `progress.level` and no longer touches any gate at all.
 
 **Note:** **every** entry into level 1 — a boot into it, `startLevel(1)`, or the
 lose overlay's **Replay** — opens the modal **"How To Play"** popup, which locks the
@@ -303,8 +309,8 @@ Only `howtoplay_test.py` leaves it open.
 - **`featurerail_test.py`** — the lobby's **feature-button rail**
   (`src/featurerail.js`): the feature buttons fill **consecutive slots** down the
   left edge in the fixed priority order (1. Free Spin, 2. Daily Bonus), with **no
-  holes**. Regression guard: with the wheel still locked (below level 5) the Daily
-  Bonus button must sit in the **first** slot (y 214) — it used to hard-code y 396
+  holes**. Regression guard: with the wheel still locked (level 4 not cleared) the
+  Daily Bonus button must sit in the **first** slot (y 214) — it used to hard-code y 396
   and float under an empty slot. Unlocking the wheel makes it **reclaim slot 0**
   while the gift **slides back down** to slot 1, and re-locking it promotes the gift
   again — both moves asserted to be **animated** by sampling the button's `y` every
@@ -521,8 +527,9 @@ Only `howtoplay_test.py` leaves it open.
 ### Fortune Wheel
 
 - **`fortunewheel_test.py`** — the daily prize wheel (`src/fortunewheel.js`). The lobby
-  button is **gated on progression** (hidden below the config `unlockLevel`, shown
-  once reached) and carries a **NEW** badge (until first open) and a **free-spin**
+  button is **gated on progression** (hidden until the config `unlockLevel` minus
+  one has been *cleared*, shown from then on — `unlockgate_test.py` owns the
+  convention) and carries a **NEW** badge (until first open) and a **free-spin**
   badge (until the free spin is used). Opening the wheel advances to the first
   daily group and builds the slice count **from the group** (8 prizes). The **free
   spin** grants its prize into the wallet/inventory, marks the slice won, consumes a
@@ -828,8 +835,9 @@ Only `howtoplay_test.py` leaves it open.
   rather than a copy that drifted (a new profile's wallet/inventory equal the
   configured starting values, each helper's unlock level and one-time grant match
   the schedule, the shop/wheel/daily/tasks gates open exactly at their
-  `unlockLevel` — note Tasks follows the documented "cleared level N-1"
-  convention, like the shop, so it is driven with `completeLevel` not `setLevel` —
+  `unlockLevel` — all four follow the documented "cleared level N-1" convention,
+  so they are driven with `completeLevel`/`setCompleted`, never `setLevel`
+  (`unlockgate_test.py` owns the convention itself) —
   the wheel offers `spinsPerCycle` spins, the tray lays out `traySlots` slots
   below the 8th slot's gate and `traySlots + extraSlot.grant` cells at it (with
   the capacity still at the base until the video is watched),
@@ -868,6 +876,26 @@ Only `howtoplay_test.py` leaves it open.
   level 2 flips it **live** (no reload) in the level *and* the lobby, the pill then
   opens the shop from either, and the unlock survives a reload (it is derived from
   the persisted `progress.completed`).
+- **`unlockgate_test.py`** — **one spelling for every unlock gate**. `src/config.js`
+  documents a gate of N as "opens once the player has *cleared* level N-1"
+  (`user.completedLevel() >= N - 1`), and the profile's `is*Unlocked()` family is
+  the single implementation. The Fortune Wheel and the Daily Bonus used to compare
+  the **derived** `progress.level` against a private `unlockLevel` copy instead, in
+  four places across three scenes. Two halves. The live half drives the real gates:
+  a bare `setLevel` jump to the gate must **not** open the wheel (it opened on the
+  spot before — `completed: 1, level: 5, unlocked: True`), clearing level N-1 does
+  open it (button on the rail, daily cycle rolled over), walking the level **back**
+  afterwards must not take it away again (it re-locked the wheel and the gift while
+  the shop, tasks, helpers, Super Wand and 8th slot stayed open — the "replay an
+  earlier level" divergence), a gate of `1` still means "from the very start", and
+  a sweep over 0..N clears asserts all five feature gates agree with
+  `completedLevel() >= unlockLevel - 1` and nothing else. The source half needs no
+  browser: only `User.js` and `main.js` may read `progress.level` at all, every
+  `is*Unlocked()` on the profile must be spelled the one way (the roster is
+  asserted, so a new gate has to be classified), and neither `fortunewheel.js` nor
+  `dailybonus.js` may keep a `this.unlockLevel` copy. Gates are moved with the
+  `setCompleted(n)` seam — non-monotonic in **both** directions, which
+  `completeLevel()` deliberately is not.
 - **`reset_test.py`** — resetting the profile restores progress, wallet, and
   settings to defaults while preserving the identity (`id`), and the reset
   persists across a reload.

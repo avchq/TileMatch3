@@ -862,6 +862,16 @@ async function boot() {
       // into the lobby rather than the first-run level). Also pays out any helper
       // unlocks that come due, exactly as winning the level would.
       completeLevel: (n) => user.completeLevel(n),
+      // Set `progress.completed` directly, in BOTH directions. completeLevel() is
+      // monotonic on purpose (it pays the one-time helper grants), so it cannot
+      // drive a gate back DOWN — and every unlock gate is the profile's
+      // `completedLevel() >= unlockLevel - 1`, so this is the knob that opens and
+      // closes them. setLevel() moves the DERIVED field and no longer touches any
+      // gate. Emits "progress" so the lobby's feature rail reflows live.
+      setCompleted: (n) => {
+        user.progress.completed = Math.max(0, Math.floor(n) || 0);
+        user._emit("progress");
+      },
       // Is the level currently on screen the guided first one (stripped chrome +
       // the demo opening moves)?
       firstRun: () => !!scene._firstRun,
@@ -948,7 +958,8 @@ async function boot() {
       // Press the on-screen spin button (exercises the button hit path).
       pressWheelSpin: () => wheel._spinBtn.emit("pointertap"),
       wheelState: () => ({
-        unlocked: user.progress.level >= wheel.unlockLevel,
+        unlocked: user.isFortuneWheelUnlocked(),
+        unlockLevel: CONFIG.features.fortuneWheel.unlockLevel,
         // Is the lobby button OFFERED. Not `wheelBtn.visible`: the feature rail
         // fades buttons in/out and holds an entering one back until the reflow
         // settles, so the raw flag lags the gate by up to half a second. Use
@@ -1001,7 +1012,8 @@ async function boot() {
       pressDailyDouble: () => daily._doubleBtn.emit("pointertap"),
       pressDailyClaim: () => daily._claimBtn.emit("pointertap"),
       dailyBonusState: () => ({
-        unlocked: user.progress.level >= daily.unlockLevel,
+        unlocked: user.isDailyBonusUnlocked(),
+        unlockLevel: CONFIG.features.dailyBonus.unlockLevel,
         buttonVisible: lobby.featureAvailable("dailyBonus"), // offered — see wheelState
         canClaim: daily.canClaim(),
         lastDay: user.dailyBonusLastDay(),

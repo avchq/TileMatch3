@@ -441,18 +441,24 @@ export class LobbyScene extends PIXI.Container {
   // ---- feature availability ------------------------------------------------
   // The rail asks these on every refresh to decide who gets a slot. They only say
   // WHETHER a feature is offered; WHERE its button sits is the rail's business.
+  //
+  // Every progression gate below is the PROFILE's (user.isXUnlocked(), i.e.
+  // completedLevel() >= unlockLevel - 1 — see the level-convention note in
+  // src/config.js). The lobby never compares levels itself: `progress.level` is
+  // derived and can move without anything being cleared, which used to re-lock
+  // the wheel and the gift while every other feature stayed open.
 
   // The wheel is offered once progression unlocks it and while the day's spins
   // aren't used up.
   _freeSpinAvailable() {
     const w = this.fortuneWheel;
-    return !!w && this.user.progress.level >= w.unlockLevel && w.canSpin();
+    return !!w && this.user.isFortuneWheelUnlocked() && w.canSpin();
   }
 
   // The gift is offered once progression unlocks it and while today's is unclaimed.
   _dailyBonusAvailable() {
     const d = this.dailyBonus;
-    return !!d && this.user.progress.level >= d.unlockLevel && d.canClaim();
+    return !!d && this.user.isDailyBonusUnlocked() && d.canClaim();
   }
 
   // The streak read-out is offered from its unlock level on, and then always:
@@ -464,8 +470,6 @@ export class LobbyScene extends PIXI.Container {
 
   // Tasks is offered from its unlock level on, and then permanently — unlike the
   // two daily features there is no "used up for today" state to hide it again.
-  // The gate is the profile's (completedLevel() >= N-1), the same derived rule the
-  // shop and the helpers use, so a QA level jump opens it with nothing to repair.
   // An empty goal table (a failed config fetch) withholds the button entirely.
   _tasksAvailable() {
     const t = this.tasks;
