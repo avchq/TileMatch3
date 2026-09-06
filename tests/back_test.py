@@ -79,6 +79,31 @@ with sync_playwright() as p:
     assert reloaded == coins_mid, f"coins must persist across reload: {reloaded} != {coins_mid}"
     assert page.evaluate("window.__game.inLobby()") is True, "reload lands on the lobby"
 
+    # -- loadLevel must leave no stale effects on fxLayer ------------------
+    # fxLayer is where the Auto Complete sweep stages its tiles
+    # (game.js autoComplete) and where the Super Wand burst draws
+    # (_spawnBurst). loadLevel clears overlayLayer, fxTopLayer and boardLayer;
+    # if it does not also clear fxLayer, anything the previous board left in
+    # flight survives into the new one. The reachable path is currently closed
+    # (PRAC-01 disabled Back for the duration of a sweep), so this stages a
+    # decoy directly rather than racing an animation it cannot interrupt —
+    # the invariant is "a new board starts with an empty fx layer", however
+    # the leftover got there.
+    page.evaluate("""() => {
+      const g = new PIXI.Graphics();
+      g.beginFill(0xff0000).drawRect(0, 0, 10, 10).endFill();
+      window.__game.scene.fxLayer.addChild(g);
+    }""")
+    staged = page.evaluate("window.__game.scene.fxLayer.children.length")
+    assert staged >= 1, ("the decoy did not land on fxLayer", staged)
+    page.evaluate("async () => { await window.__game.startLevel(1); window.__game.closeTutorial(); }")
+    time.sleep(0.7)
+    left = page.evaluate("window.__game.scene.fxLayer.children.length")
+    assert left == 0, (
+        "loadLevel must clear fxLayer like it clears overlayLayer and fxTopLayer — "
+        "a leftover effect from the previous board is still on screen", left)
+    print("fxLayer across loadLevel:", staged, "->", left)
+
     print("coins:", coins_before, "->", coins_mid, "-> after reload", reloaded)
     print("PAGE ERRORS:", len(errs), errs[:5])
     assert not errs, f"console/page errors: {errs[:5]}"

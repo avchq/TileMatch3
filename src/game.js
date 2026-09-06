@@ -1076,6 +1076,12 @@ export class GameScene extends PIXI.Container {
     this._buildBackground();
     this.overlayLayer.removeChildren();
     this.fxTopLayer.removeChildren(); // a reward still in the air from the last board
+    // …and the layer below it, where the Auto Complete sweep stages its tiles
+    // and _spawnBurst draws: a new board starts with an empty fx layer whatever
+    // the last one left mid-flight. Nothing here is destroyed, only detached —
+    // each animator already bails on its own graphic (see _spawnBurst), and the
+    // hand, the only long-lived resident, was torn down properly above.
+    this.fxLayer.removeChildren();
     this._resetChestOverlay();
     this.boardLayer.removeChildren();
     // clear any tray tiles from a previous run

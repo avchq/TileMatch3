@@ -239,7 +239,13 @@ level behind it. Any test that then drives level 1 must dismiss it first with
 Only `howtoplay_test.py` leaves it open.
 - **`back_test.py`** — the in-level Back button returns to the lobby *without*
   advancing the level, and a user-record change made mid-level (e.g. crediting
-  coins) survives both the Back press and a reload.
+  coins) survives both the Back press and a reload. It also holds one board-build
+  invariant: `loadLevel` clears **`fxLayer`** (where the Auto Complete sweep
+  stages its tiles and `_spawnBurst` draws) along with the two layers it always
+  cleared, so a new board never opens with the last one's effects still on it.
+  The reachable path is closed — Back is disabled for the duration of a sweep —
+  so the test stages a decoy `PIXI.Graphics` on the layer rather than racing an
+  animation it cannot interrupt.
 - **`settings_test.py`** — the settings cog (top-left) opens the settings overlay
   from both the lobby and inside a level; the Music/Sound toggles switch the
   audio channels and persist to the user profile. (The panel grew downward to

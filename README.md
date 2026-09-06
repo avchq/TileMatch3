@@ -1516,7 +1516,10 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   guards scattered through the sweep are defence in depth today, not the only
   thing standing between a tap and a frozen game.) `_applyFirstRunChrome`
   re-arms the button on every board build, and the sweep re-arms it itself
-  before the win overlay.
+  before the win overlay. Belt and braces on the same point: `loadLevel` clears
+  **`fxLayer`** alongside `overlayLayer` and `fxTopLayer`, so a new board opens
+  with an empty effects layer whatever the last one left staged there —
+  `back_test.py` holds that invariant.
   On a win it calls back to the host
   (`onLevelComplete`) rather than self-looping. The win overlay's **headline** has
   two forms, and which one it shows is a question about the campaign, not the
