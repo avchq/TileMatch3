@@ -31,6 +31,25 @@ root README documents tile/tray mechanics, boosters, level config, and the
 responsive 750×1334 design-space layout system — context you need so a change fits
 existing behaviour instead of contradicting it.
 
+## Feature specs live in the Obsidian vault
+
+The design spec for this game is an Obsidian vault at `~/CHQ-Private-Notes`
+(git: `github.com:Sp1tF1r3/CHQ-Private-Notes`). It is the **source of truth for
+what a feature should do** — the repo READMEs describe what is built, the vault
+describes what is specified.
+
+- `TileGame/Specs/*.md` — one note per feature (Daily Reward, Lucky Wheel,
+  Season Pass, Super Hint, Level File Format, Localization, …), plus
+  `TileGame/Specs/Events/`.
+- `TileGame/Master Checklist.md` — what is done and what is outstanding.
+
+**When asked to implement something "from the notes"/"from the spec", read the
+matching vault note first** and follow its numbers and rules; grep
+`~/CHQ-Private-Notes/TileGame` when the note's name isn't obvious. The vault is
+outside this repo — read it, don't edit it unless asked. Spec values that become
+tunables still go through `src/config.js`, and spec data tables through
+`assets/config/*.json`, per the rules below.
+
 ## Key parameters go in `src/config.js`
 
 Feature gates, unlock levels, progression thresholds and economy amounts live in

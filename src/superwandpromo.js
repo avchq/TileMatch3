@@ -20,6 +20,7 @@ import { tween, easeOutBack } from "./tween.js";
 import { t, locText } from "./i18n.js";
 import { fitTextWidth, makeButton, makeProgressBar } from "./layout.js";
 import { CONFIG } from "./config.js";
+import { SUPER_WAND_FACE } from "./boosters.js";
 
 const PANEL_W = 620;
 const PANEL_H = 880;
@@ -160,10 +161,10 @@ export class SuperWandPromo extends PIXI.Container {
     }
 
     const disc = new PIXI.Graphics();
-    disc.beginFill(0xffb02e).drawCircle(0, 0, 62).endFill();
+    disc.beginFill(SUPER_WAND_FACE.color).drawCircle(0, 0, 62).endFill();
     disc.lineStyle(5, 0xffffff, 0.7).drawCircle(0, 0, 62);
     disc.position.set(0, ART_CY);
-    const wand = new PIXI.Text("✨", { fontFamily: "Arial", fontSize: 66 });
+    const wand = new PIXI.Text(SUPER_WAND_FACE.glyph, { fontFamily: "Arial", fontSize: 66 });
     wand.anchor.set(0.5);
     wand.position.copyFrom(disc.position);
     this.group.addChild(disc, wand);

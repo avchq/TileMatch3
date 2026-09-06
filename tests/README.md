@@ -673,6 +673,25 @@ Only `howtoplay_test.py` leaves it open.
   Seams: `setDailyPrizes(list)` replaces the daily prize *pool*
   (`forceDailyPrize` only picks from it) and `breakWheelFlyTarget()` makes the
   wheel's fly target unmeasurable.
+- **`boosters_test.py`** — the shared helper (booster) module (`src/boosters.js`),
+  which owns the one place Undo/Wand/Reshuffle's glyph, disc colour and coach
+  caption key are stated, plus the chip control the Fortune Wheel, Daily Bonus
+  and Tasks overlays each used to carry a private copy of. A behaviour-preserving
+  refactor, so the checks are guards against the duplication coming back, not
+  new-behaviour checks. Four source guards, no browser: **no helper glyph is
+  spelled in code** anywhere under `src/` but the registry (a comment may still
+  illustrate one, as `src/shop.js` does); **no private chip factory or
+  `chipDefs` table** survives outside it, and all three chip-row overlays import
+  it; **the registry is a leaf**, importing `./config.js` and nothing else
+  (`src/rewards.js` already imports `src/shop.js`, and both want the registry —
+  a further dependency here would close a cycle); and the three hand-written
+  per-type tables that
+  deliberately stay literals — `REWARD_GRANT`, `ITEM_KEYS`, `ITEM_TYPE` — still
+  mention every helper in `CONFIG.boosters.kinds`. Then one live parity check:
+  the level's Wand button still wears the glyph the registry declares, and all
+  three overlays still report `chipUndo`/`chipWand`/`chipShuffle` at x
+  70/190/310 while the level's own helper row is still three buttons at
+  175/375/575 — that row's geometry stays `GameScene`'s own.
 - **`winoverlay_test.py`** — the **win overlay's headline**. Clearing a level puts up
   the level-complete panel, whose title has two forms: `"🏆 You Win!"` for the **last
   level of the campaign** and `"Level Complete!"` for every other clear. The campaign

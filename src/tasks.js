@@ -34,6 +34,7 @@
 
 import { tween, easeOutCubic, easeOutBack } from "./tween.js";
 import { makeCoinIcon } from "./shop.js";
+import { makeBoosterChipRow, boosterChipControls, boosterFace } from "./boosters.js";
 import { rewardBooster, rewardIsKnown, grantReward, makeRewardIcon, flyReward, bumpReward } from "./rewards.js";
 import { fitTextWidth, makeButton, makeProgressBar } from "./layout.js";
 import { CONFIG } from "./config.js";
@@ -41,6 +42,12 @@ import { t, locText } from "./i18n.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
+
+// This overlay's top-HUD chip row: where the three helper counters sit, in its
+// own design units. Geometry is the SCENE's (the registry supplies what goes in
+// each slot, never where the slot is), and 70 + i*120 is where they have always
+// been — the same row the lobby and the two sibling overlays use.
+const CHIP_ROW = { x0: 70, dx: 120, y: 84 };
 
 // The GLYPH per tracked activity. The row's WORDING is not here: it is named as
 // a text key by the `titles` map in assets/config/tasks.json and looked up in
@@ -52,9 +59,11 @@ const ACTIVITY = {
   levelsCompleted:   { icon: "🏁" },
   tilesMatched:      { icon: "🍉" },
   boostersUsed:      { icon: "🧰" },
-  undoUsed:          { icon: "⤺"  },
-  shuffleUsed:       { icon: "🔀" },
-  wandUsed:          { icon: "🪄" },
+  // The three helper rows wear the helper's own face (src/boosters.js), so a
+  // goal reads with the same glyph as the button it counts presses of.
+  undoUsed:          { icon: boosterFace("undo").glyph },
+  shuffleUsed:       { icon: boosterFace("shuffle").glyph },
+  wandUsed:          { icon: boosterFace("wand").glyph },
   coinsSpent:        { icon: "coin" },
   dailyBonusClaimed: { icon: "🎁" },
   wheelSpins:        { icon: "🎡" },
@@ -254,14 +263,7 @@ export class TasksScene extends PIXI.Container {
     // Top HUD — the reward fly targets, pinned to the top edge like the lobby's.
     this.topHud = new PIXI.Container();
     this.addChild(this.topHud);
-    this._chips = {};
-    const chipDefs = [["undo", "⤺", 70], ["wand", "🪄", 190], ["shuffle", "🔀", 310]];
-    for (const [kind, emoji, x] of chipDefs) {
-      const chip = this._makeBoosterChip(kind, emoji);
-      chip.position.set(x, 84);
-      this.topHud.addChild(chip);
-      this._chips[kind] = chip;
-    }
+    this._chips = makeBoosterChipRow(this.user, this.topHud, CHIP_ROW);
     this.coinPill = this._makeCoinCounter();
     this.coinPill.position.set(DESIGN_W - 150, 84);
     this.topHud.addChild(this.coinPill);
@@ -415,29 +417,6 @@ export class TasksScene extends PIXI.Container {
     c.update = () => { label.text = String(this.user ? this.user.balance("coins") : 0); };
     c.update();
     this.user.on((domain) => { if (domain === "wallet") c.update(); });
-    return c;
-  }
-
-  _makeBoosterChip(kind, emoji) {
-    const c = new PIXI.Container();
-    const w = 96, h = 60;
-    const g = new PIXI.Graphics();
-    g.beginFill(0x0a1226, 0.55).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2).endFill();
-    g.lineStyle(3, 0xffffff, 0.35).drawRoundedRect(-w / 2, -h / 2, w, h, h / 2);
-    c.addChild(g);
-    const e = new PIXI.Text(emoji, { fontFamily: "Arial", fontSize: 30 });
-    e.anchor.set(0.5); e.position.set(-w / 2 + 26, 0);
-    c.addChild(e);
-    const t = new PIXI.Text("0", {
-      fontFamily: "Arial", fontSize: 28, fontWeight: "900", fill: 0xffffff,
-      stroke: 0x14361f, strokeThickness: 4,
-    });
-    t.anchor.set(0, 0.5); t.position.set(-w / 2 + 46, 0);
-    c.addChild(t);
-    c.label = t;
-    c.update = () => { t.text = String(this.user ? this.user.boosterCount(kind) : 0); };
-    c.update();
-    this.user.on((domain) => { if (domain === "boosters") c.update(); });
     return c;
   }
 
@@ -773,9 +752,7 @@ export class TasksScene extends PIXI.Container {
     return [
       { name: "panel", obj: this.panel },
       { name: "coinPill", obj: this.coinPill },
-      { name: "chipUndo", obj: this._chips.undo },
-      { name: "chipWand", obj: this._chips.wand },
-      { name: "chipShuffle", obj: this._chips.shuffle },
+      ...boosterChipControls(this._chips),
     ];
   }
 }

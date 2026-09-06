@@ -17,20 +17,18 @@
 
 import { DESIGN_W, DESIGN_H, makeHintPill } from "./layout.js";
 import { t } from "./i18n.js";
+import { boosterFace } from "./boosters.js";
 
-// The TEXT KEY of the one line of copy per helper. Presentation, so it lives
-// here rather than in config.js — the SCHEDULE (which level, how much stock) is
-// the tunable, and that is in CONFIG.boosters.unlocks. The wording itself is in
-// the language tables (assets/lang/<code>.json); use coachCaption() to read it.
-export const BOOSTER_COACH = {
-  undo: "coach_undo",
-  wand: "coach_wand",
-  shuffle: "coach_shuffle",
-};
-
-/** The caption for a helper's coached first use, in the active language. */
+/** The caption for a helper's coached first use, in the active language.
+ *
+ *  The TEXT KEY is a field on the helper's row in src/boosters.js, beside its
+ *  glyph and disc colour — one row per helper, so adding one does not mean
+ *  remembering a second table here. What it names is presentation, not a
+ *  tunable: the SCHEDULE (which level, how much stock) is CONFIG.boosters.
+ *  unlocks, and the wording itself is in the language tables. */
 export function coachCaption(kind) {
-  return BOOSTER_COACH[kind] ? t(BOOSTER_COACH[kind]) : "";
+  const key = boosterFace(kind).coachKey;
+  return key ? t(key) : "";
 }
 
 const DIM_COLOR = 0x040814;

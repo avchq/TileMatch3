@@ -19,6 +19,7 @@
 // src/config.js. The amounts and weights are data, in assets/config/*.json.
 
 import { makeCoinIcon } from "./shop.js";
+import { BOOSTERS } from "./boosters.js";
 import { tween, easeInOutQuad, easeOutCubic } from "./tween.js";
 
 // How each reward `type` is paid. `cur` credits the wallet; `booster` grants a
@@ -38,7 +39,16 @@ export const REWARD_GRANT = {
 
 // Glyphs for the types drawn as an emoji. Coins are the DRAWN gold coin
 // (makeCoinIcon) rather than 🪙, which the emoji fonts render silver.
-export const REWARD_EMOJI = { undo: "⤺", wand: "🪄", shuffle: "🔀", lightning: "⚡" };
+//
+// The three HELPER glyphs are not spelled here: a helper wears the same face
+// on the level's button row, on a chip and in the shop summary, and that face
+// is one row in src/boosters.js. `lightning` stays local — it is a reward type
+// with no helper behind it (the wheel's headline slice, which pays coins), so
+// the registry has nothing to say about it.
+export const REWARD_EMOJI = {
+  ...Object.fromEntries(BOOSTERS.map((b) => [b.id, b.glyph])),
+  lightning: "⚡",
+};
 
 /** Is this a type anything knows how to pay? The tables are edited without
  *  touching source, so a feature that COMMITS a claim before granting it (Tasks

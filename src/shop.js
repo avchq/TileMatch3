@@ -12,6 +12,7 @@
 // that UserStore autosaves and that refresh this panel + the coin pills live.
 // (Spending coins on helpers happens on-demand inside a level, not here.)
 
+import { boosterFace } from "./boosters.js";
 import { tween, easeOutBack } from "./tween.js";
 import { PACKAGES } from "./user/payments.js";
 import { fitPanel, makeButton } from "./layout.js";
@@ -20,9 +21,12 @@ import { t, locText } from "./i18n.js";
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
 
-// Icons for the per-package contents summary, matching the in-level helper buttons.
-// Ordered so a summary always reads coins → wand → undo → reshuffle.
-const CONTENT_ICONS = [["wand", "🪄"], ["undo", "⤺"], ["shuffle", "🔀"]];
+// The order the per-package contents summary reads in: coins → wand → undo →
+// reshuffle. This is the shop's own presentation choice (the headline item
+// first), which is why it is here and not the registry's default order. The
+// GLYPHS are the registry's — the summary must show the same face the level's
+// helper button wears, or a player cannot tell what they just bought.
+const CONTENT_ORDER = ["wand", "undo", "shuffle"];
 
 // Gold palette for the coin — drawn (not an emoji) so it renders a consistent GOLD
 // everywhere, independent of the host's emoji font (which can render 🪙 as silver).
@@ -67,9 +71,9 @@ function buildContents(pkg) {
     x = t.position.x + t.width + 26;
   }
   const parts = [];
-  for (const [kind, icon] of CONTENT_ICONS) {
+  for (const kind of CONTENT_ORDER) {
     const n = pkg.boosters && pkg.boosters[kind];
-    if (n) parts.push(`${icon} ${n}`);
+    if (n) parts.push(`${boosterFace(kind).glyph} ${n}`);
   }
   if (parts.length) {
     const t = new PIXI.Text(parts.join("   "), {

@@ -11,6 +11,7 @@ import { FeatureRail, RAIL_LEFT_X, RAIL_RIGHT_X } from "./featurerail.js";
 import { t, locText } from "./i18n.js";
 import { CONFIG } from "./config.js";
 import { SuperWandPromo } from "./superwandpromo.js";
+import { boosterFace, SUPER_WAND_FACE } from "./boosters.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -24,10 +25,11 @@ const DESIGN_H = 1334;
 const CHROME_COL = 175;
 
 // The Super Wand's two faces on its lobby progress button — the same pair the
-// shared helper-row button wears inside a level (WAND_FACE / SUPER_WAND_FACE in
-// game.js), so the banked reward is recognisable in both places.
-const WAND_GLYPH = "🪄";
-const SUPER_WAND_GLYPH = "✨";
+// helper-row button wears inside a level, because they are now literally the
+// same two values (src/boosters.js), so the banked reward is recognisable in
+// both places and the swap cannot half-apply across screens.
+const WAND_GLYPH = boosterFace("wand").glyph;
+const SUPER_WAND_GLYPH = SUPER_WAND_FACE.glyph;
 const CENTER_MAX_W = DESIGN_W - 2 * CHROME_COL; // 400
 
 export class LobbyScene extends PIXI.Container {

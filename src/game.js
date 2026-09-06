@@ -7,6 +7,7 @@ import { buildColumnBackground, makeHintPill, fitTextWidth, makeButton,
          makeProgressBar } from "./layout.js";
 import { HowToPlayPopup } from "./tutorial.js";
 import { BoosterCoach } from "./boostercoach.js";
+import { boosterFace, SUPER_WAND_FACE } from "./boosters.js";
 import { rewardIsCoins, grantReward, makeRewardIcon, flyReward } from "./rewards.js";
 import { CONFIG } from "./config.js";
 import { t, itemName } from "./i18n.js";
@@ -99,11 +100,89 @@ const HUD_BAR = {
 HUD_BAR.cy = HUD_BAR.y + HUD_BAR.h / 2;      // every element's vertical centre
 HUD_BAR.right = HUD_BAR.x + HUD_BAR.w;
 
-// The Wand button's two faces. The upgraded one is deliberately a different
-// GLYPH and a different disc colour, not just a tint: the swap has to be
-// unmistakable across a 108px button at a glance (see _paintWandButton).
-const WAND_FACE = { icon: "🪄", color: 0x9b59f6 };
-const SUPER_WAND_FACE = { icon: "✨", color: 0xffb02e };
+// THE HELPER ROW — the three round buttons under the tray, LEFT TO RIGHT.
+//
+// The order and the three x are a LAYOUT fact, this scene's own: they are what
+// the screenshots and the click coordinates in tests/roundbtn_test.py are
+// written against, which is why they live here and not in the shared registry
+// (src/boosters.js) or in CONFIG. What each slot CONTAINS — the glyph, the disc
+// colour — is the registry's, so the row can never disagree with the chips on
+// the wheel, the daily gift, Tasks or the shop about what a Wand looks like.
+//
+// The Wand's slot is shared with its upgraded form rather than growing a fourth
+// button; SUPER_WAND_FACE (also the registry's, so the lobby rail and the promo
+// wear the same one) is the face it swaps to. The upgraded face is deliberately
+// a different GLYPH and a different disc colour, not just a tint: the swap has
+// to be unmistakable across a 108px button at a glance (see _paintWandButton).
+const HELPER_ROW = ["shuffle", "wand", "undo"];
+const HELPER_X = [175, 375, 575];
+const HELPER_Y = 1266;        // the helper baseline, shared with the Auto Complete pill
+const HELPER_R = 54;          // disc radius
+const HELPER_BADGE_D = 38;    // the count bubble's offset from the disc's centre
+
+// WHAT EACH HELPER DOES — one row each, holding only the places the three
+// genuinely differ. Everything they share is in _spendBooster.
+//
+//  tap    — the button's click handler.
+//  plan   — a PURE read returning the move about to be made, or null. It runs
+//           before anything is spent, so a helper can never charge for a no-op.
+//  canAct — the cheap paint-time answer to "is there a move to make?", for the
+//           button's enabled/greyed state. Deliberately a SECOND spelling of
+//           `plan`: _updateBoosters runs on every collect and cannot afford
+//           _wandPick's sort, so the two are kept as they have always been
+//           rather than unified.
+//  pre    — extra refusals this helper alone has, read BEFORE the coaching gate.
+//  guard  — extra refusals read AFTER the lock check.
+//           Only the Wand has either, and the SPLIT is what keeps the collapse
+//           honest: undo and reshuffle never had these guards, and the gate does
+//           not get to promote one helper's onto the other two.
+//  paint  — an override for a slot with a second mode. Only the Wand has one;
+//           returning true means it painted itself and the ordinary
+//           _setBoosterButton pass is skipped.
+const HELPERS = {
+  undo: {
+    tap: (s) => s.undo(),
+    canAct: (s) => s.history.length > 0,
+    plan: (s) => s.history.length > 0 || null,   // the tile itself is re-read below
+  },
+  shuffle: {
+    tap: (s) => s.reshuffle(),
+    canAct: (s) => s.boardCount > 0,
+    plan: (s) => {
+      const board = s.tiles.filter((t) => !t.matched && !t.inTray);
+      return board.length ? board : null;        // [] is truthy — say null
+    },
+  },
+  wand: {
+    tap: (s) => s._tapWand(),
+    canAct: (s) => s.boardCount > 0,
+    plan: (s) => {
+      const pick = s._wandPick();
+      return pick && pick.tiles.length ? pick : null;
+    },
+    // The charged mode owns this button outright. Guarding here rather than only
+    // in the tap handler is what makes the two modes mutually exclusive for a
+    // SCRIPTED call too (window.__game.wand()), so they can never interleave.
+    //
+    // It has to be read BEFORE the coaching gate, not after: _blockedByCoach
+    // CLOSES the lesson it lets through, which clears `_coach` — and `_coach` is
+    // one of the terms of _superWandActive(). Read afterwards, the predicate flips
+    // from false to true inside that very call, and the coached first use of the
+    // ordinary Wand is swallowed: the lesson is spent, the button turns gold, and
+    // the press the player was being taught to make does nothing. That is why
+    // `pre` exists as a hook at all, rather than the gate reading these itself.
+    pre: (s) => s._superWandRunning || s._superWandActive(),
+    guard: (s) => !s.user,
+    paint: (s, count) => {
+      if (s._superWandActive() && !s.user.superWandNeedsAnnounce()) {
+        s._setSuperWandButton(count);
+        return true;
+      }
+      s._paintWandButton(false);
+      return false;
+    },
+  },
+};
 // Super Wand timings (presentation, so they live here rather than in config.js).
 const SUPER_FLY_MS = 420;        // pulled tiles fly into the tray
 const SUPER_BURST_MS = 460;      // the combined elimination's own beat
@@ -251,32 +330,35 @@ export class GameScene extends PIXI.Container {
     // helpers in the row: hide them (buttons + badges) and show the wide button.
     const avail = this._autoAvailable();
     this.autoBtn.visible = avail;
-    for (const n of [this.shuffleBtn, this.wandBtn, this.undoBtn,
-      this.shuffleBadge, this.wandBadge, this.undoBadge]) n.visible = !avail;
+    for (const n of this._helperNodes()) n.visible = !avail;
     if (avail) return; // helpers hidden — skip the per-helper refresh below
                        // (it would otherwise force each badge back to visible)
 
-    const undoLeft = this.user ? this.user.boosterCount("undo") : 0;
-    const shuffleLeft = this.user ? this.user.boosterCount("shuffle") : 0;
-    const wandLeft = this.user ? this.user.boosterCount("wand") : 0;
     // Each helper is usable when its *context* allows a move (a tile to undo, a
     // board to shuffle/wand). At 0 stock the button doesn't just disable — while a
     // move exists it stays live and the acquisition ladder (buy with coins, else
     // watch an ad) supplies a use on tap (see _setBoosterButton / _acquireBooster).
-    this._setBoosterButton(this.undoBtn, this.undoBadge, "undo", undoLeft, this.history.length > 0);
-    this._setBoosterButton(this.shuffleBtn, this.shuffleBadge, "shuffle", shuffleLeft, this.boardCount > 0);
-    // The Wand's button is SHARED. Charged, it wears the Super Wand's face and a
-    // tap fires the upgraded sweep; otherwise it is the ordinary helper, which
-    // completes one triple from the board and so needs at least one tile still on
-    // the board to have anything to bring in. One decision, made in one place, so
-    // the two modes can never be half-applied. A charge banked mid-level lands
-    // here live, via the user's "superWand" change event.
-    if (this._superWandActive() && !this.user.superWandNeedsAnnounce()) {
-      this._setSuperWandButton(wandLeft);
-    } else {
-      this._paintWandButton(false);
-      this._setBoosterButton(this.wandBtn, this.wandBadge, "wand", wandLeft, this.boardCount > 0);
+    // Each slot's repaint reads only its own button, badge and count, so the row
+    // order this walks in is not observable.
+    for (const { id, btn, badge } of Object.values(this._helpers)) {
+      const left = this.user ? this.user.boosterCount(id) : 0;
+      // The Wand's button is SHARED, and its row owns that fork (see HELPERS):
+      // charged, it wears the Super Wand's face and a tap fires the upgraded
+      // sweep; otherwise it is the ordinary helper. One decision, made in one
+      // place, so the two modes can never be half-applied. A charge banked
+      // mid-level lands here live, via the user's "superWand" change event.
+      if (HELPERS[id].paint && HELPERS[id].paint(this, left)) continue;
+      this._setBoosterButton(btn, badge, id, left, HELPERS[id].canAct(this));
     }
+  }
+
+  // The row's display nodes — every button and every badge. Two callers hide the
+  // whole row wholesale (Auto Complete replacing it, and its own sweep owning
+  // the HUD), and they used to carry a hand-written copy of the list each.
+  _helperNodes() {
+    const out = [];
+    for (const { btn, badge } of Object.values(this._helpers)) out.push(btn, badge);
+    return out;
   }
 
   // The Wand button in its upgraded mode. Same shape as _setBoosterButton — it
@@ -306,8 +388,8 @@ export class GameScene extends PIXI.Container {
   // Swap the Wand button between its two faces. The glyph and the disc colour are
   // the whole visual difference, so one call reverses it.
   _paintWandButton(sup) {
-    const face = sup ? SUPER_WAND_FACE : WAND_FACE;
-    if (this.wandBtn.label.text !== face.icon) this.wandBtn.label.text = face.icon;
+    const face = sup ? SUPER_WAND_FACE : boosterFace("wand");
+    if (this.wandBtn.label.text !== face.glyph) this.wandBtn.label.text = face.glyph;
     const g = this.wandBtn.disc, r = this.wandBtn.radius;
     g.clear();
     g.beginFill(face.color).drawCircle(0, 0, r).endFill();
@@ -340,6 +422,29 @@ export class GameScene extends PIXI.Container {
     if (!this.user) return false;
     this.user.grantBooster(kind, 1);
     return true;
+  }
+
+  // The steps EVERY helper press shares, in the one order they may be read in.
+  // Returns the move the row planned once the press is allowed and the charge has
+  // been spent, else null — so each helper's body below is reduced to its own
+  // animation. The three used to repeat this preamble with their own literals.
+  //
+  // A helper with refusals of its own declares them on its row (`pre` before the
+  // coaching gate, `guard` after the lock check); the gate never promotes one
+  // helper's guard onto the other two, because only the Wand ever had them.
+  _spendBooster(id) {
+    const row = HELPERS[id], slot = this._helpers[id];
+    if (this.locked) return null;
+    if (row.pre && row.pre(this)) return null;
+    if (this._blockedByCoach(id)) return null;              // another helper is being taught
+    if (this._rejectIfLocked(id, slot.btn)) return null;    // not unlocked yet
+    if (row.guard && row.guard(this)) return null;
+    const move = row.plan(this);   // a pure read — never spend a charge on a no-op
+    if (!move) return null;
+    // Get one to spend via the acquisition ladder (own → buy with coins → watch
+    // an ad), then use it. See _acquireBooster.
+    if (!this._acquireBooster(id)) return null;
+    return move;
   }
 
   // Get one use of a helper to spend, walking the acquisition ladder: draw from the
@@ -623,9 +728,9 @@ export class GameScene extends PIXI.Container {
   _openCoach(kind) {
     if (this._coach || !this.user) return;
     this._coachPending = null;
-    const btn = { undo: this.undoBtn, shuffle: this.shuffleBtn, wand: this.wandBtn }[kind];
-    const badge = { undo: this.undoBadge, shuffle: this.shuffleBadge, wand: this.wandBadge }[kind];
-    if (!btn || !badge) return;
+    const slot = this._helpers[kind];
+    if (!slot) return;
+    const { btn, badge } = slot;
     const coach = new BoosterCoach(this.app, kind, btn, badge);
     this.tutorialLayer.addChild(coach);
     coach.layout(this.viewW, this.viewH);
@@ -808,18 +913,28 @@ export class GameScene extends PIXI.Container {
     // Helper (booster) buttons. Each carries a count bubble showing how many
     // uses remain in the player's inventory; both are disabled when empty
     // (see _updateBoosters).
-    const by = 1266;
-    this.shuffleBtn = this._makeRoundButton("🔀", 54, 175, by, 0xff8a3d, () => this.reshuffle());
-    // The Wand's button is shared with its upgraded form: _tapWand dispatches to
-    // whichever mode is live, so the row never grows a fourth button.
-    this.wandBtn = this._makeRoundButton(WAND_FACE.icon, 54, 375, by, WAND_FACE.color,
-      () => this._tapWand());
-    this.undoBtn = this._makeRoundButton("⤺", 54, 575, by, 0x4d8dff, () => this.undo());
-    this.shuffleBadge = this._makeCountBadge(175 + 38, by - 38);
-    this.wandBadge = this._makeCountBadge(375 + 38, by - 38);
-    this.undoBadge = this._makeCountBadge(575 + 38, by - 38);
-    this.hudBottom.addChild(this.shuffleBtn, this.wandBtn, this.undoBtn,
-      this.shuffleBadge, this.wandBadge, this.undoBadge);
+    const by = HELPER_Y;
+    // One slot per helper, in row order: the geometry above, the face from the
+    // registry, the action from HELPERS. `this._helpers` is the truth; the six
+    // named handles below are aliases onto it, kept because the debug API, the
+    // coaching, the chest's fly target and several tests all address a helper
+    // button by name. The Wand's slot is shared with its upgraded form —
+    // _tapWand dispatches to whichever mode is live.
+    this._helpers = {};
+    HELPER_ROW.forEach((id, i) => {
+      const face = boosterFace(id), cx = HELPER_X[i];
+      const btn = this._makeRoundButton(face.glyph, HELPER_R, cx, by, face.color,
+        () => HELPERS[id].tap(this));
+      const badge = this._makeCountBadge(cx + HELPER_BADGE_D, by - HELPER_BADGE_D);
+      this._helpers[id] = { id, btn, badge };
+      this.hudBottom.addChild(btn, badge);
+    });
+    this.shuffleBtn = this._helpers.shuffle.btn;
+    this.wandBtn = this._helpers.wand.btn;
+    this.undoBtn = this._helpers.undo.btn;
+    this.shuffleBadge = this._helpers.shuffle.badge;
+    this.wandBadge = this._helpers.wand.badge;
+    this.undoBadge = this._helpers.undo.badge;
 
     // Auto Complete — a wide pill sharing the helper baseline, centred over the
     // three round buttons. Hidden until the endgame is trivially solvable, when
@@ -1727,13 +1842,7 @@ export class GameScene extends PIXI.Container {
   }
 
   undo() {
-    if (this.locked) return;
-    if (this._blockedByCoach("undo")) return;   // another helper is being taught
-    if (this._rejectIfLocked("undo", this.undoBtn)) return; // not unlocked yet
-    if (this.history.length === 0) return;      // nothing to undo
-    // Undo is a helper: get one to spend via the acquisition ladder (own → buy with
-    // coins → watch an ad), then use it. See _acquireBooster.
-    if (!this._acquireBooster("undo")) return;
+    if (!this._spendBooster("undo")) return;
     // Send the most-recently-added tile home (also drops it from history).
     const t = this.history[this.history.length - 1];
     if (!t || !this._returnTileToBoard(t)) return;
@@ -1822,27 +1931,8 @@ export class GameScene extends PIXI.Container {
   // charge per use, disabled at zero. While a Super Wand is banked this button
   // belongs to the upgraded sweep instead — see _tapWand / superWand().
   wand() {
-    if (this.locked || this._superWandRunning) return; // won/lost, or an animation in flight
-    // The charged mode owns this button outright. Guarding here rather than only
-    // in the tap handler is what makes the two modes mutually exclusive for a
-    // SCRIPTED call too (window.__game.wand()), so they can never interleave.
-    //
-    // It has to be read BEFORE the coaching gate, not after: _blockedByCoach
-    // CLOSES the lesson it lets through, which clears `_coach` — and `_coach` is
-    // one of the terms of _superWandActive(). Read afterwards, the predicate flips
-    // from false to true inside this very call, and the coached first use of the
-    // ordinary Wand is swallowed: the lesson is spent, the button turns gold, and
-    // the press the player was being taught to make does nothing.
-    if (this._superWandActive()) return;
-    if (this._blockedByCoach("wand")) return;      // another helper is being taught
-    if (this._rejectIfLocked("wand", this.wandBtn)) return; // not unlocked yet
-    if (!this.user) return;
-    // Check there's a move to make BEFORE spending/buying, so we never charge for a
-    // no-op (an empty board, etc.). _wandPick() is a pure read.
-    const pick = this._wandPick();
-    if (!pick || pick.tiles.length === 0) return;  // nothing to bring in -> don't spend a charge
-    // Get a charge to spend via the acquisition ladder (own → buy → ad), then use it.
-    if (!this._acquireBooster("wand")) return;
+    const pick = this._spendBooster("wand");
+    if (!pick) return;
 
     // Lock out further input (incl. a second wand tap) until the tiles land and
     // the triple resolves, so a rapid double-tap can't spend two charges.
@@ -2293,8 +2383,7 @@ export class GameScene extends PIXI.Container {
     this._autoRunning = true;
 
     // The animation owns the HUD row — hide every helper node and the button.
-    for (const n of [this.shuffleBtn, this.wandBtn, this.undoBtn,
-      this.shuffleBadge, this.wandBadge, this.undoBadge, this.autoBtn,
+    for (const n of [...this._helperNodes(), this.autoBtn,
       this.extraBtn]) n.visible = false;
     // Back goes with them — parked, not hidden, so the bar keeps its shape. The
     // sweep stages the tiles on fxLayer and animates them across three awaits;
@@ -2392,14 +2481,8 @@ export class GameScene extends PIXI.Container {
   // unchanged and no progress is lost; only board tile types are reassigned.
   // Unlike restart(), the level is NOT rebuilt.
   reshuffle() {
-    if (this.locked) return;
-    if (this._blockedByCoach("shuffle")) return;   // another helper is being taught
-    if (this._rejectIfLocked("shuffle", this.shuffleBtn)) return; // not unlocked yet
-    const boardTiles = this.tiles.filter((t) => !t.matched && !t.inTray);
-    if (boardTiles.length === 0) return;
-    // Reshuffle is a helper: get one to spend via the acquisition ladder (own → buy
-    // with coins → watch an ad), then use it. See _acquireBooster.
-    if (!this._acquireBooster("shuffle")) return;
+    const boardTiles = this._spendBooster("shuffle");
+    if (!boardTiles) return;
 
     const order = this._boardRemovalOrder(boardTiles); // fresh valid removal order (refs)
     const B = order.length;
@@ -3184,9 +3267,8 @@ export class GameScene extends PIXI.Container {
   // fxTopLayer — ABOVE the HUD and the overlay — so the coins arrive in the
   // foreground rather than behind the chrome.
   async _collectChestReward(reward, from) {
-    const target = rewardIsCoins(reward.type)
-      ? this.coinPill
-      : ({ undo: this.undoBtn, wand: this.wandBtn, shuffle: this.shuffleBtn })[reward.type];
+    const slot = this._helpers[reward.type];
+    const target = rewardIsCoins(reward.type) ? this.coinPill : (slot && slot.btn);
     const layer = this.fxTopLayer;
     // Which layer the flight uses, for the debug/test hooks: the whole point is
     // that it outranks the HUD and the overlay it came from. Scene structure, so

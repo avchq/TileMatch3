@@ -120,7 +120,12 @@ signalled before it happens: **two tiles from full** the whole tray starts
 above it. Both are measured against the tray's *current* capacity, so taking the
 8th slot shifts each of them up by one tile. In-game
 **helpers** (boosters), a row of three below the tray: **Reshuffle** (left),
-**Wand** (middle), **Undo** (right).
+**Wand** (middle), **Undo** (right). That order and the three x positions the
+row sits at are `GameScene`'s own layout (`HELPER_ROW` / `HELPER_X` in
+`src/game.js`); what each button actually draws — its glyph and its disc
+colour — comes from the shared helper vocabulary in `src/boosters.js`, the same
+one the Fortune Wheel, Daily Bonus and Tasks chip rows and the shop's package
+summary all read their icons from.
 - **Undo** — return the last-added tile (the most recent one, wherever grouping
   placed it in the tray) back to **its original cell on the board**; repeated
   undos walk the stack back in **reverse placement order**. It lands on the exact
@@ -761,7 +766,14 @@ waterfall any Wand press runs.
   button over. Uncharged, the button is the ordinary Wand. Charged, the face
   changes (glyph 🪄→✨, the disc purple→gold) and **every** tap sweeps instead of
   completing a triple — the same board, the same button, for as long as the
-  streak lives. Because a sweep still spends a wand use, the badge has to tell
+  streak lives. The charged face is a single exported constant,
+  `SUPER_WAND_FACE` in `src/boosters.js`, worn by all three places it appears —
+  the level's button, the lobby rail's progress button and the promo card — so
+  the swap can't half-apply and leave one screen showing the plain 🪄 while
+  another has already gone gold. It is deliberately not a row in that module's
+  registry: the Super Wand has no inventory, no coin price and no unlock of its
+  own — it is a *mode* `wand` enters, not a helper in its own right. Because a
+  sweep still spends a wand use, the badge has to tell
   the same story the ordinary Wand's does: the stock left, in a **gold** bubble
   while there's stock (or while there's no move to make), the same orange
   coin/price "buy" tag once stock runs out and the price is affordable, and the
@@ -1881,7 +1893,9 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   `{ type, amount }` reward and what happens when you collect it", shared by the
   four features that pay one out (Fortune Wheel, Daily Bonus, Tasks, and the Level
   Chest popup in `GameScene`). It holds `REWARD_GRANT` (`coins`/`lightning` credit
-  the wallet, `undo`/`wand`/`shuffle` grant boosters), `REWARD_EMOJI`, and the
+  the wallet, `undo`/`wand`/`shuffle` grant boosters), `REWARD_EMOJI` (its three
+  helper rows are read from `src/boosters.js`'s registry rather than restated;
+  `lightning`'s **⚡** stays local, since no helper carries it), and the
   helpers `rewardIsCoins` / `rewardBooster` (which counter a reward flies to),
   `grantReward(user, reward)`, `makeRewardIcon(type, size, opts)`,
   `flyReward(ticker, layer, from, to, icon)` (the shared 540 ms quadratic-Bézier
@@ -1898,6 +1912,26 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   returns `false` instead of throwing, so the caller still grants — the arc is
   what the player loses, never the prize. The reward's **name** is not here; that
   is `itemName()` in `src/i18n.js`, which has always owned it.
+- `src/boosters.js` owns the **helper vocabulary** — the one answer to "what does
+  Undo/Wand/Reshuffle look like", shared by every screen that draws one: the
+  level's own button row, the coached first use, the Fortune Wheel/Daily
+  Bonus/Tasks chip rows and the shop's package summary. It exports `BOOSTERS`
+  (one row per code in `CONFIG.boosters.kinds`, each `{ id, glyph, color,
+  coachKey, unlock }`, in the fixed presentation order undo → wand → shuffle),
+  `booster(id)` / `boosterFace(id)` to look one up, `SUPER_WAND_FACE` (the
+  Wand's charged face — not a row, since the Super Wand has no inventory or
+  unlock of its own), and the shared chip factory `makeBoosterChip` /
+  `makeBoosterChipRow` / `boosterChipControls` that replaced three
+  byte-identical private copies in the wheel, Daily Bonus and Tasks overlays.
+  What it deliberately does not hold: the **balance knobs** (`CONFIG.boosters`
+  in `src/config.js` — which helpers exist, starting stock, unlock levels,
+  coaching), the **coin prices** (`assets/config/prices.json`), any **layout**
+  (each scene keeps its own row's position, per the rule below), the
+  **localized name** of a helper (`itemName()` in `src/i18n.js`), what one is
+  worth as a **reward** (`src/rewards.js`, just above), or how many the player
+  **owns** (`src/user/User.js`). It reads `CONFIG.boosters` and never restates
+  one of its values, the same relationship `config.js` already has with
+  `assets/config/*.json`.
 - `src/levelchest.js` is the `LevelChest` — the **feature logic** of the level-complete
   chest (the schedule and the maths), drawn nowhere itself: it just answers
   `infoFor(level)` → `{ index, filled, needed, label, reward, full }` for the win
@@ -2121,7 +2155,7 @@ sections are:
 | --- | --- |
 | `progression` | `tutorialLevel` (which level opens "How To Play" + the guided opening) and `autoComplete.minLevel` / `.maxTiles` (the window the free Auto Complete button is offered in) |
 | `features` | one gate/pacing block per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel`, `tasks.unlockLevel` / `.weeklyResetDay` / `.activities` (the task-counter roster), and `levelChest.repeatStart` (the Level Chest has no gate — it's derived from progress) |
-| `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — `coach` (`enabled`, `undoDelayMs`) for the guided first use, and `superWand` (`unlockLevel` / `streakLength` / `minTiles` / `extraRounds`) for the Wand's earned upgrade |
+| `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — `coach` (`enabled`, `undoDelayMs`) for the guided first use, and `superWand` (`unlockLevel` / `streakLength` / `minTiles` / `extraRounds`) for the Wand's earned upgrade. This row is the **balance** only — which glyph, disc colour and coach caption each helper wears lives one layer up, in `src/boosters.js`, which reads `kinds` and `unlocks` and never restates a value from them; it is the same split this file already keeps with `assets/config/*.json` |
 | `economy` | `currencies` and the `startingWallet` a new account starts with — clearing a level pays no coins, so the free supply comes from the Level Chest, Daily Bonus and Fortune Wheel, with the shop as the paid one |
 | `board` | `traySlots` — the base tray capacity, the core difficulty dial — plus `extraSlot` (`unlockLevel` / `grant`, the ad-funded 8th slot) and `warnings` (`pulseAtFree` / `bubbleAtFree`, the two near-full cues, counted against the *live* capacity) |
 | `network` | `fetchTimeoutMs` / `retryAttempts` / `retryBackoffMs` — how long any boot or level-load fetch (`src/net.js`) is given before it's aborted, and the bounded retry for a plausibly transient failure (a network error, a timeout, a 5xx — never a 4xx). A robustness bound, not gameplay tuning; see Asset management below |
@@ -2434,7 +2468,7 @@ JS/
   index.html
   vendor/pixi.min.js
   src/config.js             # KEY PARAMETERS: feature gates, unlocks, economy
-  src/{main,splash,game,lobby,settings,shop,fortunewheel,dailybonus,tasks,levelchest,level,levelConfig,icons,audio,assets,tween}.js
+  src/{main,splash,game,lobby,settings,shop,fortunewheel,dailybonus,tasks,levelchest,level,levelConfig,icons,audio,assets,tween,boosters}.js
   src/user/{User,adapters,payments,platform,UserStore}.js
   assets/
     config/levels.json      # the level table: {background,data,types,preload?} per level

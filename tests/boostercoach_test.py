@@ -19,9 +19,10 @@ import harness
 #   * a helper whose unlock level was skipped is still owed its coaching, and
 #     only ONE coached moment happens per level entry.
 #
-# The captions are the scene's copy (BOOSTER_COACH in src/boostercoach.js); the
-# unlock levels come from the config via boosterUnlockLevel(), so retiming the
-# schedule does not touch this file.
+# The caption text keys are a field on each helper's row in src/boosters.js
+# (read by coachCaption() in src/boostercoach.js); the unlock levels come from
+# the config via boosterUnlockLevel(), so retiming the schedule does not touch
+# this file.
 
 CAPTIONS = {
     "undo": "Undo the last move",

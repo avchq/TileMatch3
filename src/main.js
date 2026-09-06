@@ -1150,36 +1150,34 @@ async function boot() {
       grantBooster: (kind, n) => user.grantBooster(kind, n),
       // Coin price to buy one of a helper when its stock is empty (from prices.json).
       boosterPrice: (kind) => scene._boosterPrice(kind),
-      boosterState: () => ({
-        undoUsable: scene.undoBtn.eventMode === "static",
-        shuffleUsable: scene.shuffleBtn.eventMode === "static",
-        wandUsable: scene.wandBtn.eventMode === "static",
-        // greyed-out appearance (alpha < 1) — mirrors "usable" so the look matches
-        // whether a tap actually does anything.
-        undoDimmed: scene.undoBtn.alpha < 1,
-        shuffleDimmed: scene.shuffleBtn.alpha < 1,
-        wandDimmed: scene.wandBtn.alpha < 1,
-        undoBadge: scene.undoBadge.text.text,
-        shuffleBadge: scene.shuffleBadge.text.text,
-        wandBadge: scene.wandBadge.text.text,
-        // Acquisition tier shown on each helper: "stock" (own ≥1) / "buy" (afford with
-        // coins) / "ad" (out of stock & coins -> watch an ad) / "locked" (not yet
-        // unlocked by progression — no ladder tier applies).
-        undoMode: scene.undoBtn._boosterMode,
-        shuffleMode: scene.shuffleBtn._boosterMode,
-        wandMode: scene.wandBtn._boosterMode,
-        undoLocked: scene.undoBtn._boosterMode === "locked",
-        shuffleLocked: scene.shuffleBtn._boosterMode === "locked",
-        wandLocked: scene.wandBtn._boosterMode === "locked",
-      }),
+      // Five facts per helper, under flat `<kind><Fact>` keys — the shape the
+      // suite has always read (undoUsable, wandBadge, shuffleMode, …). Generated
+      // from the scene's helper row rather than written out three times, so a
+      // fourth helper reports without touching this seam.
+      boosterState: () => {
+        const out = {};
+        for (const [kind, { btn, badge }] of Object.entries(scene._helpers)) {
+          out[kind + "Usable"] = btn.eventMode === "static";
+          // greyed-out appearance (alpha < 1) — mirrors "usable" so the look matches
+          // whether a tap actually does anything.
+          out[kind + "Dimmed"] = btn.alpha < 1;
+          out[kind + "Badge"] = badge.text.text;
+          // Acquisition tier shown on each helper: "stock" (own ≥1) / "buy" (afford with
+          // coins) / "ad" (out of stock & coins -> watch an ad) / "locked" (not yet
+          // unlocked by progression — no ladder tier applies).
+          out[kind + "Mode"] = btn._boosterMode;
+          out[kind + "Locked"] = btn._boosterMode === "locked";
+        }
+        return out;
+      },
       // ---- helper progression (locked in the first levels) ----
       boosterUnlocked: (kind) => user.isBoosterUnlocked(kind),
       boosterUnlockLevel: (kind) => user.boosterUnlockLevel(kind),
       // Press a helper button through the real pointer path (so a locked one gets
       // its refusal feedback), rather than calling the action directly.
       pressBooster: (kind) => {
-        const btn = { undo: scene.undoBtn, shuffle: scene.shuffleBtn, wand: scene.wandBtn }[kind];
-        return btn ? btn.emit("pointertap") : undefined;
+        const slot = scene._helpers[kind];
+        return slot ? slot.btn.emit("pointertap") : undefined;
       },
       // Text of the floating "Unlocks at Level N" label, "" when none is showing.
       boosterHint: () => (scene._boosterHint ? scene._boosterHint.__text : ""),
