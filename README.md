@@ -608,8 +608,9 @@ activity really happens. The feature's **gate, reset weekday and activity
 roster** sit in **`src/config.js`** (`features.tasks`) with every other key
 parameter.
 
-**Note:** the shipped `unlockLevel` is **10**, and this port ships 13 levels — so
-it is reachable but late. Lower `features.tasks.unlockLevel` in `src/config.js` to
+**Note:** the shipped `unlockLevel` is **10**, and the campaign is however long
+`assets/config/levels.json` is — currently **28** levels — so the gate sits about
+a third of the way in. Lower `features.tasks.unlockLevel` in `src/config.js` to
 demo it sooner.
 
 ### Level Chest — a filling reward on the win screen
@@ -695,12 +696,14 @@ waterfall any Wand press runs.
   from `unlockLevel` (**10**) onward. A replay of an already-beaten level does
   **not** count, the same "pushes your furthest level higher" rule the Level
   Chest uses, so a charge can't be farmed by grinding one easy level. (The
-  original ships this gate at level 20; this port's campaign is currently **20
-  levels long**, and since only a genuinely new clear counts, a gate of 20 would
-  leave exactly one qualifying win and the reward could never actually be
-  earned. 10 is the nearest value that keeps it reachable — clear 10–14 to
-  charge it, then 15–20 to use it — without making it farmable; raise it back
-  toward 20 as the level table grows.) Progress is shown on the **level-complete
+  original ships this gate at level 20; the campaign is however long
+  `assets/config/levels.json` is — currently **28** levels — and since only a
+  genuinely new clear counts, a gate of 20 would leave nine qualifying wins:
+  20–24 to charge, 25–28 to spend, one Super Wand ever, at the very end of the
+  campaign and only for a player who never breaks the run. 10 leaves nineteen —
+  three charges across the back half — which makes it a recurring reward rather
+  than a single trophy; re-check it against the table whenever the campaign
+  grows, since 20 becomes defensible again past 40 levels.) Progress is shown on the **level-complete
   screen** as a filling **gold** bar with a caption reading "Clear 5 levels in a
   row!" (the 5 comes from config, so retuning the streak length re-letters the
   label rather than contradicting it). It coexists with the Level Chest's green

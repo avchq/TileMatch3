@@ -42,8 +42,11 @@ EXPECT = {
         "coach": {"enabled": True, "undoDelayMs": 250},
         # The Super Wand — the Wand's win-streak upgrade. unlockLevel is 10 rather
         # than the original's 20: only a genuinely NEW clear counts toward the
-        # streak, and this port's campaign is 20 levels long, so a gate of 20 would
-        # leave one qualifying win and the reward could never be earned at all.
+        # streak, and the campaign is currently 28 levels (assets/config/levels.json),
+        # so a gate of 20 would leave nine qualifying wins — one charge, spent at
+        # the very end. 10 leaves nineteen, i.e. three charges. Section 4 below
+        # holds this number, and the same reasoning in config.js and the README,
+        # to the level table's real length.
         "superWand": {"unlockLevel": 10, "streakLength": 5,
                       "minTiles": 6, "extraRounds": 2},
     },
@@ -288,6 +291,34 @@ with sync_playwright() as p:
     # CONFIG wins whenever it is there.)
     net = text("src/net.js")
     assert "CONFIG.network" in net, "src/net.js must read its bounds from CONFIG.network"
+
+    # ---- 4) the documented campaign length is the REAL one ---------------
+    # Several config comments (and the docs, and this file's own EXPECT
+    # commentary) justify a shipped value by stating how long the campaign is.
+    # They are not decorative: they are the recorded REASONING for a tuning
+    # decision, and a stale number turns that reasoning into a false argument
+    # for a value nobody re-checked. The campaign is exactly as long as
+    # assets/config/levels.json, so that file is the truth and every prose
+    # claim has to agree with it — including after the table grows.
+    LEVEL_COUNT = len(json.loads(text("assets/config/levels.json")))
+    CLAIM_PATTERNS = [r"ships (\d+) levels",
+                      r"currently (\d+) levels",
+                      r"(\d+) levels long"]
+    claims = 0
+    for path in ("src/config.js", "README.md", "tests/config_test.py"):
+        # Flatten comment markers, markdown bold and line wrapping, so a claim
+        # split across two `//` lines is still one sentence to the regex.
+        flat = re.sub(r"[\s/*]+", " ", open(path, encoding="utf-8").read())
+        for pat in CLAIM_PATTERNS:
+            for m in re.finditer(pat, flat):
+                claims += 1
+                assert int(m.group(1)) == LEVEL_COUNT, (
+                    path, "states a campaign length of " + m.group(1) +
+                    " but assets/config/levels.json has " + str(LEVEL_COUNT) +
+                    " rows: " + flat[max(0, m.start() - 90):m.end() + 60])
+    print("CAMPAIGN LENGTH ->", LEVEL_COUNT, "levels,", claims, "prose claims agree")
+    assert claims >= 4, ("the campaign-length claims vanished from the comments — "
+                         "either re-word this guard or keep the reasoning written down")
 
     print("ERRORS:", len(errors))
     for e in errors[:10]:

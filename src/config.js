@@ -112,9 +112,9 @@ export const CONFIG = deepFreeze({
     // from the lobby's feature rail. Prize groups + odds: assets/config/turntable.json.
     fortuneWheel: {
       // Below this the lobby's Free Spin button does not exist (and the Daily
-      // Bonus button slides up into its slot). NOTE: this port currently ships
-      // 13 levels, so 5 is reachable in normal play — but if you want to demo
-      // the wheel immediately, drop this to 1.
+      // Bonus button slides up into its slot). NOTE: the campaign is however
+      // long `assets/config/levels.json` is — currently 28 levels — so 5 lands
+      // early in normal play; drop this to 1 to demo the wheel immediately.
       unlockLevel: 5,
 
       // Spins allowed per daily cycle. The FIRST is free; every one after costs
@@ -156,8 +156,9 @@ export const CONFIG = deepFreeze({
       // boosters, the shop and the wheel just crowds the lobby. Counters tick
       // from the very first level either way, so a player arriving at the gate
       // finds their history already filled in (and usually a few tiers
-      // stacked up, ready to claim). NOTE: this port currently ships 13
-      // levels, so 10 is reachable but late — drop it to demo the screen sooner.
+      // stacked up, ready to claim). NOTE: the campaign is however long
+      // `assets/config/levels.json` is — currently 28 levels — so 10 sits about
+      // a third of the way in; drop it to demo the screen sooner.
       unlockLevel: 10,
 
       // The weekday the WEEKLY list resets on, at local midnight:
@@ -287,13 +288,17 @@ export const CONFIG = deepFreeze({
       // Below it, wins simply do not count and no bar is shown, which keeps the
       // early game about learning the ordinary helpers.
       //
-      // The original ships this at 20. This port's campaign is currently 20
-      // levels long (`assets/config/levels.json`), and only a GENUINELY NEW
-      // clear counts toward the streak — so a gate of 20 would leave exactly one
-      // qualifying win and the reward could never be earned at all. 10 is the
-      // nearest value that keeps the feature reachable (clear 10-14 to charge it,
-      // then 15-20 to spend it) without making it farmable. Raise it back toward
-      // 20 as the level table grows.
+      // The original ships this at 20. The campaign is however long
+      // `assets/config/levels.json` is — currently 28 levels — and only a
+      // GENUINELY NEW clear counts toward the streak, so the gate has to leave
+      // room to charge the streak AND somewhere to spend the charge afterwards.
+      // A gate of 20 leaves nine qualifying wins: 20-24 to charge, 25-28 to
+      // spend, exactly one Super Wand ever, earned at the very end and only by
+      // a player who never breaks the run. 10 leaves nineteen — three charges
+      // across the back half — which is what makes this a recurring reward
+      // rather than a single trophy, without making it farmable (replays never
+      // count). Re-check this against the table's length whenever it grows: 20
+      // becomes defensible again once the campaign is comfortably past 40.
       unlockLevel: 10,
 
       // Consecutive NEW clears that charge one Super Wand. Replays and levels

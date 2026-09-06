@@ -894,6 +894,14 @@ Only `howtoplay_test.py` leaves it open.
   `CONFIG.network.fetchTimeoutMs`, not a standalone literal) and asserts
   `src/net.js` itself reads `CONFIG.network` rather than carrying its own numbers
   as the source of truth.
+  Finally it holds the **written reasoning** to the data: several config comments
+  (and the README, and this test's own `EXPECT` commentary) justify a shipped
+  value by stating **how long the campaign is**, so every such prose claim is
+  scraped out of `src/config.js`, `README.md` and `config_test.py` and checked
+  against `len(assets/config/levels.json)`. Growing the level table therefore
+  fails this test until the sentences that argue from its length are re-checked —
+  which is the point: `features.fortuneWheel.unlockLevel`, `features.tasks.unlockLevel`
+  and `boosters.superWand.unlockLevel` are all tuned on that number.
 
 ### User profile & persistence
 
