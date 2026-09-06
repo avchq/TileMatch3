@@ -2,15 +2,16 @@ import { parseLevel, computeCoverers, assignSolvableTypes, mulberry32 } from "./
 import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.js";
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill, makeCoinIcon } from "./shop.js";
-import { typesForLevel } from "./levelConfig.js";
+import { typesForLevel, isHardLevel, mixPercentForLevel } from "./levelConfig.js";
 import { buildColumnBackground, makeHintPill, fitTextWidth, makeButton,
-         makeProgressBar } from "./layout.js";
+         makeProgressBar, makeHardTag, HARD_TAG_H } from "./layout.js";
+import { HardLevelBanner } from "./hardlevelbanner.js";
 import { HowToPlayPopup } from "./tutorial.js";
 import { BoosterCoach } from "./boostercoach.js";
 import { boosterFace, SUPER_WAND_FACE } from "./boosters.js";
 import { rewardIsCoins, grantReward, makeRewardIcon, flyReward } from "./rewards.js";
 import { CONFIG } from "./config.js";
-import { t, itemName } from "./i18n.js";
+import { t, locText, itemName } from "./i18n.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -76,6 +77,11 @@ const TRAY_Y = 1140;
 //   fromScale — the size a tile starts at; easeOutBack carries it past 1 and
 //               back, which is the pop.
 const DEAL = { waveMs: 400, layerMs: 70, tileMs: 300, maxMs: 700, fromScale: 0.55 };
+
+// The beat between the board finishing its deal and a HARD level's announcement
+// covering it: long enough for the player to register the finished stack before
+// it is dimmed. The banner's own timings live with it, in src/hardlevelbanner.js.
+const HARD_BANNER_SETTLE_MS = 500;
 
 // The corners a deal's wave can start from — "b"/"t" is bottom/top of the board
 // on screen, "l"/"r" left/right. One is picked per board (see _pickDealCorner),
@@ -188,6 +194,9 @@ const SUPER_FLY_MS = 420;        // pulled tiles fly into the tray
 const SUPER_BURST_MS = 460;      // the combined elimination's own beat
 const SUPER_ANNOUNCE_MS = 450;   // the brief beat before the upgrade celebration
 const SUPER_BAR_H = 100;         // room the streak bar adds to the win overlay
+// Room the hard-level warning (next level's number + the ribbon) adds to it —
+// HARD_TAG_H plus the number line above it and a breath either side.
+const HARD_WARN_H = HARD_TAG_H + 76;
 
 export class GameScene extends PIXI.Container {
   constructor(app, tileTextures, slotTexture, backgrounds, audio, maxLevel, user, prices, levelChest) {
@@ -279,6 +288,7 @@ export class GameScene extends PIXI.Container {
     this._lastDealCorner = null;   // the corner the last board was dealt from
     this._forcedDealCorner = null; // pin the corner instead of picking one (test seam)
     this._tutorial = null;  // the "How To Play" popup, while it is up
+    this._hardBanner = null; // the hard-level announcement, while it is up
     this._boosterHint = null; // the floating "Unlocks at Level N" label, when shown
     // ---- tray capacity (the 8th slot) --------------------------------------
     // Two numbers, deliberately not the same one. `traySlots` is what the tray
@@ -830,8 +840,10 @@ export class GameScene extends PIXI.Container {
     if (this._hand && this._handTile && !this._handTile.container.destroyed) {
       this._hand.position.set(this._handTile.container.x, this._handTile.container.y);
     }
-    // The tutorial popup re-centres itself (its dim covers the whole view).
+    // The tutorial popup re-centres itself (its dim covers the whole view), and
+    // so does the hard-level announcement, which is built the same way.
     if (this._tutorial && !this._tutorial.destroyed) this._tutorial.layout(DW, DH);
+    if (this._hardBanner && !this._hardBanner.destroyed) this._hardBanner.layout(DW, DH);
     // The coaching holds a helper button on loan, so it has to put it back on the
     // row at the new offsets rather than leaving it where the old ones put it.
     if (this._coach && !this._coach.destroyed) this._coach.layout(DW, DH);
@@ -1188,6 +1200,9 @@ export class GameScene extends PIXI.Container {
     // Any coaching from the previous board goes too, and stays owed — reloading
     // out of a lesson is not the same as having had it.
     this._closeCoach();
+    // …and a hard-level announcement still on screen from the board being
+    // replaced. tutorialLayer is not cleared wholesale here, so it needs saying.
+    this._closeHardBanner();
     this._buildBackground();
     this.overlayLayer.removeChildren();
     this.fxTopLayer.removeChildren(); // a reward still in the air from the last board
@@ -1228,7 +1243,10 @@ export class GameScene extends PIXI.Container {
     // odd constant spreads adjacent levels to well-separated RNG streams. Still
     // solvable by construction; the Reshuffle button is the way to re-randomise.
     const seed = (levelNum * 0x9e3779b1) >>> 0;
-    assignSolvableTypes(positions, numTypes, mulberry32(seed));
+    // How widely this level scatters its faces: the baseline for an ordinary
+    // level, raised for a hard one. This is the ONLY thing hardness changes about
+    // the board — the layout, the type count and the seed are all untouched.
+    assignSolvableTypes(positions, numTypes, mulberry32(seed), mixPercentForLevel(levelNum));
     this.solutionOrder = positions.solutionOrder || [];
 
     this.tiles = positions.map((p, i) => this._createTile(p, i, coverers[i], covered[i]));
@@ -1247,10 +1265,21 @@ export class GameScene extends PIXI.Container {
     // startLevel awaits it, so a caller (and every test) resumes on a board that
     // is complete, unlocked and playable.
     const run = this._guideRun; // the board this deal belongs to
-    return this._dealIn(run).then(() => {
+    return this._dealIn(run).then(async () => {
       // A reload, or leaving for the lobby, mid-deal: that board's opening is not
       // ours to run, and it already owns `locked`.
       if (this._stale(run) || !this.visible) return;
+      // A HARD level announces itself here, in the same slot the tutorial popup
+      // and the first-run guide occupy — after the board has landed and settled,
+      // still behind `locked`, and AWAITED, so loadLevel's promise keeps meaning
+      // "complete, unlocked and playable" (it just resolves ~1.5s later). A beat
+      // first, so the player sees the finished board before it is covered.
+      if (isHardLevel(levelNum)) {
+        await delay(this.app.ticker, HARD_BANNER_SETTLE_MS);
+        if (this._stale(run) || !this.visible) return;
+        await this._playHardBanner(run);
+        if (this._stale(run) || !this.visible) return;
+      }
       this.locked = false;
       // On level 1 the "How To Play" popup comes first and hands over to the
       // guided opening when it closes; every other level starts play straight away.
@@ -1302,6 +1331,59 @@ export class GameScene extends PIXI.Container {
     const popup = this._tutorial;
     this._tutorial = null;
     if (popup && !popup.destroyed) { popup.onClose = null; popup.destroy(); }
+  }
+
+  // ---- the hard-level announcement -----------------------------------------
+
+  // Put the banner up over the dealt board and wait for it to finish. It rides on
+  // tutorialLayer, ABOVE the win/lose overlays and deliberately not on
+  // overlayLayer — that layer's child count is what "is an overlay up?" means to
+  // the rest of the game and to every test (window.__game.state().overlay), and an
+  // announcement is not an overlay in that sense.
+  //
+  // The caller owns `locked` for the whole step, so nothing here touches it. The
+  // `run` token rides into the banner: a level swapped out mid-announcement
+  // abandons its tweens instead of finishing over the replacement board.
+  _playHardBanner(run) {
+    this._closeHardBanner();
+    const banner = new HardLevelBanner(this.app);
+    this.tutorialLayer.addChild(banner);
+    banner.layout(this.viewW, this.viewH);
+    this._hardBanner = banner;
+    return banner.play(() => !this._stale(run) && this._hardBanner === banner)
+      .then(() => { if (this._hardBanner === banner) this._hardBanner = null; });
+  }
+
+  // Tear a live announcement down — for the paths replacing or leaving the board
+  // underneath it (loadLevel, _exit), mirroring _closeTutorial.
+  _closeHardBanner() {
+    const banner = this._hardBanner;
+    this._hardBanner = null;
+    if (banner && !banner.destroyed) banner.destroy({ children: true });
+  }
+
+  /**
+   * The win screen's hard-level warning, flat, for the debug API. Shaped zero
+   * when no win panel is up, or the next level is an ordinary one. The panel is
+   * torn down by removeChildren(), which destroys nothing and so leaves this
+   * reference behind — whether the panel is still ATTACHED is what decides.
+   */
+  winHardTag() {
+    const w = this._winHardTag;
+    const live = !!(w && !w.tag.destroyed && w.group.parent === this.overlayLayer);
+    return {
+      visible: live,
+      level: live ? w.level : 0,
+      caption: live ? w.tag.__label.text : "",
+    };
+  }
+
+  /** Flat state for the debug API — a shaped zero when no banner is up. */
+  hardBannerState() {
+    const banner = this._hardBanner;
+    return (banner && !banner.destroyed)
+      ? banner.state()
+      : { visible: false, alpha: 0, scale: 0, caption: "" };
   }
 
   // ---- first-run guidance --------------------------------------------------
@@ -1427,6 +1509,7 @@ export class GameScene extends PIXI.Container {
   _exit() {
     this._hideHand();
     this._closeTutorial();
+    this._closeHardBanner();
     this._clearBoosterHint();
     this._clearTrayMessage();
     this._stopTrayPulse();
@@ -2817,7 +2900,14 @@ export class GameScene extends PIXI.Container {
     // exactly SUPER_BAR_H of new room opens between them for the bar. With no
     // streak bar `grow` is 0 and every number below is the one that was here
     // before — the two existing panel sizes are untouched.
-    const grow = streakInfo ? SUPER_BAR_H : 0;
+    // …and the HARD LEVEL warning does the same, on the same terms. The spec puts
+    // it under the number of the NEXT level, which is the player's advance notice
+    // that the level the Continue button leads to will be a stiff one. Both lines
+    // appear ONLY when that next level is hard, so every other win panel is the
+    // one that was here before. There is no next level on the last one.
+    const nextLevel = this.levelNum + 1;
+    const hardNext = nextLevel <= this.maxLevel && isHardLevel(nextLevel);
+    const grow = (streakInfo ? SUPER_BAR_H : 0) + (hardNext ? HARD_WARN_H : 0);
     const half = (tall ? 250 : 180) + grow / 2;
     const titleY = (tall ? -250 + 66 : -90) - grow / 2;
     const subY = (tall ? -250 + 132 : -20) - grow / 2;
@@ -2879,6 +2969,36 @@ export class GameScene extends PIXI.Container {
     }
     // The streak bar sits just above the Continue button at either panel size.
     if (streakInfo) this._mountSuperWandStreak(group, streakInfo, btnY - 108, btnY - 150);
+    // The warning sits under the subtitle, above whatever else the panel carries:
+    // the next level's number with the ribbon beneath it. `Language1` is the key
+    // the lobby's Play button already uses — the same "Level {0}" string, so this
+    // adds no text to translate.
+    if (hardNext) {
+      // Anchored to the BOTTOM of the panel's stack, not to the subtitle: the
+      // room `grow` opened is between whatever the panel already carries (a chest
+      // sits under the subtitle, a streak bar just above the button) and the
+      // Continue button, so the warning is placed up from the first of those it
+      // would otherwise land on.
+      const warnBottomY = btnY - (streakInfo ? 176 : 66);
+      const tagY = warnBottomY - HARD_TAG_H / 2;
+      const numY = tagY - HARD_TAG_H / 2 - 26;
+      const num = locText("Language1", {
+        fontFamily: "Arial", fontSize: 42, fontWeight: "900", fill: 0xffffff,
+        stroke: 0x122043, strokeThickness: 5,
+      }, nextLevel);
+      num.anchor.set(0.5);
+      num.position.set(0, numY);
+      const tag = makeHardTag();
+      tag.position.set(0, tagY);
+      group.addChild(num, tag);
+      // The group is kept alongside the tag so the seam below can tell a live
+      // warning from a stale one: overlayLayer.removeChildren() detaches the
+      // group without destroying anything, and a LOSE overlay opening afterwards
+      // would otherwise leave this reading "visible".
+      this._winHardTag = { tag, group, level: nextLevel }; // seam: __game.winHardTag
+    } else {
+      this._winHardTag = null;
+    }
 
     tt.scale.set(0.2);
     tween(this.app.ticker, {

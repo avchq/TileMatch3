@@ -550,6 +550,31 @@ Only `howtoplay_test.py` leaves it open.
   this, because it drives its own `requestAnimationFrame`, which keeps working
   after Pixi's loop has died. Back is asserted live again at the win overlay and
   on the next board (`_applyFirstRunChrome` re-arms it).
+- **`hardlevel_test.py`** — **Hard Levels**, the every-tenth difficulty spike.
+  Six checks: (1) **the cadence** — `hardLevel(n)` against `n % 10 ==
+  progression.hardLevel.endsWith` over the *whole* level table, not a
+  hand-picked pair, plus level 1 is never hard and a hard level's `mixPercent`
+  always reads above the ordinary baseline; (2) **the measured scatter** — an
+  ordinary board's `typeSpread()` reads `alignedFrac == 1.0` (every aligned
+  triple is still one face, exactly as before the feature existed) while the
+  first hard level's reads `< 0.5`, the regression line that goes red on a
+  build without the window; (3) **still winnable** — auto-solving a hard level
+  via `solveTap()` clears it to zero and the tray's peak occupancy never
+  exceeds capacity, which by design runs right up to it; (4) **ordinary boards
+  are untouched** — the level just before the hard one is checked for a fully
+  consecutive layout and for being byte-for-byte the same board across a
+  reload (`boardTypes()`); (5) **the ribbon**, in both places — hidden on the
+  win screen when the next level is ordinary, visible and naming the right
+  level when it's hard, tracking the lobby's Play button as `showLobby()` moves
+  across levels, and its caption actually changing on a language swap (a
+  translated phrase, unlike the untranslated `NEW`/`HOT` marks); (6) **the
+  opening announcement blocks** — the board stays `locked` and a tap collects
+  nothing while `hardBannerState().visible` is true, `state().overlay` stays
+  `false` throughout (the announcement is not a win/lose overlay), play resumes
+  the instant `startLevel()`'s promise resolves, an ordinary level never shows
+  it, and — driving a real fill-the-tray loss and pressing Continue — it never
+  replays on a **revive**, since that continues the existing board rather than
+  dealing a new one.
 
 ### Fortune Wheel
 
@@ -896,7 +921,9 @@ Only `howtoplay_test.py` leaves it open.
 - **`config_test.py`** — the central tuning config (`src/config.js`, exposed as
   `window.__game.config()`). Asserts it ships the intended values (the `EXPECT`
   table at the top of the file mirrors `config.js` — re-balancing means editing
-  both, on purpose) and is deeply **frozen**; that the **live game** reads them
+  both, on purpose — including the **Hard Level** additions,
+  `progression.hardLevel.endsWith` / `.mixPercent` and `board.mixPercent`) and
+  is deeply **frozen**; that the **live game** reads them
   rather than a copy that drifted (a new profile's wallet/inventory equal the
   configured starting values, each helper's unlock level and one-time grant match
   the schedule, the shop/wheel/daily/tasks gates open exactly at their

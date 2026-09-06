@@ -330,6 +330,72 @@ centre and is **scaled down** if a long localized string (or a four-digit level)
 would not fit the room the two end groups leave it. `tests/hudbar_test.py`
 enforces all of that.
 
+### Hard Levels — an occasional difficulty spike
+Every tenth level plays harder than its neighbours, and it tells you so before
+you start it. The cadence is a **rule, not a roster**: `CONFIG.progression.hardLevel.endsWith`
+(**8**) is a last digit, so a level is hard when its number **ends in it** — 8,
+18, 28, 38 … With the 28 levels in `assets/config/levels.json` that lands on
+levels **8, 18 and 28** today; appending levels to the table extends the
+cadence for free, since there is no second list of hard level numbers to keep
+in step with it. `isHardLevel()` and `mixPercentForLevel()` (`src/levelConfig.js`)
+are the only readers of the rule — the lobby, the win screen, the opening
+announcement and the board builder all ask them rather than re-deriving it.
+
+- **The board is genuinely stiffer, and that's the only thing that changes.**
+  An ordinary board's generator derives a valid removal order and lays each
+  face's three copies on three **consecutive** slots of it, so a complete set
+  usually sits right there to take. A hard level instead deals that same order
+  in **windows**: `assignSolvableTypes()` (`src/level.js`) takes a `mixPercent`
+  — `CONFIG.board.mixPercent` (**0**) for every ordinary level, `CONFIG.progression.hardLevel.mixPercent`
+  (**90**) for a hard one — and maps it onto a window of `W` triples, then deals
+  each window's own slots randomly among its own groups instead of handing them
+  out three-in-a-row. A face's three copies land at different depths, fewer
+  matches are ready to take up front, and the tray fills with half-finished
+  sets. This is **measured, not assumed**: `window.__game.typeSpread()` walks
+  the guaranteed solution order in threes and reports what fraction of those
+  aligned triples are still a single face — an ordinary level reads exactly
+  **1.0**, level 8 reads **0.06**.
+- **It is still provably winnable.** A group never straddles a window
+  boundary, so the tray empties again at every one, and the worst moment
+  inside a window holds `2W` tiles before the very next tap has to complete
+  one — a peak of `2W + 1`. The window is capped (`MAX_WINDOW`, derived from
+  `CONFIG.board.traySlots`) so that peak never exceeds the tray: at 7 slots the
+  cap is 3, which is exactly where the hard-level scatter (90%) sits, and a
+  hard board really does run to 7 of 7 tray slots held and still clear.
+- **The ribbon.** A red notched banner drawn by `makeHardTag()`
+  (`src/layout.js` — Graphics + Text, like every other badge in this game;
+  there is no artwork to load) appears in both places a hard level is coming,
+  always **before** it is played: draped across the lower edge of the lobby's
+  Play button, just under its "Level 8" label (shown or hidden from
+  `LobbyScene.show()`, so it always describes whatever level the button is
+  about to start), and on the **win screen**, under the *next* level's number
+  (reusing the existing `Language1` = "Level {0}" key), only when that next
+  level is hard — room is made for the pair above the button stack the same
+  way the Super Wand streak bar makes room, and it is suppressed past the last
+  level. The caption is the new `hard_level` key, translated in all 13
+  language files — unlike the **NEW**/**HOT** badge marks, which stay
+  untranslated literals because a badge word is a mark and this is a phrase.
+- **The announcement.** A fresh hard board doesn't just carry a tag, it
+  interrupts you: once the deal-in wave has landed there is a half-second beat
+  (`HARD_BANNER_SETTLE_MS` in `src/game.js`), then a 70%-black dimmer that
+  swallows taps, a starburst turning once every ten seconds, and the emblem on
+  a red disc with the red caption beneath it — all three growing in over a
+  third of a second, holding for about two thirds of a second, and shrinking
+  away again (`src/hardlevelbanner.js`, `HardLevelBanner`). It is genuinely
+  **blocking**: `loadLevel` **awaits** it before clearing `locked`, so the
+  promise `loadLevel` returns still means "complete, unlocked and playable" —
+  it just resolves about a second and a half later on a hard level. It rides
+  on `tutorialLayer`, not `overlayLayer`, so `state().overlay` keeps meaning
+  the win/lose overlays. It plays on every **fresh** build of a hard level
+  (first attempt, Replay, retry after a loss) and never on a **revive**,
+  because `_continueAfterLoss` returns the tray to the *existing* board
+  without going through `loadLevel` at all — there is no new board to announce.
+- **What is NOT different.** A hard level pays exactly what any level pays,
+  draws its tile-type count from the same `types` field as any other level,
+  and every helper, the Level Chest, the weekly tasks and the Super Wand streak
+  all treat it as **one level cleared, no more and no less**. The only thing
+  hardness changes is how widely the faces are scattered across the board.
+
 ### Feature buttons — the lobby rails
 The lobby's **feature entry buttons** are not pinned to fixed spots. They are
 entries on a **feature rail** (`src/featurerail.js`): a vertical ladder of
@@ -1423,9 +1489,20 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   exported `delay()` — the exact trap a positional `tween()` call in
   `src/lobby.js` fell into (see that bullet below).
 - `src/level.js` assigns tile types with a **guaranteed-solvable** generator: it
-  derives a valid removal order (a linear extension of the covering DAG) and
-  gives each consecutive triple one type, so every board can always be cleared
-  with only 3 tray slots. The number of distinct types is **per-level**, set by
+  derives a valid removal order (a linear extension of the covering DAG), then
+  deals it in **windows** of `W` triples (`mixWindow()`), giving each window's
+  own groups one type apiece dealt randomly across that window's own slots. At
+  `W = 1` (`CONFIG.board.mixPercent` = 0, the baseline every ordinary level
+  builds at) that reproduces the original layout bit-for-bit: a triple owns
+  three **consecutive** slots in the order, so every board can always be
+  cleared with only 3 tray slots held at once. A **Hard Level** (see Gameplay
+  above) widens the window instead, so a face's three copies land across up to
+  `3W` slots and different depths. Solvability survives because a group never
+  straddles a window boundary — the tray empties again at every one — so the
+  worst moment following the order holds `2W` tiles, peaking at `2W + 1` for
+  the instant the completing tap lands. `MAX_WINDOW = floor((traySlots - 1) /
+  2)` caps `W` at whatever the tray (`CONFIG.board.traySlots`, 7) can survive,
+  which comes out to 3. The number of distinct types is **per-level**, set by
   the `types` field of each entry in `assets/config/levels.json` (resolved by
   `src/levelConfig.js`) — either a fixed integer or a `[min, max]` **range**
   resolved to a count that is random but deterministic per level (every type is
@@ -1763,6 +1840,16 @@ the obfuscated artifact, and asserts the cheat console is really gone.
   to **`layout.js`** as `makeHintPill(text)`, so `boostercoach.js`'s caption —
   which used to carry a hand-copied twin of it — now draws from the same builder
   (statically, at alpha 1, since it holds until the lesson closes).
+- `src/hardlevelbanner.js` is the `HardLevelBanner` — the opening announcement a
+  **Hard Level** interrupts play with (see Gameplay above). Like the rest of
+  this game's effects it is entirely drawn (Graphics + a `PIXI.Text` emoji
+  glyph for the emblem), and its numbers are visual timings rather than
+  gameplay tuning, which is why they sit in the module itself instead of
+  `src/config.js`. `GameScene._playHardBanner()` mounts it on `tutorialLayer`
+  and `await`s its `play()` inside `loadLevel`'s hand-off, so it is the one
+  thing in the game — alongside the "How To Play" popup and a helper's coached
+  first use — that a level's own opening can hold up before handing control
+  back.
 - `src/lobby.js` is the `LobbyScene` (landing/home screen) with the centred title
   block and the **"Level &lt;n&gt;"** play button. Like the level, it splits its
   layers by anchor: the title/subtitle/fruit row ride the vertically-centred
@@ -2153,11 +2240,11 @@ sections are:
 
 | Section | What's in it |
 | --- | --- |
-| `progression` | `tutorialLevel` (which level opens "How To Play" + the guided opening) and `autoComplete.minLevel` / `.maxTiles` (the window the free Auto Complete button is offered in) |
+| `progression` | `tutorialLevel` (which level opens "How To Play" + the guided opening), `autoComplete.minLevel` / `.maxTiles` (the window the free Auto Complete button is offered in), and `hardLevel.endsWith` / `.mixPercent` (the last-digit rule that flags a [Hard Level](#hard-levels--an-occasional-difficulty-spike) and how widely such a level scatters its faces — see `board.mixPercent` below) |
 | `features` | one gate/pacing block per feature: `shop.unlockLevel`, `fortuneWheel.unlockLevel` / `.spinsPerCycle` / `.headlinePrize`, `dailyBonus.unlockLevel`, `tasks.unlockLevel` / `.weeklyResetDay` / `.activities` (the task-counter roster), and `levelChest.repeatStart` (the Level Chest has no gate — it's derived from progress) |
 | `boosters` | `kinds`, the `startingInventory` of a new account, `unlocks` — the helper → `{ level, grant }` schedule — `coach` (`enabled`, `undoDelayMs`) for the guided first use, and `superWand` (`unlockLevel` / `streakLength` / `minTiles` / `extraRounds`) for the Wand's earned upgrade. This row is the **balance** only — which glyph, disc colour and coach caption each helper wears lives one layer up, in `src/boosters.js`, which reads `kinds` and `unlocks` and never restates a value from them; it is the same split this file already keeps with `assets/config/*.json` |
 | `economy` | `currencies` and the `startingWallet` a new account starts with — clearing a level pays no coins, so the free supply comes from the Level Chest, Daily Bonus and Fortune Wheel, with the shop as the paid one |
-| `board` | `traySlots` — the base tray capacity, the core difficulty dial — plus `extraSlot` (`unlockLevel` / `grant`, the ad-funded 8th slot) and `warnings` (`pulseAtFree` / `bubbleAtFree`, the two near-full cues, counted against the *live* capacity) |
+| `board` | `traySlots` — the base tray capacity, the core difficulty dial — plus `extraSlot` (`unlockLevel` / `grant`, the ad-funded 8th slot), `warnings` (`pulseAtFree` / `bubbleAtFree`, the two near-full cues, counted against the *live* capacity), and `mixPercent` (**0**) — the baseline face-scatter every ordinary level's board builds at; a Hard Level rises to `progression.hardLevel.mixPercent` instead |
 | `network` | `fetchTimeoutMs` / `retryAttempts` / `retryBackoffMs` — how long any boot or level-load fetch (`src/net.js`) is given before it's aborted, and the bounded retry for a plausibly transient failure (a network error, a timeout, a 5xx — never a 4xx). A robustness bound, not gameplay tuning; see Asset management below |
 | `persistence` | `saveDebounceMs` — the autosave debounce |
 | `language` | `defaultLanguage` (what an unrecognised device language falls back to) and `textDir` (the folder holding the per-locale string tables). The 13 **offered** codes are deliberately not here — that list is hard-coded in `src/i18n.js`; see Localization above |

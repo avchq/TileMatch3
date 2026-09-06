@@ -19,6 +19,7 @@
 
 import { mulberry32 } from "./level.js";
 import { fetchJSON } from "./net.js";
+import { CONFIG } from "./config.js";
 
 // The loaded level table, populated once at boot by loadLevels(). Empty until
 // then; typesForLevel() reads it, so loadLevels() must resolve before any level
@@ -57,4 +58,27 @@ export function typesForLevel(levelNum) {
   const max = Math.min(PALETTE_SIZE, Math.max(spec[0], spec[1]));
   const rng = mulberry32((levelNum * 0x85ebca6b) >>> 0);
   return min + Math.floor(rng() * (max - min + 1));
+}
+
+// ---- hard levels -----------------------------------------------------------
+// The occasional difficulty spike (see CONFIG.progression.hardLevel). It is a
+// RULE, not a roster: a level is hard when its number ends in the configured
+// digit, so the cadence scales with the level table instead of needing a second
+// list to keep in step with it. Both readers below live here so nothing else
+// re-spells the rule — the lobby ribbon, the win-screen tag, the opening banner
+// and the board builder all ask these two functions.
+
+/** Is this level (1-based) one of the hard ones? */
+export function isHardLevel(levelNum) {
+  const digit = CONFIG.progression.hardLevel.endsWith;
+  return Number.isInteger(levelNum) && levelNum > 0 && levelNum % 10 === digit;
+}
+
+// How widely this level scatters its tile faces — the hard override, or the
+// baseline every other level builds at. See CONFIG.board.mixPercent for what
+// the number means and src/level.js for what it does.
+export function mixPercentForLevel(levelNum) {
+  return isHardLevel(levelNum)
+    ? CONFIG.progression.hardLevel.mixPercent
+    : CONFIG.board.mixPercent;
 }

@@ -87,6 +87,30 @@ export const CONFIG = deepFreeze({
       // makes it a last-two-triples courtesy.
       maxTiles: 12,
     },
+
+    // HARD LEVELS — an occasional difficulty spike, advertised before it is
+    // played and announced when the board finishes dealing. A hard level pays
+    // exactly what any level pays and draws from the same tile-type table; the
+    // ONE thing that changes is how widely the faces are scattered (below).
+    hardLevel: {
+      // A level is hard when its number ENDS IN this digit: 8, 18, 28, 38, …
+      // A digit rather than a roster of level numbers so the cadence scales with
+      // the level table for free — the 28 levels in assets/config/levels.json
+      // give 8, 18 and 28, and appending levels keeps the every-tenth rhythm
+      // without a second list to maintain. Change the digit to re-phase the
+      // spike (9 → 9, 19, 29 …); there is no "off" value here, because a digit
+      // every tenth level ends in always matches something. To neutralise the
+      // feature instead, drop `mixPercent` below to `board.mixPercent` — the tag
+      // still shows but the board plays like its neighbours.
+      endsWith: 8,
+
+      // How widely a hard level scatters its faces — see `board.mixPercent` for
+      // what the number means. It must stay ABOVE the baseline: a hard level
+      // never scatters LESS than an ordinary one. 90 reaches the widest window
+      // the tray can survive (see MAX_WINDOW in src/level.js), which is where
+      // the spike is supposed to sit.
+      mixPercent: 90,
+    },
   },
 
   // --------------------------------------------------------------------------
@@ -362,6 +386,19 @@ export const CONFIG = deepFreeze({
     // cells drawn so the row always fits the 750-wide column, meaning a big change
     // here also visibly resizes the tray.
     traySlots: 7,
+
+    // FACE SCATTER — how widely a face's three copies are spread through the
+    // board's removal order when a level is built (src/level.js).
+    //   0   = the three sit consecutively in that order, so complete sets tend
+    //         to be ready to take and often sit together on the exposed layer.
+    //   100 = spread as wide as the tray can survive, so the copies are split
+    //         across depths: fewer matches are available at the start and the
+    //         tray fills with half-finished sets, which is where a board bites.
+    // The board stays provably winnable at every value — the window is capped by
+    // `traySlots`, so raising that also widens what 100 can mean.
+    // 0 is the baseline EVERY level builds at; only hard levels rise above it
+    // (`progression.hardLevel.mixPercent`).
+    mixPercent: 0,
 
     // THE 8th SLOT — an ad-funded, ONE-PER-LEVEL capacity boost. Not a permanent
     // upgrade, not bought with coins, and not persisted: an extra cell at the

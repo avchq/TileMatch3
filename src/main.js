@@ -10,7 +10,7 @@ import { makePayments } from "./user/payments.js";
 import { makeTileTextures, makeSlotTexture, tilesFontReady, emojiPaints, TILE_EMOJIS } from "./icons.js";
 import { AudioManager } from "./audio.js";
 import { AssetManager, PRELOAD_GROUPS, MANIFEST, buildLevelGroups, levelGroup } from "./assets.js";
-import { loadLevels, typesForLevel } from "./levelConfig.js";
+import { loadLevels, typesForLevel, isHardLevel, mixPercentForLevel } from "./levelConfig.js";
 import { UserStore } from "./user/UserStore.js";
 import { CONFIG } from "./config.js";
 import { createSplash } from "./splash.js";
@@ -1116,6 +1116,42 @@ async function boot() {
       // schedule, so a test can assert the palette clamp on a hostile `types`
       // row without loading that level's art.
       levelTypes: (n) => typesForLevel(n),
+      // ---- hard levels ----
+      // The rule and its consequence, both pure reads off src/levelConfig.js, so
+      // a test can assert the cadence over the whole table without playing it.
+      hardLevel: (n) => isHardLevel(n),
+      mixPercent: (n) => mixPercentForLevel(n),
+      // How widely the CURRENT board scattered its faces, measured off the board
+      // rather than read back from config. Walk the guaranteed solution order in
+      // threes and count how many of those aligned triples are a single type.
+      // At the baseline scatter EVERY one of them is, by construction — a triple
+      // owns three consecutive slots — so this reads exactly 1. Widening the
+      // scatter breaks triples apart across their window, and it drops. It is the
+      // one observable that tells a hard board from an ordinary one.
+      typeSpread: () => {
+        const order = scene.solutionOrder || [];
+        const groups = Math.floor(order.length / 3);
+        let aligned = 0;
+        for (let g = 0; g < groups; g++) {
+          const a = scene.tiles[order[g * 3]].type;
+          if (a === scene.tiles[order[g * 3 + 1]].type &&
+              a === scene.tiles[order[g * 3 + 2]].type) aligned++;
+        }
+        return { groups, aligned, alignedFrac: groups ? aligned / groups : 0 };
+      },
+      // The board's faces by tile id — a cheap fingerprint, so a test can assert
+      // that changing the scatter left every OTHER level's board untouched.
+      boardTypes: () => scene.tiles.map((t) => t.type),
+      // The blocking announcement a hard level opens with: is it up, how far
+      // through its grow/hold/shrink it is, and what it says.
+      hardBannerState: () => scene.hardBannerState(),
+      // The lobby's ribbon, and the win screen's advance warning about the NEXT
+      // level. Both report a shaped zero when they are not on screen.
+      lobbyHardTag: () => ({
+        visible: !!lobby.playBtn.hardTag.visible,
+        caption: lobby.playBtn.hardTag.__label.text,
+      }),
+      winHardTag: () => scene.winHardTag(),
       // ---- level chest ----
       // The chest state implied by having cleared up to `level` — index / filled /
       // needed / label / reward / full — straight from the schedule (no UI needed),

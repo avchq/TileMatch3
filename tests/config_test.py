@@ -19,7 +19,10 @@ import harness
 #
 # The expected values, mirroring src/config.js.
 EXPECT = {
-    "progression": {"tutorialLevel": 1, "autoComplete": {"minLevel": 2, "maxTiles": 12}},
+    "progression": {"tutorialLevel": 1, "autoComplete": {"minLevel": 2, "maxTiles": 12},
+                    # Hard levels: the last digit that flags one, and how widely
+                    # such a level scatters its faces (against board.mixPercent).
+                    "hardLevel": {"endsWith": 8, "mixPercent": 90}},
     "features": {
         "shop": {"unlockLevel": 3},
         "fortuneWheel": {"unlockLevel": 5, "spinsPerCycle": 6, "headlinePrize": "lightning"},
@@ -52,7 +55,7 @@ EXPECT = {
     },
     "economy": {"currencies": ["coins", "gems"],
                 "startingWallet": {"coins": 0, "gems": 0}},
-    "board": {"traySlots": 7,
+    "board": {"traySlots": 7, "mixPercent": 0,
               "extraSlot": {"unlockLevel": 9, "grant": 1},
               "warnings": {"pulseAtFree": 2, "bubbleAtFree": 1}},
     "persistence": {"saveDebounceMs": 400},

@@ -214,3 +214,55 @@ export function makeProgressBar({ w, h, color, outline = false, label = true }) 
   };
   return { node, track, fill, label: text, draw };
 }
+
+// The HARD LEVEL ribbon — the red plate that warns a hard level is coming. It is
+// drawn under the lobby's Play button and, on the win screen, under the number of
+// the next level. One builder for both so the two marks cannot drift apart.
+//
+// Drawn, not loaded: this project ships no artwork beyond the level backgrounds,
+// so the ribbon is Graphics + Text like every other badge (cf. the rail's "NEW"
+// pill in lobby.js). It is a notched banner — a plate with a triangular bite out
+// of each end — around its own centre, so a caller only has to position it.
+//
+// The caption IS localised, unlike the three-letter NEW/HOT marks: it is a
+// phrase, and the spec has it translated in all thirteen languages. It is bound
+// via locText so a language swap re-letters it for free, and it shrinks to fit
+// the plate rather than overflowing it — which is why the ribbon needs no entry
+// in tests/langfit_test.py. A re-lettered caption has to be re-fitted, so the
+// tag exposes `__fit` and the ONE owner that outlives a language swap (the lobby
+// Play button, from its relocalize()) calls it. A global i18n listener would be
+// tidier to write and would leak one dead closure per win overlay built.
+export const HARD_TAG_W = 300;
+export const HARD_TAG_H = 54;
+const HARD_TAG_NOTCH = 20;   // depth of the bite taken out of each end
+const HARD_TAG_RED = 0xe02020;
+const HARD_TAG_RED_DARK = 0x8c0d0d;
+
+export function makeHardTag(w = HARD_TAG_W, h = HARD_TAG_H) {
+  const c = new PIXI.Container();
+  const half = w / 2, hy = h / 2, notch = HARD_TAG_NOTCH;
+  // The banner outline, as one polygon: a rectangle with each end pinched to a
+  // point. Two passes — a darker plate with a brighter one sitting 6px shallower
+  // on top — give it the same lit edge the Play button has.
+  const shape = (dy) => [
+    -half, -hy + dy,   half, -hy + dy,   half - notch, 0,
+     half,  hy - dy,  -half,  hy - dy,  -half + notch, 0,
+  ];
+  const g = new PIXI.Graphics();
+  g.beginFill(HARD_TAG_RED_DARK).drawPolygon(shape(0)).endFill();
+  g.beginFill(HARD_TAG_RED).drawPolygon(shape(3)).endFill();
+  g.lineStyle(3, 0xffffff, 0.45).drawPolygon(shape(0));
+
+  const label = locText("hard_level", {
+    fontFamily: "Arial", fontSize: 28, fontWeight: "900", fill: 0xffffff,
+    stroke: 0x6a0000, strokeThickness: 4,
+  });
+  label.anchor.set(0.5);
+  c.addChild(g, label);
+
+  const fit = () => fitTextWidth(label, w - notch * 2 - 16);
+  fit();
+  c.__fit = fit;       // call after a language change (see the note above)
+  c.__label = label;   // test seam: window.__game reads the caption from here
+  return c;
+}

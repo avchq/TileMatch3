@@ -6,10 +6,12 @@
 import { tween, delay, easeOutBack } from "./tween.js";
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill } from "./shop.js";
-import { buildColumnBackground, fitTextWidth, makeHintPill, makeProgressBar } from "./layout.js";
+import { buildColumnBackground, fitTextWidth, makeHintPill, makeProgressBar,
+         makeHardTag } from "./layout.js";
 import { FeatureRail, RAIL_LEFT_X, RAIL_RIGHT_X } from "./featurerail.js";
 import { t, locText } from "./i18n.js";
 import { CONFIG } from "./config.js";
+import { isHardLevel } from "./levelConfig.js";
 import { SuperWandPromo } from "./superwandpromo.js";
 import { boosterFace, SUPER_WAND_FACE } from "./boosters.js";
 
@@ -740,8 +742,20 @@ export class LobbyScene extends PIXI.Container {
       stroke: 0x1c5c39, strokeThickness: 6,
     });
     label.anchor.set(0.5);
-    c.addChild(g, label);
+    // The HARD LEVEL warning, in the empty band just under the button. It is a
+    // CHILD of the button on purpose: it then rides the entrance pop and the idle
+    // pulse, so the two always read as one object and neither can drift from the
+    // other on a resize. Hidden until show() finds a hard level.
+    const hardTag = makeHardTag();
+    // Draped across the button's lower edge — just under the "Level 128" line,
+    // which is the button's own centred label, and clear of the safe-area margin
+    // a tag hung fully below the button would have run into on a short screen.
+    hardTag.position.set(0, h / 2);
+    hardTag.visible = false;
+
+    c.addChild(g, label, hardTag);
     c.label = label;
+    c.hardTag = hardTag;
     c.eventMode = "static";
     c.cursor = "pointer";
     c.on("pointertap", () => {
@@ -799,6 +813,9 @@ export class LobbyScene extends PIXI.Container {
    */
   relocalize() {
     this.playBtn.label.text = t("Language1", this._level || 1);
+    // The ribbon's own caption re-letters itself (it is a bound label), but the
+    // plate it sits on does not grow, so it has to be re-fitted to the new string.
+    this.playBtn.hardTag.__fit();
     this.subtitle.text = t(this._subtitleKey);
     if (this.superWandPromo) this.superWandPromo.relocalize();
     fitTextWidth(this.title, CENTER_MAX_W);
@@ -812,6 +829,9 @@ export class LobbyScene extends PIXI.Container {
     this.visible = true;
     this._buildBackground(level);
     this.playBtn.label.text = t("Language1", level);
+    // …and the ribbon under it, which therefore always describes the level the
+    // button will start. It appears and disappears on its own as progress moves.
+    this.playBtn.hardTag.visible = isHardLevel(level);
     // Snap, don't slide: the rail should already be arranged when the lobby appears.
     this.refreshFeatures({ animate: false });
 
