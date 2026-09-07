@@ -2,7 +2,7 @@
 
 **Tile Match 3** is a JavaScript/[Pixi.js](https://pixijs.com) stacked-tile
 match-3 game. The playable levels are declared in the JSON config
-`assets/config/levels.json` (currently **13**).
+`assets/config/levels.json` (currently **28**).
 
 ## Gameplay
 The first thing on screen is the **splash screen** — the game title over a
@@ -1431,10 +1431,11 @@ is deliberately not reproducible.
 the obfuscated artifact, and asserts the cheat console is really gone.
 
 ## How it maps to the original
-- **Levels** (`assets/levels/level{1,2,3}.json`) are the *decrypted* original
-  level blobs (XXTEA, decrypted offline). Each is an array of
-  layer strings of `x|y` grid positions — bottom layer first, upper layers
-  offset by 0.5 so a tile straddles up to four below it.
+- **Levels** (`assets/levels/level{1..1000}.tmb`) began as the *decrypted*
+  original level blobs (XXTEA, decrypted offline) — an array of layer strings of
+  `x|y` grid positions — and have been **re-encoded** into this port's own board
+  format (see *The board format* below). The geometry is the original's,
+  unchanged and fingerprinted; only the encoding is ours.
 - **Backgrounds** (`assets/bg/*.jpg`) and **audio** (`assets/audio/*.mp3`) are
   the original native assets, copied and renamed (the backgrounds additionally
   re-encoded to the column crop — see *Background art budget*) — except the Fortune
@@ -2277,11 +2278,94 @@ needed **synchronously** — `User.migrate()` reads the unlock schedule while
 rehydrating a saved profile, before any `fetch` could have resolved. With no
 build step it is still just a data file you edit and reload.
 
+### The board format (`assets/levels/*.tmb` + `src/level.js`)
+A board is a **plain-text character grid**, one file per board, and the shape in
+the file is the shape on screen. Tiles are one unit square but sit on a **half**-unit
+lattice, so **one character is one half-tile** and an upper layer lands in the
+gaps of the one below — which is exactly why a tile straddles up to four beneath
+it. Level 1, in full:
+
+```
+tmb 1
+; Level 1 — the teaching board
+
+size   9 6
+anchor -4 3
+tiles  27
+
+layer 0
+.........
+#.#.#.#.#
+.........
+#.#.#.#.#
+.........
+#.#.#.#.#
+
+layer 1
+.#.#.#.#.
+.........
+.#.#.#.#.
+.........
+.#.#.#.#.
+.........
+```
+
+| | |
+|---|---|
+| `tmb 1` | format version, first non-comment line. Required, so a future v2 is **rejected** rather than quietly misread. |
+| `;` | comment to end of line, anywhere. Blank lines ignored. |
+| `size W H` | grid size in half-tile cells. Required. |
+| `anchor X Y` | the (x, y) of the **top-left cell**, in **integer half-tile units**. Cell (col, row) is `gx = (X + col) / 2`, `gy = (Y − row) / 2`, so the parser never touches a float. |
+| `tiles N` | optional total, checked when present. The converter always writes it. |
+| `layer k` | a layer block, `k` sequential from 0, **bottom first**. Exactly `H` rows follow. |
+
+A row is read by **stripping all whitespace and taking each remaining character
+as one cell**, so `. . # .` and `..#.` are the same row — spaced is easier to
+hand-edit, dense is what the converter writes. Cells are `.` empty and `#` a
+tile. **An all-empty row must be written as dots**: a blank line is a comment,
+not a row of nothing.
+
+`size` looks redundant next to the rows themselves, and isn't: most rows are
+entirely blank, so deleting one from every layer would leave a perfectly
+self-consistent file with every tile shifted half a tile. `size` is the only
+thing that catches that; `tiles` is the only thing that catches a dropped `#`.
+
+**`parseBoard()` validates**, throwing a `BoardError` that names the file and
+line for a bad version, a ragged row, an unknown glyph, an unknown or missing or
+repeated directive, a layer out of sequence, the wrong row count, a `tiles`
+mismatch, or a total that is not a multiple of 3 (which the type generator and
+`reshuffle()` both assume). Unknown directives are **rejected, not ignored** — a
+typo'd `anchr -4 3` must not fall back to a default. The encoding this replaced
+validated nothing at all: a typo became a `NaN` coordinate and a tile that
+landed nowhere, silently.
+
+Boards are parsed **in `src/assets.js`, at fetch time**, not in the scene. A
+malformed board then fails exactly like a 404 — the group is left unloaded and
+`loadGroup` rejects, so the Play button says so and stays pressable. Parsing in
+`loadLevel` would instead throw *after* it had torn down the previous board and
+shown the scene, leaving a blank locked screen over a hidden lobby.
+
+**Tile order is load-bearing.** `assignSolvableTypes()` seeds its `free` list in
+index order, so the order tiles are listed in decides which position wears which
+face. `parseBoard` emits a canonical order — layer, then down the board, then
+across — and `tools/levelfmt.py` sorts identically; if the two ever diverge they
+disagree about every board. The original files carried the arbitrary order the
+Cocos engine happened to write (no file matched any consistent scan), so adopting
+a grid moved every board's faces exactly once. Shapes, tile counts, layers,
+difficulty and solvability were unaffected.
+
+**`tools/levelfmt.py`** (dev-only) converts, checks and fingerprints boards
+outside the game, and is a deliberately **independent second implementation** of
+the grammar: `tests/levelformat_test.py` checks the shipped boards through the
+**JS** parser, so a bug shared by a converter's writer and its own reader cannot
+cancel itself out. `tools/build.py` additionally runs a structural check over
+every `.tmb` in a built artifact, the way it JSON-parses every `.json`.
+
 ### Levels (`assets/config/levels.json` + `src/levelConfig.js`)
 Every level is declared in **one place** — the JSON array in
 `assets/config/levels.json` (a tunable data config alongside `prices.json` /
 `turntable.json`). Each entry is `{ background, data, types, preload? }` (paths to
-a background image and a level-data JSON, the count of distinct tile faces the
+a background image and a `.tmb` board file, the count of distinct tile faces the
 level uses — an integer or a `[min, max]` range drawn deterministically per level
 — plus an optional preload flag). `src/levelConfig.js` fetches this file at boot
 (`loadLevels()`) and owns the type-count logic (`typesForLevel()`).
@@ -2564,7 +2648,7 @@ JS/
     config/dailybonus.json  # Daily Bonus weighted prize pool (gate: src/config.js)
     config/tasks.json       # Tasks: achievement chains + weekly list (gate: src/config.js)
     config/levelChest.json  # Level Chest schedule: [id, levelId, reward] milestones (repeat-start: src/config.js)
-    levels/level{1..13}.json
+    levels/level{1..1000}.tmb  # board geometry, one text grid per board (src/level.js)
     bg/*.jpg
     audio/*.mp3
 ```

@@ -96,6 +96,11 @@ export async function fetchJSON(url, opts) {
   return (await fetchOnce(url, opts)).json();
 }
 
+/** Bounded fetch + text. How board files (assets/levels/*.tmb) are loaded. */
+export async function fetchText(url, opts) {
+  return (await fetchOnce(url, opts)).text();
+}
+
 /** Bounded fetch + ArrayBuffer. Used for audio, which is decoded, not parsed. */
 export async function fetchBuffer(url, opts) {
   return (await fetchOnce(url, opts)).arrayBuffer();

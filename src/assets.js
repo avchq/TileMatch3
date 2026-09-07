@@ -15,7 +15,7 @@
 // Every network asset is fetched EXACTLY ONCE and cached in memory:
 //   - audio  -> decoded to an AudioBuffer (played from RAM, no per-play GET)
 //   - images -> PIXI.Texture (PIXI.Assets caches by URL)
-//   - levels -> parsed JSON
+//   - levels -> parsed board (src/level.js parseBoard)
 //
 // A GROUP IS ONLY "LOADED" IF EVERY ONE OF ITS ASSETS ARRIVED. This used to be
 // the other way round: each job swallowed its own failure, so `Promise.all`
@@ -27,7 +27,8 @@
 // REJECTS with the failed URLs. The work that did succeed is kept, so a retry
 // re-fetches only what is actually missing.
 
-import { fetchJSON, fetchBuffer, withTimeout } from "./net.js";
+import { fetchText, fetchBuffer, withTimeout } from "./net.js";
+import { parseBoard } from "./level.js";
 
 // The group a level's assets (its background + board data) live in. Exported so
 // boot can name the group for the level the player is ON — see main.js.
@@ -85,7 +86,7 @@ export class AssetManager {
     // Live, shared maps handed to scenes; mutated in place as groups load so
     // scenes automatically see newly-available assets.
     this.backgrounds = {};   // levelNum -> PIXI.Texture
-    this.levels = {};        // levelNum -> parsed level JSON (array of layers)
+    this.levels = {};        // levelNum -> parsed board { tiles, size, anchor }
 
     this._loaded = new Set();     // group names fully loaded
     this._inflight = new Map();   // group name -> Promise (dedupe concurrent loads)
@@ -198,7 +199,13 @@ export class AssetManager {
     for (const [num, url] of Object.entries(g.levels || {})) {
       job(url, async () => {
         if (this.levels[num]) return;                 // already parsed
-        this.levels[num] = await fetchJSON(url);
+        // Parsed HERE, not in the scene. A malformed board then fails exactly
+        // like a 404 — this job records the failure, the group is left unloaded
+        // and loadGroup rejects — so startLevel's `if (!data)` keeps the Play
+        // button pressable and honest. Parsing in loadLevel would instead throw
+        // AFTER it has torn down the previous board and shown the scene, leaving
+        // a blank locked screen over a hidden lobby.
+        this.levels[num] = parseBoard(await fetchText(url), url);
       });
     }
 

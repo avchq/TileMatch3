@@ -1,4 +1,4 @@
-import { parseLevel, computeCoverers, assignSolvableTypes, mulberry32 } from "./level.js";
+import { computeCoverers, assignSolvableTypes, mulberry32 } from "./level.js";
 import { easeOutCubic, easeOutBack, easeInOutQuad, tween, delay } from "./tween.js";
 import { makeCogButton } from "./settings.js";
 import { makeCoinPill, makeCoinIcon } from "./shop.js";
@@ -832,7 +832,7 @@ export class GameScene extends PIXI.Container {
     this.boardBottom = TRAY_Y + this.oy - 110; // grow the board down toward the tray
     this.boardCX = DW / 2;
     this.boardCY = (this.boardTop + this.boardBottom) / 2;
-    if (this.rawArr) {
+    if (this.levelBoard) {
       this._buildBackground();
       if (this.tiles.length) this._layoutBoard();
     }
@@ -1182,9 +1182,9 @@ export class GameScene extends PIXI.Container {
   // player has left. Folding it in here would be wrong for the rest.
   _stale(run) { return this._guideRun !== run || this.destroyed; }
 
-  loadLevel(rawArr, levelNum) {
+  loadLevel(board, levelNum) {
     this.levelNum = levelNum;
-    this.rawArr = rawArr;
+    this.levelBoard = board;
     this.levelText.text = t("hud_level", levelNum);
     this._fitLevelText();
     // The very first level a brand-new player sees is the guided one: stripped
@@ -1234,7 +1234,12 @@ export class GameScene extends PIXI.Container {
     this.traySlotsDrawn = TRAY_SLOTS + (this._extraSlotDrawn() ? EXTRA_SLOT.grant : 0);
     this._trayWarnFree = Infinity;
 
-    const positions = parseLevel(rawArr);
+    // A COPY of the parsed board's tiles. `board` is the cached parse shared by
+    // every load of this level (src/assets.js), and assignSolvableTypes writes
+    // `.type` onto each record and hangs `solutionOrder` on the array — gameplay
+    // state that must not stick to a cached asset. parseBoard freezes its array
+    // so a caller that forgets this fails loudly instead of poisoning the cache.
+    const positions = board.tiles.map((t) => ({ ...t }));
     const { coverers, covered } = computeCoverers(positions);
     const numTypes = typesForLevel(levelNum);
     // Deterministic seed derived only from the level number, so a level's type
@@ -2555,7 +2560,7 @@ export class GameScene extends PIXI.Container {
   restart() {
     // Returns loadLevel's promise (the board finished dealing in), so a caller
     // can wait for a playable board the same way startLevel does.
-    return this.rawArr ? this.loadLevel(this.rawArr, this.levelNum) : Promise.resolve();
+    return this.levelBoard ? this.loadLevel(this.levelBoard, this.levelNum) : Promise.resolve();
   }
 
   // Reshuffle the FACES of the tiles still on the play board into a fresh,

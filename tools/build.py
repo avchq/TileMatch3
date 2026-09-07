@@ -109,6 +109,12 @@ NOT_SHIPPED = {
     "tests", "tools", "build", "node_modules", "__pycache__",
     ".git", ".venv", ".claude", ".idea", ".vscode", ".github",
     ".gitignore", ".gitattributes", ".DS_Store",
+    # Deploy credentials. Never shipped, obviously — but it has to be NAMED here
+    # or the build stops, because this list is walked off the filesystem and a
+    # .gitignore entry is invisible to it. That refusal is the point: the one
+    # file in the tree that must never reach a public bucket should not be able
+    # to ship just because nobody thought about it.
+    ".env",
     "README.md", "CLAUDE.md", "LICENSE",
 }
 
@@ -141,6 +147,7 @@ CONTENT_TYPES = {
     ".ttf":  "font/ttf",
     ".otf":  "font/otf",
     ".txt":  "text/plain; charset=utf-8",
+    ".tmb":  "text/plain; charset=utf-8",   # level boards, see src/level.js
     ".map":  "application/json; charset=utf-8",
 }
 
@@ -510,6 +517,48 @@ def verify(dest, bundled=True):
                 rel = os.path.relpath(os.path.join(dirpath, name), dest)
                 problems.append(f"malformed JSON: {rel} ({e})")
                 if bad_json >= 5:
+                    break
+
+    # Boards stopped being JSON, so the check above stopped covering them. This
+    # is a STRUCTURAL check, not a parse: the real grammar lives in
+    # src/level.js (and a second time in tools/levelfmt.py), and build.py must
+    # not import either — it is loaded by file path via spec_from_file_location
+    # in tests/build_test.py and tests/cloudfront_test.py, where a local import
+    # would raise ModuleNotFoundError and take both test files down.
+    bad_board = 0
+    for dirpath, _, filenames in os.walk(dest):
+        for name in sorted(filenames):
+            if not name.endswith(".tmb"):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, name), dest)
+            try:
+                with open(os.path.join(dirpath, name), encoding="utf-8") as fh:
+                    lines = [l.split(";", 1)[0].strip() for l in fh]
+            except (OSError, UnicodeDecodeError) as e:
+                problems.append(f"unreadable board: {rel} ({e})")
+                bad_board += 1
+                continue
+            body = [l for l in lines if l]
+            size = next((l for l in body if l.startswith("size ")), None)
+            why = None
+            if not body or not body[0].startswith("tmb "):
+                why = "missing the 'tmb' version line"
+            elif size is None:
+                why = "missing 'size'"
+            elif not any(l.startswith("layer ") for l in body):
+                why = "no 'layer' blocks"
+            else:
+                width = int(size.split()[1])
+                rows = [l for l in body if set(l.replace(" ", "")) <= {".", "#"} and l]
+                ragged = next((r for r in rows if len(r.replace(" ", "")) != width), None)
+                if ragged is not None:
+                    why = f"a row is {len(ragged.replace(' ', ''))} cells, 'size' declares {width}"
+                elif sum(r.count("#") for r in rows) % 3:
+                    why = "tile count is not a multiple of 3"
+            if why:
+                problems.append(f"malformed board: {rel} ({why})")
+                bad_board += 1
+                if bad_board >= 5:
                     break
 
     return problems

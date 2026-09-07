@@ -1,9 +1,68 @@
 // Level parsing + guaranteed-solvable tile-type assignment.
 //
-// Level format (decrypted from the original XXTEA blobs): an array of layer
-// strings, bottom layer first. Each layer is "x|y,x|y,..." where x,y are
-// grid coordinates (in tile units; adjacent layers are offset by 0.5 so an
-// upper tile straddles up to four lower ones).
+// BOARD FORMAT (`assets/levels/*.tmb`) — plain text, line-oriented, one file per
+// board, drawn as a character grid at HALF-TILE resolution so the shape in the
+// file is the shape on screen:
+//
+//     tmb 1
+//     ; Level 1 — the teaching board
+//
+//     size   9 6
+//     anchor -4 3
+//     tiles  27
+//
+//     layer 0
+//     .........
+//     #.#.#.#.#
+//     .........
+//     #.#.#.#.#
+//     .........
+//     #.#.#.#.#
+//
+//     layer 1
+//     .#.#.#.#.
+//     ...
+//
+// Tiles are one unit square but sit on a HALF-unit lattice, so ONE CHARACTER IS
+// ONE HALF-TILE and an upper layer lands in the gaps of the one below — visible
+// on the page as the interleave above, and the reason a tile straddles up to
+// four beneath it. All layers share one grid, so they stay registered.
+//
+//   tmb 1        format version, first non-comment line. Required, so a future
+//                v2 is REJECTED here rather than quietly misread.
+//   ;            comment to end of line, anywhere. Blank lines are ignored.
+//   size W H     grid size in half-tile cells. Required. Not redundant with the
+//                rows: most rows are entirely blank, and dropping one from every
+//                layer would leave a self-consistent file with every tile shifted
+//                half a tile. `size` is the only thing that catches that.
+//   anchor X Y   the (x, y) of the TOP-LEFT cell, in INTEGER half-tile units.
+//                Required. Cell (col, row) is gx = (X + col) / 2,
+//                gy = (Y - row) / 2 — so the parser never touches a float, and
+//                y grows upward on screen while rows run down the page.
+//   tiles N      optional total, checked when present. Catches a dropped or stray
+//                `#`, which nothing else does. The converter always writes it.
+//   layer k      starts a layer block, k sequential from 0, BOTTOM LAYER FIRST
+//                (computeCoverers below reads `a.layer > b.layer`). Exactly H
+//                grid rows follow.
+//
+// A grid row is read by stripping ALL whitespace and taking each remaining
+// character as one cell, so `. . # .` and `..#.` are the same row — spaced is
+// easier to hand-edit, dense is what the converter writes. Cells are `.` empty
+// and `#` a tile. AN ALL-EMPTY ROW MUST BE WRITTEN AS DOTS: a blank line is a
+// comment, not a row of nothing.
+//
+// parseBoard() VALIDATES, and unknown directives are rejected rather than
+// ignored — a typo'd `anchr -4 3` must not fall back to a default. The encoding
+// it replaced (the decrypted XXTEA blobs: an array of "x|y,x|y" layer strings)
+// validated nothing at all, so a typo became a NaN coordinate and a tile that
+// landed nowhere. tools/levelfmt.py converts, checks and fingerprints boards
+// outside the game, and is a deliberately independent second implementation.
+//
+// TILE ORDER IS LOAD-BEARING. assignSolvableTypes seeds its `free` list in index
+// order, so the removal order it derives — and therefore which position wears
+// which face — is a function of the order tiles are listed in. parseBoard emits
+// a canonical order (layer, then down the board, then across); tools/levelfmt.py
+// must sort identically or the two disagree about every board.
 
 import { CONFIG } from "./config.js";
 
@@ -38,20 +97,119 @@ export function mulberry32(seed) {
   };
 }
 
-/** Parse raw level array into a flat list of tile position records. */
-export function parseLevel(rawArr) {
+/** Thrown by parseBoard for a board file it cannot read. */
+export class BoardError extends Error {}
+
+const FORMAT_VERSION = 1;
+const EMPTY = ".", TILE = "#";
+
+/**
+ * Parse a `.tmb` board. Throws a BoardError naming the file and line on
+ * anything it cannot read — see the format notes at the top of this file.
+ *
+ * Returns `{ tiles, size, anchor }`, where `tiles` is a frozen array of
+ * `{ gx, gy, layer }` in CANONICAL order (layer, then down the board, then
+ * across). The freeze is deliberate: this object is cached per level by
+ * src/assets.js and shared by every load of it, so a caller that means to
+ * decorate tiles with gameplay state (`.type`, a solution order) must copy them
+ * first. assignSolvableTypes mutates what it is given.
+ */
+export function parseBoard(text, url = "<board>") {
+  const die = (line, msg) => { throw new BoardError(`${url}:${line}: ${msg}`); };
+  const bare = (msg) => { throw new BoardError(`${url}: ${msg}`); };
+
+  let size = null, anchor = null, declared = null, version = false;
+  let layer = null, rows = 0;
   const tiles = [];
-  rawArr.forEach((layerStr, layer) => {
-    layerStr
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .forEach((pos) => {
-        const [x, y] = pos.split("|").map(Number);
-        tiles.push({ gx: x, gy: y, layer });
-      });
-  });
-  return tiles;
+  const lines = String(text).split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineNo = i + 1;
+    const line = lines[i].split(";")[0].trim();   // ';' comments out the rest
+    if (!line) continue;                          // blank lines carry nothing
+    const head = line.split(/\s+/)[0];
+
+    if (head === "tmb") {
+      if (version) die(lineNo, "duplicate 'tmb' directive");
+      const m = /^tmb\s+(\d+)$/.exec(line);
+      if (!m) die(lineNo, `malformed version line: "${line}" (want 'tmb ${FORMAT_VERSION}')`);
+      if (+m[1] !== FORMAT_VERSION) {
+        die(lineNo, `unsupported format version ${m[1]}, this parser reads ${FORMAT_VERSION}`);
+      }
+      version = true;
+      continue;
+    }
+    if (!version) die(lineNo, `expected 'tmb ${FORMAT_VERSION}' as the first line, got "${line}"`);
+
+    if (head === "layer") {
+      if (!size || !anchor) die(lineNo, "'layer' before 'size'/'anchor'");
+      if (layer !== null && rows !== size[1]) {
+        die(lineNo, `layer ${layer} has ${rows} rows, 'size' declares ${size[1]}`);
+      }
+      const m = /^layer\s+(\d+)$/.exec(line);
+      if (!m) die(lineNo, `malformed layer header: "${line}"`);
+      const k = +m[1], expect = layer === null ? 0 : layer + 1;
+      if (k !== expect) die(lineNo, `layer ${k} out of sequence, expected ${expect}`);
+      layer = k; rows = 0;
+      continue;
+    }
+
+    if (head === "size" || head === "anchor" || head === "tiles") {
+      if (layer !== null) die(lineNo, `'${head}' must come before the first 'layer'`);
+      const m = head === "tiles"
+        ? /^tiles\s+(\d+)$/.exec(line)
+        : new RegExp(`^${head}\\s+(-?\\d+)\\s+(-?\\d+)$`).exec(line);
+      if (!m) die(lineNo, `malformed '${head}' directive: "${line}"`);
+      if (head === "size") {
+        if (size) die(lineNo, "duplicate 'size'");
+        size = [+m[1], +m[2]];
+        if (size[0] < 1 || size[1] < 1) die(lineNo, `'size' must be positive, got ${size[0]}x${size[1]}`);
+      } else if (head === "anchor") {
+        if (anchor) die(lineNo, "duplicate 'anchor'");
+        anchor = [+m[1], +m[2]];
+      } else {
+        if (declared !== null) die(lineNo, "duplicate 'tiles'");
+        declared = +m[1];
+      }
+      continue;
+    }
+
+    // Anything else has to be a grid row inside a layer.
+    if (layer === null) die(lineNo, `unknown directive "${head}"`);
+    const cells = line.replace(/\s+/g, "");
+    const [W, H] = size;
+    if (rows >= H) die(lineNo, `layer ${layer} has more than the ${H} rows 'size' declares`);
+    if (cells.length !== W) die(lineNo, `row is ${cells.length} cells, 'size' declares ${W}`);
+    for (const ch of cells) {
+      if (ch !== EMPTY && ch !== TILE) {
+        die(lineNo, `unknown cell glyph "${ch}" (want "${EMPTY}" or "${TILE}")`);
+      }
+    }
+    const [X, Y] = anchor;
+    for (let col = 0; col < W; col++) {
+      if (cells[col] === TILE) tiles.push({ gx: (X + col) / 2, gy: (Y - rows) / 2, layer });
+    }
+    rows++;
+  }
+
+  if (!version) bare(`empty board (no 'tmb ${FORMAT_VERSION}' line)`);
+  if (!size) bare("missing 'size'");
+  if (!anchor) bare("missing 'anchor'");
+  if (layer === null) bare("no layers");
+  if (rows !== size[1]) bare(`layer ${layer} has ${rows} rows, 'size' declares ${size[1]}`);
+  if (declared !== null && declared !== tiles.length) {
+    bare(`'tiles ${declared}' but the grid holds ${tiles.length}`);
+  }
+  // assignSolvableTypes deals in triples and reshuffle() assumes it too; a board
+  // that cannot be split into threes is unwinnable, so refuse it here rather
+  // than build it and find out.
+  if (tiles.length % 3) bare(`${tiles.length} tiles is not a multiple of 3`);
+
+  // The row-major scan above already emits this order; sorting states the
+  // invariant rather than relying on the loop, and must stay identical to
+  // tools/levelfmt.py or the two disagree about every board's faces.
+  tiles.sort((a, b) => a.layer - b.layer || b.gy - a.gy || a.gx - b.gx);
+  return { tiles: Object.freeze(tiles), size, anchor };
 }
 
 const OVERLAP = 0.99; // two unit tiles overlap when centres are < 1 unit apart

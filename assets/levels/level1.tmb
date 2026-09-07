@@ -1,0 +1,23 @@
+tmb 1
+; Level 1
+; anchor is in HALF-tile units: top-left cell centre = tile (-2, 1.5)
+
+size   9 6
+anchor -4 3
+tiles  27
+
+layer 0
+.........
+#.#.#.#.#
+.........
+#.#.#.#.#
+.........
+#.#.#.#.#
+
+layer 1
+.#.#.#.#.
+.........
+.#.#.#.#.
+.........
+.#.#.#.#.
+.........

@@ -170,8 +170,8 @@ try:
         cfg = page.evaluate("() => window.__game.config()")
         missing = page.evaluate("() => window.__game.missingKeys()")
         deep = page.evaluate("""async () => {
-          const r = await fetch('assets/levels/level1000.json');
-          return { ok: r.ok, size: r.ok ? JSON.stringify(await r.json()).length : 0 };
+          const r = await fetch('assets/levels/level1000.tmb');
+          return { ok: r.ok, size: r.ok ? (await r.text()).length : 0 };
         }""")
         page.screenshot(path=os.path.join(ROOT, "tests", "output", "build_staging.png"))
         print(f"  obfuscated build behaves: {state}, language={lang}")

@@ -120,7 +120,7 @@ with sync_playwright() as p:
             else:
                 route.continue_()
 
-        page.route("**/assets/levels/level5.json", route_level5)
+        page.route("**/assets/levels/level5.tmb", route_level5)
         harness.boot(page, "window.__game && window.__game.inLobby !== undefined")
 
         check("level5" not in page.evaluate("window.__game.loadedGroups()"),
@@ -228,7 +228,7 @@ with sync_playwright() as p:
         check(isinstance(timeout_ms, (int, float)) and timeout_ms > 0,
               "the fetch timeout is a config knob, not an inlined constant")
 
-        page.route("**/assets/levels/level5.json", lambda route: None)
+        page.route("**/assets/levels/level5.tmb", lambda route: None)
         t0 = time.time()
         res = page.evaluate("""async () => {
             try { await window.__game.assets.ensureLevel(5); return 'resolved'; }

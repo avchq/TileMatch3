@@ -1063,6 +1063,22 @@ Only `howtoplay_test.py` leaves it open.
   non-empty array of `{background,data,types,preload?}`, the asset manifest's
   per-level groups are derived from it (one per entry, no phantoms), and the
   preload set is exactly `core` + the `preload:true` levels.
+- **`levelformat_test.py`** — the board format (`assets/levels/*.tmb`) and the
+  parity of the re-encoding. The 1000 boards used to be JSON arrays of
+  `"x|y,x|y"` layer strings; `tests/data/level_geometry.sha256` was taken from
+  **those** files, before any were converted, so matching it proves the new
+  encoding carries exactly the old geometry. The authoritative recomputation runs
+  through the **JS** parser in the browser (all 1000 in one `page.evaluate`), not
+  the Python one in `tools/levelfmt.py` — a converter's writer and its own reader
+  can share a bug and cancel it out, a second implementation in another language
+  cannot. `tests/data/level_faces.sha256` goes further for the 28 playable
+  levels: it pins the position→**face** map, which a geometry hash cannot see,
+  because tile order decides which face lands where. Also: every `levels.json`
+  `data` path is an existing `.tmb`; `# . #` and `#.#` are the same row; and both
+  parsers reject the same thirteen malformed boards (bad version, ragged row,
+  unknown glyph, missing `size`/`anchor`, layer out of sequence, wrong row count,
+  `tiles` mismatch, tile total not a multiple of 3, unknown directive, duplicate
+  directive).
 - **`bgbudget_test.py`** — background art must fit the column it is drawn into.
   Every background reaches the screen through `buildColumnBackground`, which
   *cover-fits* it into the centred 750-design-unit column (plus a blurred backdrop

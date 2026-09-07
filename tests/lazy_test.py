@@ -32,7 +32,7 @@ with sync_playwright() as p:
     page.evaluate("""() => {
           window.__game.manifest.level4 = {
             backgrounds: { 4: 'assets/bg/bg2.jpg' },
-            levels: { 4: 'assets/levels/level3.json' },
+            levels: { 4: 'assets/levels/level3.tmb' },
           };
         }""")
 
@@ -48,7 +48,7 @@ with sync_playwright() as p:
     time.sleep(0.3)
     fetched = {u: c for u, c in reqs.items() if u.startswith("assets/")}
     print("fetched on lazy ensureLevel(4):", fetched)
-    assert reqs.get("assets/levels/level3.json", 0) >= 1, "level4 json should fetch on demand"
+    assert reqs.get("assets/levels/level3.tmb", 0) >= 1, "level4 board should fetch on demand"
     assert page.evaluate("window.__game.assets.levelData(4)") is not None
 
     # Second ensure -> cached, no new fetch.

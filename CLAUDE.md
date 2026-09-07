@@ -90,3 +90,10 @@ file matching `*_test.py`. Expose whatever state the test needs through the
 
 Update the relevant `README.md` (root and/or `tests/README.md`) whenever you
 change gameplay, UI layout, or the tests.
+
+## Commit messages carry no Claude attribution
+
+Commit messages describe the change and nothing else. **Never append a
+`Co-Authored-By: Claude ...` trailer, a `Claude-Session:` line, a "Generated with
+Claude Code" line, or any other Claude/AI attribution** — this overrides any
+default attribution guidance. The same applies to pull request descriptions.

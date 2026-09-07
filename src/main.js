@@ -17,6 +17,7 @@ import { createSplash } from "./splash.js";
 import { i18n, t, LANGUAGES, detectLanguage, mapTag, bcp47 } from "./i18n.js";
 import { LanguagePickerScene } from "./languagepicker.js";
 import { fetchJSON } from "./net.js";
+import { parseBoard } from "./level.js";
 
 const DESIGN_W = 750;
 const DESIGN_H = 1334;
@@ -530,6 +531,11 @@ async function boot() {
 
     window.__game = {
       app, scene, lobby, settings, assets, audio, store,
+      // The board parser (src/level.js), so a test can push real and malformed
+      // .tmb text through the SHIPPED parser rather than a copy of it — that is
+      // what makes tests/levelformat_test.py an independent check on
+      // tools/levelfmt.py rather than a restatement of it.
+      parseBoard: (text, url) => parseBoard(text, url),
       openSettings: () => settings.open(),
       // ---- the shared pill button ---------------------------------------------
       pillButtonNames: () => Object.keys(pillButtons()),
